@@ -33,6 +33,16 @@ export const DamageEvent = __t.object("DamageEvent", {
 });
 export type DamageEvent = __Infer<typeof DamageEvent>;
 
+export const ChatEvent = __t.object("ChatEvent", {
+  id: __t.u32(),
+  roomCode: __t.string(),
+  senderIdentity: __t.identity(),
+  senderNickname: __t.string(),
+  message: __t.string(),
+  tick: __t.u32(),
+});
+export type ChatEvent = __Infer<typeof ChatEvent>;
+
 export const HealthPack = __t.object("HealthPack", {
   id: __t.u32(),
   roomCode: __t.string(),

@@ -27,7 +27,14 @@ export class SnapshotBuffer {
 
   push(state: RemotePlayerState): void {
     const last = this.samples.at(-1);
-    if (last && state.serverTimeMs <= last.state.serverTimeMs) {
+    if (last && state.serverTimeMs < last.state.serverTimeMs) {
+      return;
+    }
+    if (last && state.serverTimeMs === last.state.serverTimeMs) {
+      if (!last.state.alive && state.alive) {
+        return;
+      }
+      this.samples[this.samples.length - 1] = { state };
       return;
     }
 

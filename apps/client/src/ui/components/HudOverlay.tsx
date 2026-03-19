@@ -36,6 +36,13 @@ interface HudOverlayProps {
   damageFlashToken: number;
   crosshairSpread: number;
   scoped: boolean;
+  chatOpen: boolean;
+  chatDraft: string;
+  chatBusy: boolean;
+  onChatOpen: () => void;
+  onChatClose: () => void;
+  onChatDraftChange: (value: string) => void;
+  onChatSend: () => void;
 }
 
 export function HudOverlay({
@@ -52,7 +59,14 @@ export function HudOverlay({
   hitmarkerVisible,
   damageFlashToken,
   crosshairSpread,
-  scoped
+  scoped,
+  chatOpen,
+  chatDraft,
+  chatBusy,
+  onChatOpen,
+  onChatClose,
+  onChatDraftChange,
+  onChatSend
 }: HudOverlayProps): React.JSX.Element {
   const localKdr = localDeaths === 0 ? localKills : localKills / localDeaths;
 
@@ -146,28 +160,73 @@ export function HudOverlay({
         </CyberPanel>
       </div>
 
-      <div className="cyber-slide-right" style={{ position: 'absolute', top: '14px', right: '14px', zIndex: 10, display: 'flex', flexDirection: 'column', gap: '5px', maxWidth: '320px' }}>
-        {killFeed.map((entry, index) => (
+      <div
+        className="cyber-slide-right"
+        style={{
+          position: 'absolute',
+          top: '14px',
+          right: '14px',
+          zIndex: 10,
+          width: 'min(340px, 45vw)',
+          pointerEvents: 'auto'
+        }}
+      >
+        <CyberPanel style={{ padding: '8px', background: 'rgba(0,10,20,0.84)', backdropFilter: 'blur(8px)' }}>
           <div
-            key={entry.id}
             style={{
-              background: 'rgba(0,10,20,0.88)',
-              border: `1px solid ${CYBER.border}`,
-              backdropFilter: 'blur(8px)',
-              padding: '5px 10px',
-              display: 'flex',
-              gap: '8px',
-              alignItems: 'center',
+              color: CYBER.textDim,
               fontFamily: CYBER.font,
-              fontSize: '11px',
-              animation: `cyberSlideRight .3s ${index * 0.05}s cubic-bezier(.16,1,.3,1) both`
+              fontSize: '9px',
+              letterSpacing: '2px',
+              marginBottom: '6px',
+              textTransform: 'uppercase'
             }}
           >
-            <span style={{ color: CYBER.a, fontWeight: 'bold', textShadow: `0 0 8px ${CYBER.a}88` }}>{entry.attackerNickname}</span>
-            <span style={{ color: CYBER.textDim, fontSize: '9px' }}>PULSE RIFLE</span>
-            <span style={{ color: 'rgba(255,34,68,0.9)' }}>{entry.victimNickname}</span>
+            Chat
           </div>
-        ))}
+          <div style={{ maxHeight: '170px', overflow: 'hidden', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+            {killFeed.map((entry, index) => (
+              <div
+                key={entry.id}
+                style={{
+                  background: entry.kind === 'kill' ? 'rgba(255,46,82,0.12)' : 'rgba(0,245,255,0.08)',
+                  border: `1px solid ${entry.kind === 'kill' ? 'rgba(255,46,82,0.35)' : CYBER.border}`,
+                  padding: '4px 8px',
+                  display: 'flex',
+                  gap: '6px',
+                  alignItems: 'baseline',
+                  fontFamily: CYBER.font,
+                  fontSize: '10px',
+                  lineHeight: 1.25,
+                  animation: `cyberSlideRight .25s ${index * 0.04}s cubic-bezier(.16,1,.3,1) both`
+                }}
+              >
+                <span style={{ color: CYBER.a, fontWeight: 700 }}>{entry.senderNickname}</span>
+                <span style={{ color: CYBER.textDim }}>{entry.message}</span>
+              </div>
+            ))}
+          </div>
+          <form
+            onSubmit={event => {
+              event.preventDefault();
+              onChatSend();
+            }}
+            style={{ marginTop: '8px', display: 'flex', gap: '6px' }}
+          >
+            <input
+              className="cyber-input"
+              value={chatDraft}
+              onFocus={onChatOpen}
+              onBlur={onChatClose}
+              onChange={event => onChatDraftChange(event.target.value.slice(0, 160))}
+              placeholder={chatOpen ? 'Type message and press Enter' : 'Press Enter to chat'}
+              style={{ flex: 1, padding: '6px 10px', fontSize: '11px', minHeight: '30px' }}
+            />
+            <CyberButton small primary onClick={onChatSend} disabled={chatBusy || chatDraft.trim().length === 0}>
+              Send
+            </CyberButton>
+          </form>
+        </CyberPanel>
       </div>
 
       <div className="cyber-slide-left" style={{ position: 'absolute', bottom: '80px', left: '24px', zIndex: 10 }}>

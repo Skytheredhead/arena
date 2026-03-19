@@ -52,7 +52,6 @@ export class GameRuntime {
   private lastFrameTime = performance.now();
   private accumulatorMs = 0;
   private sequence = 0;
-  private lastRespawnTick = 0;
   private latestServerTimeMs = 0;
   private latestServerObservedAt = 0;
   private localCorrectionOffset = { x: 0, y: 0, z: 0 };
@@ -100,6 +99,10 @@ export class GameRuntime {
     this.input.setVirtualFireHeld(held);
   }
 
+  setTextInputActive(active: boolean): void {
+    this.input.setTextInputActive(active);
+  }
+
   setPaused(paused: boolean): void {
     this.paused = paused;
     this.input.clearPressed();
@@ -115,6 +118,20 @@ export class GameRuntime {
 
   setFov(value: number): void {
     this.renderer.setFov(value);
+  }
+
+  async requestRespawn(): Promise<void> {
+    if (!this.bridge) {
+      return;
+    }
+    await this.bridge.requestRespawn();
+  }
+
+  async sendChatMessage(message: string): Promise<void> {
+    if (!this.bridge) {
+      return;
+    }
+    await this.bridge.sendChatMessage(message);
   }
 
   async connect(options: ConnectOptions): Promise<void> {
@@ -152,7 +169,6 @@ export class GameRuntime {
     this.bloodBursts.length = 0;
     this.prediction = null;
     this.sequence = 0;
-    this.lastRespawnTick = 0;
     this.latestServerTimeMs = 0;
     this.latestServerObservedAt = 0;
     this.localCorrectionOffset = { x: 0, y: 0, z: 0 };
@@ -418,16 +434,6 @@ export class GameRuntime {
         });
     }
 
-    const match = useGameStore.getState().match;
-    if (
-      match &&
-      !localState.alive &&
-      match.tick >= localState.respawnTick &&
-      localState.respawnTick > this.lastRespawnTick
-    ) {
-      this.lastRespawnTick = localState.respawnTick;
-      void this.bridge.requestRespawn().catch(() => undefined);
-    }
   }
 
   private observeServerTime(serverTimeMs: number): void {

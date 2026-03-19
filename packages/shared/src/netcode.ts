@@ -88,8 +88,9 @@ export interface RoomView {
 
 export interface KillFeedEntry {
   id: number;
-  attackerNickname: string;
-  victimNickname: string;
+  kind: 'kill' | 'chat';
+  senderNickname: string;
+  message: string;
   tick: number;
 }
 

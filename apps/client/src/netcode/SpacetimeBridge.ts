@@ -18,6 +18,7 @@ import {
   tables
 } from '../generated/module_bindings';
 import AmmoPackTable from '../generated/module_bindings/ammo_pack_table';
+import ChatEventTable from '../generated/module_bindings/chat_event_table';
 import DamageEventTable from '../generated/module_bindings/damage_event_table';
 import HealthPackTable from '../generated/module_bindings/health_pack_table';
 import ImpactMarkTable from '../generated/module_bindings/impact_mark_table';
@@ -40,6 +41,7 @@ type WeaponStateRow = Infer<typeof WeaponStateTable>;
 type MatchStateRow = Infer<typeof MatchStateTable>;
 type KillFeedEventRow = Infer<typeof KillFeedEventTable>;
 type AmmoPackRow = Infer<typeof AmmoPackTable>;
+type ChatEventRow = Infer<typeof ChatEventTable>;
 type HealthPackRow = Infer<typeof HealthPackTable>;
 type DamageEventRow = Infer<typeof DamageEventTable>;
 type ImpactMarkRow = Infer<typeof ImpactMarkTable>;
@@ -66,6 +68,7 @@ export class SpacetimeBridge {
   private localIdentity = '';
   private latestWeaponTick = -1;
   private latestWeaponAmmo = -1;
+  private latestLocalState: LocalPlayerState | null = null;
   private suppressDisconnectEvents = false;
 
   constructor(private readonly callbacks: BridgeCallbacks) {}
@@ -75,6 +78,7 @@ export class SpacetimeBridge {
     store.setConnection('connecting', null);
     this.latestWeaponTick = -1;
     this.latestWeaponAmmo = -1;
+    this.latestLocalState = null;
     const endpointCandidates = getSpacetimeUriCandidates();
     const failures: string[] = [];
 
@@ -100,6 +104,7 @@ export class SpacetimeBridge {
     this.localIdentity = '';
     this.latestWeaponTick = -1;
     this.latestWeaponAmmo = -1;
+    this.latestLocalState = null;
   }
 
   async submitInput(command: InputCommand): Promise<void> {
@@ -132,6 +137,14 @@ export class SpacetimeBridge {
     }
 
     await this.connection.reducers.requestRespawn({});
+  }
+
+  async sendChatMessage(message: string): Promise<void> {
+    if (!this.connection) {
+      return;
+    }
+
+    await this.connection.reducers.sendChatMessage({ message });
   }
 
   private readStoredToken(): string | undefined {
@@ -178,6 +191,7 @@ export class SpacetimeBridge {
     }
     this.connection = null;
     this.localIdentity = '';
+    this.latestLocalState = null;
   }
 
   private async connectWithUri(uri: string, options: ConnectOptions): Promise<void> {
@@ -253,6 +267,7 @@ export class SpacetimeBridge {
                     tables.weapon_state,
                     tables.match_state,
                     tables.ammo_pack,
+                    tables.chat_event,
                     tables.health_pack,
                     tables.impact_mark,
                     tables.kill_feed_event,
@@ -312,6 +327,8 @@ export class SpacetimeBridge {
     connection.db.ammo_pack.onInsert((_ctx, row) => this.handleAmmoPackRow(row));
     connection.db.ammo_pack.onUpdate((_ctx, row) => this.handleAmmoPackRow(row));
     connection.db.ammo_pack.onDelete((_ctx, row) => useGameStore.getState().removeAmmoPack(row.id));
+    connection.db.chat_event.onInsert((_ctx, row) => this.handleChatEventRow(row));
+    connection.db.chat_event.onUpdate((_ctx, row) => this.handleChatEventRow(row));
     connection.db.health_pack.onInsert((_ctx, row) => this.handleHealthPackRow(row));
     connection.db.health_pack.onUpdate((_ctx, row) => this.handleHealthPackRow(row));
     connection.db.health_pack.onDelete((_ctx, row) =>
@@ -380,6 +397,10 @@ export class SpacetimeBridge {
     } satisfies LocalPlayerState;
 
     if (identity === this.localIdentity) {
+      if (!this.shouldAcceptLocalState(state)) {
+        return;
+      }
+      this.latestLocalState = state;
       this.callbacks.onLocalState(state);
       return;
     }
@@ -416,7 +437,10 @@ export class SpacetimeBridge {
       return;
     }
     if (tick === previousTick && previousAmmo >= 0 && row.ammoInMag < previousAmmo) {
-      return;
+      // Ignore stale same-tick decrements unless they are correcting our local ammo.
+      if (row.ammoInMag <= currentAmmo) {
+        return;
+      }
     }
 
     this.latestWeaponTick = tick;
@@ -452,9 +476,26 @@ export class SpacetimeBridge {
 
     useGameStore.getState().pushKillFeed({
       id: row.id,
-      attackerNickname: row.attackerNickname,
-      victimNickname: row.victimNickname,
-      tick: row.tick
+      kind: 'kill',
+      senderNickname: row.attackerNickname,
+      message: `eliminated ${row.victimNickname}`,
+      tick: performance.now()
+    });
+  }
+
+  private handleChatEventRow(row: ChatEventRow): void {
+    const connectedRoom = useGameStore.getState().connectedRoomCode;
+    if (connectedRoom && row.roomCode !== connectedRoom) {
+      return;
+    }
+
+    const id = 1_000_000_000 + row.id;
+    useGameStore.getState().pushKillFeed({
+      id,
+      kind: 'chat',
+      senderNickname: row.senderNickname,
+      message: row.message,
+      tick: performance.now()
     });
   }
 
@@ -519,6 +560,26 @@ export class SpacetimeBridge {
       normal: { x: row.normalX, y: row.normalY, z: row.normalZ },
       tick: row.tick
     });
+  }
+
+  private shouldAcceptLocalState(next: LocalPlayerState): boolean {
+    const previous = this.latestLocalState;
+    if (!previous) {
+      return true;
+    }
+    if (next.serverTick < previous.serverTick) {
+      return false;
+    }
+    if (next.serverTick > previous.serverTick) {
+      return true;
+    }
+    if (!previous.alive && next.alive) {
+      return false;
+    }
+    if (next.health > previous.health && !next.alive) {
+      return false;
+    }
+    return next.lastProcessedInput >= previous.lastProcessedInput;
   }
 
   getFireIntervalTicks(): number {

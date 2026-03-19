@@ -16,6 +16,11 @@ import type { InputCommand, LocalPlayerState, Vec3 } from './netcode';
 
 const clamp = (value: number, min: number, max: number): number =>
   Math.min(max, Math.max(min, value));
+const COLLISION_EPSILON = 0.0001;
+const DIAGONAL_YAW_THRESHOLD = 0.12;
+const DIAGONAL_ASPECT_THRESHOLD = 3;
+const HALF_PI = Math.PI * 0.5;
+const TWO_PI = Math.PI * 2;
 
 const length2D = (x: number, z: number): number => Math.hypot(x, z);
 
@@ -68,11 +73,47 @@ const toBlockLocal = (
   };
 };
 
+const normalizeAngle = (value: number): number => {
+  let angle = value;
+  while (angle <= -Math.PI) angle += TWO_PI;
+  while (angle > Math.PI) angle -= TWO_PI;
+  return angle;
+};
+
+const canonicalizeCollisionBlock = (
+  block: (typeof ARENA_BLOCKS)[number]
+): (typeof ARENA_BLOCKS)[number] => {
+  const normalizedYaw = normalizeAngle(block.yaw);
+  const shortest = Math.max(COLLISION_EPSILON, Math.min(block.halfX, block.halfZ));
+  const longest = Math.max(block.halfX, block.halfZ);
+  const aspectRatio = longest / shortest;
+  const nearestCardinal = Math.round(normalizedYaw / HALF_PI) * HALF_PI;
+  const cardinalDelta = Math.abs(normalizeAngle(normalizedYaw - nearestCardinal));
+  const shouldRotate =
+    aspectRatio >= DIAGONAL_ASPECT_THRESHOLD &&
+    cardinalDelta > DIAGONAL_YAW_THRESHOLD &&
+    cardinalDelta < HALF_PI - DIAGONAL_YAW_THRESHOLD;
+  if (!shouldRotate) {
+    return {
+      ...block,
+      yaw: normalizedYaw
+    };
+  }
+  return {
+    ...block,
+    yaw: normalizeAngle(normalizedYaw + HALF_PI)
+  };
+};
+
 const overlapsBlock = (x: number, z: number, block: (typeof ARENA_BLOCKS)[number]): boolean => {
-  const local = toBlockLocal(x, z, block);
-  const closestX = clamp(local.x, -block.halfX, block.halfX);
-  const closestZ = clamp(local.z, -block.halfZ, block.halfZ);
-  return length2D(local.x - closestX, local.z - closestZ) < PLAYER_RADIUS;
+  const normalized = canonicalizeCollisionBlock(block);
+  const local = toBlockLocal(x, z, normalized);
+  const closestX = clamp(local.x, -normalized.halfX, normalized.halfX);
+  const closestZ = clamp(local.z, -normalized.halfZ, normalized.halfZ);
+  return (
+    length2D(local.x - closestX, local.z - closestZ) <=
+    PLAYER_RADIUS + COLLISION_EPSILON
+  );
 };
 
 const groundHeightAt = (x: number, z: number, currentFeetY: number): number => {

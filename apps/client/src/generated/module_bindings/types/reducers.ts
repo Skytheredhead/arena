@@ -11,6 +11,7 @@ import FireWeaponReducer from "../fire_weapon_reducer";
 import JoinRoomReducer from "../join_room_reducer";
 import LeaveRoomReducer from "../leave_room_reducer";
 import RequestRespawnReducer from "../request_respawn_reducer";
+import SendChatMessageReducer from "../send_chat_message_reducer";
 import SetNicknameReducer from "../set_nickname_reducer";
 import StartMatchReducer from "../start_match_reducer";
 import SubmitInputReducer from "../submit_input_reducer";
@@ -20,7 +21,7 @@ export type FireWeaponParams = __Infer<typeof FireWeaponReducer>;
 export type JoinRoomParams = __Infer<typeof JoinRoomReducer>;
 export type LeaveRoomParams = __Infer<typeof LeaveRoomReducer>;
 export type RequestRespawnParams = __Infer<typeof RequestRespawnReducer>;
+export type SendChatMessageParams = __Infer<typeof SendChatMessageReducer>;
 export type SetNicknameParams = __Infer<typeof SetNicknameReducer>;
 export type StartMatchParams = __Infer<typeof StartMatchReducer>;
 export type SubmitInputParams = __Infer<typeof SubmitInputReducer>;
-

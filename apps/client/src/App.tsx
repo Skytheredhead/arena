@@ -3,6 +3,7 @@ import { MenuOverlay } from './ui/components/MenuOverlay';
 import { HudOverlay } from './ui/components/HudOverlay';
 import { PauseOverlay } from './ui/components/PauseOverlay';
 import { MobileControls } from './ui/components/MobileControls';
+import { EliminatedOverlay } from './ui/components/EliminatedOverlay';
 import { useGameStore } from './state/gameStore';
 import { GameRuntime } from './app/GameRuntime';
 import { normalizeRoomCode } from './utils/roomCode';
@@ -20,6 +21,9 @@ export default function App(): React.JSX.Element {
   const [paused, setPaused] = useState(false);
   const [touchControls, setTouchControls] = useState(false);
   const [portrait, setPortrait] = useState(false);
+  const [chatOpen, setChatOpen] = useState(false);
+  const [chatDraft, setChatDraft] = useState('');
+  const [chatBusy, setChatBusy] = useState(false);
   const connectionStatus = useGameStore(state => state.connectionStatus);
   const connectionError = useGameStore(state => state.connectionError);
   const nickname = useGameStore(state => state.nickname);
@@ -136,6 +140,16 @@ export default function App(): React.JSX.Element {
     pausedRef.current = paused;
   }, [paused]);
 
+  useEffect(() => {
+    runtimeRef.current?.setTextInputActive(chatOpen);
+    if (!chatOpen) {
+      return;
+    }
+    if (!touchControls && document.pointerLockElement) {
+      document.exitPointerLock();
+    }
+  }, [chatOpen, touchControls]);
+
   const resumeFromPause = useCallback((deferPointerLock = false): void => {
     setPaused(false);
     runtimeRef.current?.setPaused(false);
@@ -147,20 +161,27 @@ export default function App(): React.JSX.Element {
   }, []);
 
   useEffect(() => {
-    if (touchControls) {
-      return;
-    }
     if (!connected) {
       setPaused(false);
+      setChatOpen(false);
+      setChatDraft('');
       runtimeRef.current?.setPaused(false);
       hadPointerLockRef.current = false;
       pointerLockedRef.current = false;
       resumeOnEscapeKeyupRef.current = false;
       return;
     }
+    if (touchControls) {
+      return;
+    }
 
     const handleKeyDown = (event: KeyboardEvent): void => {
       if (event.code !== 'Escape') {
+        return;
+      }
+      if (chatOpen) {
+        event.preventDefault();
+        setChatOpen(false);
         return;
       }
       if (event.repeat) {
@@ -179,7 +200,7 @@ export default function App(): React.JSX.Element {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [connected, resumeFromPause, touchControls]);
+  }, [chatOpen, connected, resumeFromPause, touchControls]);
 
   useEffect(() => {
     if (touchControls) {
@@ -206,6 +227,36 @@ export default function App(): React.JSX.Element {
   }, [connected, touchControls]);
 
   useEffect(() => {
+    if (!connected) {
+      return;
+    }
+
+    const handleKeyDown = (event: KeyboardEvent): void => {
+      if (event.code !== 'Enter') {
+        return;
+      }
+      if (event.repeat) {
+        return;
+      }
+
+      const target = event.target;
+      const typingIntoField =
+        target instanceof HTMLInputElement ||
+        target instanceof HTMLTextAreaElement ||
+        (target instanceof HTMLElement && target.isContentEditable);
+      if (typingIntoField) {
+        return;
+      }
+
+      event.preventDefault();
+      setChatOpen(true);
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [connected]);
+
+  useEffect(() => {
     if (touchControls) {
       return;
     }
@@ -224,7 +275,7 @@ export default function App(): React.JSX.Element {
         return;
       }
 
-      if (wasPointerLocked && hadPointerLockRef.current && !pausedRef.current) {
+      if (wasPointerLocked && hadPointerLockRef.current && !pausedRef.current && !chatOpen) {
         setPaused(true);
         runtime?.setPaused(true);
       }
@@ -232,7 +283,7 @@ export default function App(): React.JSX.Element {
 
     document.addEventListener('pointerlockchange', handlePointerLockChange);
     return () => document.removeEventListener('pointerlockchange', handlePointerLockChange);
-  }, [connected, touchControls]);
+  }, [chatOpen, connected, touchControls]);
 
   const hitmarkerVisible = hitmarkerUntil > performance.now();
   const scoreboard = useMemo(
@@ -254,6 +305,29 @@ export default function App(): React.JSX.Element {
     () => (localIdentity ? players[localIdentity] : undefined),
     [localIdentity, players]
   );
+  const eliminated = connected && !localPlayer.alive;
+
+  const sendChat = useCallback((): void => {
+    const runtime = runtimeRef.current;
+    const text = chatDraft.trim();
+    if (!runtime || text.length === 0 || chatBusy) {
+      return;
+    }
+    setChatBusy(true);
+    void runtime
+      .sendChatMessage(text)
+      .then(() => {
+        setChatDraft('');
+        setChatOpen(false);
+        if (!touchControls) {
+          runtime.requestPointerLock();
+        }
+      })
+      .catch(() => undefined)
+      .finally(() => {
+        setChatBusy(false);
+      });
+  }, [chatBusy, chatDraft, touchControls]);
 
   const hudProps = useMemo(
     () => ({
@@ -270,12 +344,22 @@ export default function App(): React.JSX.Element {
       hitmarkerVisible,
       damageFlashToken,
       crosshairSpread,
-      scoped
+      scoped,
+      chatOpen,
+      chatDraft,
+      chatBusy,
+      onChatOpen: () => setChatOpen(true),
+      onChatClose: () => setChatOpen(false),
+      onChatDraftChange: (value: string) => setChatDraft(value),
+      onChatSend: sendChat
     }),
     [
       connected,
       crosshairSpread,
       damageFlashToken,
+      chatBusy,
+      chatDraft,
+      chatOpen,
       hitmarkerVisible,
       killFeed,
       localIdentity,
@@ -284,6 +368,7 @@ export default function App(): React.JSX.Element {
       localMeta?.deaths,
       localMeta?.kills,
       match,
+      sendChat,
       scoped,
       scoreboard,
       scoreboardOpen
@@ -364,6 +449,12 @@ export default function App(): React.JSX.Element {
         onDisconnect={() => {
           setPaused(false);
           runtimeRef.current?.disconnect();
+        }}
+      />
+      <EliminatedOverlay
+        visible={eliminated}
+        onRespawn={() => {
+          void runtimeRef.current?.requestRespawn().catch(() => undefined);
         }}
       />
       <MobileControls

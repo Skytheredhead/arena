@@ -8,7 +8,6 @@ const SERVER_TICK_RATE: u32 = 40;
 const SERVER_TICK_MS: u32 = 1000 / SERVER_TICK_RATE;
 const SERVER_TICK_INTERVAL_US: i64 = (SERVER_TICK_MS as i64) * 1000;
 const MATCH_DURATION_TICKS: u32 = SERVER_TICK_RATE * 180;
-const RESPAWN_DELAY_TICKS: u32 = 30;
 const INPUT_STALE_TICKS: u32 = 4;
 const SIM_TICK_SCHEDULE_ID: u64 = 1;
 const MAX_OPEN_ROOMS: usize = 5;
@@ -17,7 +16,10 @@ const MAX_PLAYERS_PER_ROOM: u16 = 5;
 const ROOM_ACTION_RATE_LIMIT_TICKS: u32 = 8;
 const ROOM_PRUNE_GRACE_TICKS: u32 = SERVER_TICK_RATE * 15;
 const NICKNAME_RATE_LIMIT_TICKS: u32 = 24;
+const CHAT_RATE_LIMIT_TICKS: u32 = 4;
 const MAX_IMPACT_MARKS_PER_ROOM: usize = 120;
+const CHAT_EVENT_TTL_TICKS: u32 = SERVER_TICK_RATE * 10;
+const CHAT_MESSAGE_MAX_CHARS: usize = 160;
 
 const PLAYER_HEIGHT: f32 = 1.8;
 const PLAYER_RADIUS: f32 = 0.4;
@@ -51,12 +53,56 @@ const HEALTH_PACK_AMOUNT: u16 = 50;
 const HEALTH_PACK_RESPAWN_TICKS: u32 = SERVER_TICK_RATE * 10;
 const HEALTH_PACK_RADIUS: f32 = 0.5;
 const HEALTH_PACK_ACTIVE_COUNT: usize = 2;
-const PICKUP_HORIZONTAL_GRACE: f32 = 0.35;
-const PICKUP_VERTICAL_GRACE: f32 = 0.25;
+const PICKUP_HORIZONTAL_GRACE: f32 = 0.5;
+const PICKUP_VERTICAL_GRACE: f32 = 0.45;
+const PICKUP_SWEEP_EXTRA: f32 = 0.2;
+const PICKUP_HEIGHT_MAX: f32 = 1.4;
+const COLLISION_EPSILON: f32 = 0.0001;
+const DIAGONAL_YAW_THRESHOLD: f32 = 0.12;
+const DIAGONAL_ASPECT_THRESHOLD: f32 = 3.0;
+const HALF_PI: f32 = std::f32::consts::FRAC_PI_2;
+const TWO_PI: f32 = std::f32::consts::PI * 2.0;
 const ARENA_MIN_X: f32 = -30.0;
 const ARENA_MAX_X: f32 = 30.0;
 const ARENA_MIN_Z: f32 = -31.204_71;
 const ARENA_MAX_Z: f32 = 28.795_29;
+
+const BLOCKED_TERMS: [&str; 34] = [
+    "fuck",
+    "fucking",
+    "motherfucker",
+    "shit",
+    "bullshit",
+    "bitch",
+    "cunt",
+    "whore",
+    "slut",
+    "dick",
+    "cock",
+    "pussy",
+    "asshole",
+    "bastard",
+    "nigger",
+    "nigga",
+    "faggot",
+    "fag",
+    "kike",
+    "spic",
+    "chink",
+    "wetback",
+    "tranny",
+    "retard",
+    "rape",
+    "rapist",
+    "pedophile",
+    "molester",
+    "terrorist",
+    "nazis",
+    "hitler",
+    "lynch",
+    "genocide",
+    "kkk",
+];
 
 #[derive(Clone, Copy)]
 struct Vec3 {
@@ -221,6 +267,7 @@ pub struct PlayerRateLimit {
     last_join_room_tick: u32,
     last_leave_room_tick: u32,
     last_start_match_tick: u32,
+    last_chat_tick: u32,
 }
 
 #[table(accessor = player_state, public)]
@@ -317,6 +364,18 @@ pub struct KillFeedEvent {
     victim_identity: Identity,
     attacker_nickname: String,
     victim_nickname: String,
+    tick: u32,
+}
+
+#[table(accessor = chat_event, public)]
+pub struct ChatEvent {
+    #[primary_key]
+    #[auto_inc]
+    id: u32,
+    room_code: String,
+    sender_identity: Identity,
+    sender_nickname: String,
+    message: String,
     tick: u32,
 }
 
@@ -441,6 +500,7 @@ pub fn client_connected(ctx: &ReducerContext) {
             last_join_room_tick: 0,
             last_leave_room_tick: 0,
             last_start_match_tick: 0,
+            last_chat_tick: 0,
         });
     }
 
@@ -477,6 +537,30 @@ pub fn set_nickname(ctx: &ReducerContext, nickname: String) -> Result<(), String
     ctx.db.player().identity().update(Player {
         nickname: unique_nickname,
         ..player
+    });
+    Ok(())
+}
+
+#[reducer]
+pub fn send_chat_message(ctx: &ReducerContext, message: String) -> Result<(), String> {
+    enforce_rate_limit(
+        ctx,
+        ctx.sender(),
+        RateLimitKind::Chat,
+        CHAT_RATE_LIMIT_TICKS,
+        "Sending chat too fast",
+    )?;
+    let room_code = require_room_membership(ctx, ctx.sender())?;
+    let sender = require_player(ctx, ctx.sender())?;
+    let sanitized = validate_chat_message(message)?;
+    let tick = current_tick(ctx);
+    ctx.db.chat_event().insert(ChatEvent {
+        id: 0,
+        room_code,
+        sender_identity: ctx.sender(),
+        sender_nickname: sender.nickname,
+        message: sanitized,
+        tick,
     });
     Ok(())
 }
@@ -814,11 +898,6 @@ pub fn request_respawn(ctx: &ReducerContext) -> Result<(), String> {
         return Ok(());
     }
 
-    let tick = current_tick(ctx);
-    if !can_respawn_at_tick(state.respawn_tick, tick) {
-        return Ok(());
-    }
-
     respawn_player(ctx, ctx.sender(), room_code);
     Ok(())
 }
@@ -901,6 +980,7 @@ pub fn sim_tick(ctx: &ReducerContext, _schedule: SimTickSchedule) -> Result<(), 
 
     process_ammo_packs(ctx, tick);
     process_health_packs(ctx, tick);
+    prune_chat_events(ctx, tick);
 
     Ok(())
 }
@@ -940,6 +1020,9 @@ fn validate_nickname(value: String) -> Result<String, String> {
     if nickname.len() > 16 {
         return Err("Nickname must be 16 characters or fewer".to_string());
     }
+    if contains_blocked_language(nickname) {
+        return Err("Nickname contains blocked language".to_string());
+    }
     Ok(nickname.to_string())
 }
 
@@ -954,6 +1037,115 @@ fn validate_room_code(value: String) -> Result<String, String> {
     Ok(room_code)
 }
 
+fn validate_chat_message(value: String) -> Result<String, String> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return Err("Chat message cannot be empty".to_string());
+    }
+    if trimmed.chars().count() > CHAT_MESSAGE_MAX_CHARS {
+        return Err(format!(
+            "Chat message must be {CHAT_MESSAGE_MAX_CHARS} characters or fewer"
+        ));
+    }
+
+    Ok(censor_blocked_language(trimmed))
+}
+
+fn contains_blocked_language(value: &str) -> bool {
+    let normalized = normalize_filter_text(value);
+    if normalized.is_empty() {
+        return false;
+    }
+    if contains_any_blocked_term(&normalized) {
+        return true;
+    }
+
+    let collapsed = collapse_repeated_letters(&normalized);
+    contains_any_blocked_term(&collapsed)
+}
+
+fn contains_any_blocked_term(normalized: &str) -> bool {
+    BLOCKED_TERMS.iter().any(|term| normalized.contains(term))
+}
+
+fn collapse_repeated_letters(value: &str) -> String {
+    let mut collapsed = String::with_capacity(value.len());
+    let mut previous = '\0';
+    for ch in value.chars() {
+        if ch == previous {
+            continue;
+        }
+        collapsed.push(ch);
+        previous = ch;
+    }
+    collapsed
+}
+
+fn normalize_filter_char(ch: char) -> Option<char> {
+    let mapped = match ch.to_ascii_lowercase() {
+        'a'..='z' => ch.to_ascii_lowercase(),
+        '0' => 'o',
+        '1' | '!' | '|' => 'i',
+        '2' => 'z',
+        '3' => 'e',
+        '4' | '@' => 'a',
+        '5' | '$' => 's',
+        '6' => 'g',
+        '7' => 't',
+        '8' => 'b',
+        '9' => 'g',
+        _ => return None,
+    };
+    Some(mapped)
+}
+
+fn normalize_filter_text(value: &str) -> String {
+    let mut normalized = String::new();
+    for ch in value.chars() {
+        if let Some(mapped) = normalize_filter_char(ch) {
+            normalized.push(mapped);
+        }
+    }
+    normalized
+}
+
+fn censor_blocked_language(value: &str) -> String {
+    let mut out_tokens: Vec<String> = Vec::new();
+    for token in value.split_whitespace() {
+        if token.is_empty() {
+            continue;
+        }
+        out_tokens.push(censor_token(token));
+    }
+    out_tokens.join(" ")
+}
+
+fn censor_token(token: &str) -> String {
+    let mut start = None;
+    let mut end = None;
+    for (index, ch) in token.char_indices() {
+        if normalize_filter_char(ch).is_some() {
+            if start.is_none() {
+                start = Some(index);
+            }
+            end = Some(index + ch.len_utf8());
+        }
+    }
+    let (Some(core_start), Some(core_end)) = (start, end) else {
+        return token.to_string();
+    };
+    let core = &token[core_start..core_end];
+    if !contains_blocked_language(core) {
+        return token.to_string();
+    }
+
+    let mut masked = String::new();
+    masked.push_str(&token[..core_start]);
+    masked.push_str("*****");
+    masked.push_str(&token[core_end..]);
+    masked
+}
+
 #[derive(Clone, Copy)]
 enum RateLimitKind {
     Nickname,
@@ -961,6 +1153,7 @@ enum RateLimitKind {
     JoinRoom,
     LeaveRoom,
     StartMatch,
+    Chat,
 }
 
 fn current_joined_players(ctx: &ReducerContext) -> usize {
@@ -991,6 +1184,7 @@ fn enforce_rate_limit(
             last_join_room_tick: 0,
             last_leave_room_tick: 0,
             last_start_match_tick: 0,
+            last_chat_tick: 0,
         });
 
     let last_tick = match kind {
@@ -999,6 +1193,7 @@ fn enforce_rate_limit(
         RateLimitKind::JoinRoom => limiter.last_join_room_tick,
         RateLimitKind::LeaveRoom => limiter.last_leave_room_tick,
         RateLimitKind::StartMatch => limiter.last_start_match_tick,
+        RateLimitKind::Chat => limiter.last_chat_tick,
     };
 
     if last_tick != 0 && tick.saturating_sub(last_tick) < min_ticks {
@@ -1011,6 +1206,7 @@ fn enforce_rate_limit(
         RateLimitKind::JoinRoom => limiter.last_join_room_tick = tick,
         RateLimitKind::LeaveRoom => limiter.last_leave_room_tick = tick,
         RateLimitKind::StartMatch => limiter.last_start_match_tick = tick,
+        RateLimitKind::Chat => limiter.last_chat_tick = tick,
     }
 
     if ctx
@@ -1145,10 +1341,6 @@ fn can_fire_weapon_at_tick(next_ready_tick: u32, current_tick: u32) -> bool {
     current_tick >= next_ready_tick
 }
 
-fn can_respawn_at_tick(respawn_tick: u32, current_tick: u32) -> bool {
-    current_tick >= respawn_tick
-}
-
 fn leave_room_internal(ctx: &ReducerContext, identity: Identity) {
     let Some(player) = ctx.db.player().identity().find(identity) else {
         return;
@@ -1246,6 +1438,16 @@ fn remove_room_artifacts(ctx: &ReducerContext, room_code: &str) {
         .collect();
     for mark in impact_marks {
         ctx.db.impact_mark().id().delete(mark.id);
+    }
+
+    let chat_events: Vec<ChatEvent> = ctx
+        .db
+        .chat_event()
+        .iter()
+        .filter(|event| event.room_code == room_code)
+        .collect();
+    for event in chat_events {
+        ctx.db.chat_event().id().delete(event.id);
     }
 }
 
@@ -1427,6 +1629,42 @@ struct BlockHit {
     normal: Vec3,
 }
 
+fn normalize_angle(mut angle: f32) -> f32 {
+    while angle <= -std::f32::consts::PI {
+        angle += TWO_PI;
+    }
+    while angle > std::f32::consts::PI {
+        angle -= TWO_PI;
+    }
+    angle
+}
+
+fn nearest_cardinal_angle(yaw: f32) -> f32 {
+    (yaw / HALF_PI).round() * HALF_PI
+}
+
+fn canonicalize_collision_block(block: Block) -> Block {
+    let mut normalized = block;
+    normalized.yaw = normalize_angle(normalized.yaw);
+
+    let shortest = normalized
+        .half_x
+        .min(normalized.half_z)
+        .max(COLLISION_EPSILON);
+    let longest = normalized.half_x.max(normalized.half_z);
+    let aspect_ratio = longest / shortest;
+    let cardinal_delta =
+        (normalize_angle(normalized.yaw - nearest_cardinal_angle(normalized.yaw))).abs();
+    let should_rotate_diagonal = aspect_ratio >= DIAGONAL_ASPECT_THRESHOLD
+        && cardinal_delta > DIAGONAL_YAW_THRESHOLD
+        && cardinal_delta < (HALF_PI - DIAGONAL_YAW_THRESHOLD);
+    if should_rotate_diagonal {
+        normalized.yaw = normalize_angle(normalized.yaw + HALF_PI);
+    }
+
+    normalized
+}
+
 fn rotate_into_block_space(x: f32, z: f32, block: Block) -> (f32, f32) {
     let dx = x - block.center_x;
     let dz = z - block.center_z;
@@ -1442,12 +1680,33 @@ fn rotate_out_of_block_space(x: f32, z: f32, block: Block) -> (f32, f32) {
 }
 
 fn overlaps_block(x: f32, z: f32, block: Block) -> bool {
+    let block = canonicalize_collision_block(block);
     let (local_x, local_z) = rotate_into_block_space(x, z, block);
     let closest_x = local_x.clamp(-block.half_x, block.half_x);
     let closest_z = local_z.clamp(-block.half_z, block.half_z);
     let dx = local_x - closest_x;
     let dz = local_z - closest_z;
-    dx * dx + dz * dz < PLAYER_RADIUS * PLAYER_RADIUS
+    dx * dx + dz * dz <= (PLAYER_RADIUS + COLLISION_EPSILON) * (PLAYER_RADIUS + COLLISION_EPSILON)
+}
+
+fn point_within_block_footprint(x: f32, z: f32, block: Block) -> bool {
+    let block = canonicalize_collision_block(block);
+    let (local_x, local_z) = rotate_into_block_space(x, z, block);
+    local_x.abs() <= block.half_x + COLLISION_EPSILON
+        && local_z.abs() <= block.half_z + COLLISION_EPSILON
+}
+
+fn pickup_floor_height_at(x: f32, z: f32) -> f32 {
+    let mut ground = 0.0;
+    for block in ARENA_BLOCKS {
+        if !point_within_block_footprint(x, z, block) {
+            continue;
+        }
+        if block.max_y <= PICKUP_HEIGHT_MAX && block.max_y > ground {
+            ground = block.max_y;
+        }
+    }
+    ground
 }
 
 fn ground_height_at(x: f32, z: f32, current_feet_y: f32) -> f32 {
@@ -1559,6 +1818,7 @@ fn ray_hits_any_block(origin: Vec3, direction: Vec3) -> Option<BlockHit> {
 }
 
 fn ray_hits_block(origin: Vec3, direction: Vec3, block: Block) -> Option<BlockHit> {
+    let block = canonicalize_collision_block(block);
     let (origin_x, origin_z) = rotate_into_block_space(origin.x, origin.z, block);
     let cos = block.yaw.cos();
     let sin = block.yaw.sin();
@@ -1748,7 +2008,7 @@ fn apply_damage(
 
     if lethal {
         victim_state.alive = false;
-        victim_state.respawn_tick = tick + RESPAWN_DELAY_TICKS;
+        victim_state.respawn_tick = tick;
         victim_state.vel_x = 0.0;
         victim_state.vel_y = 0.0;
         victim_state.vel_z = 0.0;
@@ -1830,7 +2090,8 @@ fn initialize_room_ammo_packs(ctx: &ReducerContext, room_code: &str, tick: u32) 
     }) as usize;
     for slot in 0..AMMO_PACK_ACTIVE_COUNT {
         let location_index = ((room_seed + slot * 3) % AMMO_PACK_LOCATIONS.len()) as u16;
-        let point = AMMO_PACK_LOCATIONS[location_index as usize];
+        let mut point = AMMO_PACK_LOCATIONS[location_index as usize];
+        point.y = pickup_floor_height_at(point.x, point.z);
         ctx.db.ammo_pack().insert(AmmoPack {
             id: 0,
             room_code: room_code.to_string(),
@@ -1859,7 +2120,8 @@ fn initialize_room_health_packs(ctx: &ReducerContext, room_code: &str, tick: u32
     }) as usize;
     for slot in 0..HEALTH_PACK_ACTIVE_COUNT {
         let location_index = ((room_seed + slot * 5) % HEALTH_PACK_LOCATIONS.len()) as u16;
-        let point = HEALTH_PACK_LOCATIONS[location_index as usize];
+        let mut point = HEALTH_PACK_LOCATIONS[location_index as usize];
+        point.y = pickup_floor_height_at(point.x, point.z);
         ctx.db.health_pack().insert(HealthPack {
             id: 0,
             room_code: room_code.to_string(),
@@ -1873,20 +2135,44 @@ fn initialize_room_health_packs(ctx: &ReducerContext, room_code: &str, tick: u32
     }
 }
 
+fn segment_point_distance_sq_2d(ax: f32, az: f32, bx: f32, bz: f32, px: f32, pz: f32) -> f32 {
+    let ab_x = bx - ax;
+    let ab_z = bz - az;
+    let ap_x = px - ax;
+    let ap_z = pz - az;
+    let ab_len_sq = ab_x * ab_x + ab_z * ab_z;
+    if ab_len_sq <= COLLISION_EPSILON {
+        let dx = px - ax;
+        let dz = pz - az;
+        return dx * dx + dz * dz;
+    }
+    let t = (ap_x * ab_x + ap_z * ab_z) / ab_len_sq;
+    let clamped_t = t.clamp(0.0, 1.0);
+    let closest_x = ax + ab_x * clamped_t;
+    let closest_z = az + ab_z * clamped_t;
+    let dx = px - closest_x;
+    let dz = pz - closest_z;
+    dx * dx + dz * dz
+}
+
 fn player_touches_pickup(state: &PlayerState, pickup: Vec3, pickup_radius: f32) -> bool {
-    let dx = state.x - pickup.x;
-    let dz = state.z - pickup.z;
-    let max_horizontal = PLAYER_RADIUS + pickup_radius + PICKUP_HORIZONTAL_GRACE;
-    if dx * dx + dz * dz > max_horizontal * max_horizontal {
+    let previous_x = state.x - state.vel_x / SERVER_TICK_RATE as f32;
+    let previous_z = state.z - state.vel_z / SERVER_TICK_RATE as f32;
+    let max_horizontal =
+        PLAYER_RADIUS + pickup_radius + PICKUP_HORIZONTAL_GRACE + PICKUP_SWEEP_EXTRA;
+    let distance_sq =
+        segment_point_distance_sq_2d(previous_x, previous_z, state.x, state.z, pickup.x, pickup.z);
+    if distance_sq > max_horizontal * max_horizontal {
         return false;
     }
 
-    let player_min_y = state.y - PICKUP_VERTICAL_GRACE;
-    let player_max_y = state.y + PLAYER_HEIGHT + PICKUP_VERTICAL_GRACE;
+    let previous_y = state.y - state.vel_y / SERVER_TICK_RATE as f32;
+    let feet_min = previous_y.min(state.y) - PICKUP_VERTICAL_GRACE;
+    let feet_max = previous_y.max(state.y) + PLAYER_HEIGHT + PICKUP_VERTICAL_GRACE;
     let pickup_min_y = pickup.y - pickup_radius - PICKUP_VERTICAL_GRACE;
     let pickup_max_y = pickup.y + pickup_radius + PICKUP_VERTICAL_GRACE;
 
-    pickup_max_y >= player_min_y && pickup_min_y <= player_max_y
+    pickup_max_y >= feet_min && pickup_min_y <= feet_max
 }
 
 fn process_ammo_packs(ctx: &ReducerContext, tick: u32) {
@@ -1912,7 +2198,8 @@ fn process_ammo_packs(ctx: &ReducerContext, tick: u32) {
                     pack.id,
                     &pack.room_code,
                 );
-                let next_point = AMMO_PACK_LOCATIONS[next_location as usize];
+                let mut next_point = AMMO_PACK_LOCATIONS[next_location as usize];
+                next_point.y = pickup_floor_height_at(next_point.x, next_point.z);
                 pack.location_index = next_location;
                 pack.x = next_point.x;
                 pack.y = next_point.y;
@@ -1944,7 +2231,14 @@ fn process_ammo_packs(ctx: &ReducerContext, tick: u32) {
                 continue;
             };
             if weapon.room_code.as_deref() != Some(pack.room_code.as_str()) {
-                continue;
+                // Self-heal stale room bindings so pickups don't silently fail.
+                if weapon.room_code.is_none()
+                    && state.room_code.as_deref() == Some(pack.room_code.as_str())
+                {
+                    weapon.room_code = Some(pack.room_code.clone());
+                } else {
+                    continue;
+                }
             }
             if weapon.ammo_in_mag >= RIFLE_MAGAZINE {
                 continue;
@@ -1990,7 +2284,8 @@ fn process_health_packs(ctx: &ReducerContext, tick: u32) {
                     pack.id,
                     &pack.room_code,
                 );
-                let next_point = HEALTH_PACK_LOCATIONS[next_location as usize];
+                let mut next_point = HEALTH_PACK_LOCATIONS[next_location as usize];
+                next_point.y = pickup_floor_height_at(next_point.x, next_point.z);
                 pack.location_index = next_location;
                 pack.x = next_point.x;
                 pack.y = next_point.y;
@@ -2025,6 +2320,9 @@ fn process_health_packs(ctx: &ReducerContext, tick: u32) {
             else {
                 continue;
             };
+            if player_state.room_code.as_deref() != Some(pack.room_code.as_str()) {
+                continue;
+            }
             if player_state.health >= MAX_HEALTH {
                 continue;
             }
@@ -2044,6 +2342,19 @@ fn process_health_packs(ctx: &ReducerContext, tick: u32) {
             pack.respawn_tick = tick + HEALTH_PACK_RESPAWN_TICKS;
             ctx.db.health_pack().id().update(pack);
         }
+    }
+}
+
+fn prune_chat_events(ctx: &ReducerContext, tick: u32) {
+    let expiry_tick = tick.saturating_sub(CHAT_EVENT_TTL_TICKS);
+    let expired: Vec<ChatEvent> = ctx
+        .db
+        .chat_event()
+        .iter()
+        .filter(|event| event.tick <= expiry_tick)
+        .collect();
+    for event in expired {
+        ctx.db.chat_event().id().delete(event.id);
     }
 }
 
@@ -2126,20 +2437,14 @@ fn reset_player_input(ctx: &ReducerContext, identity: Identity, tick: u32) {
 #[cfg(test)]
 mod tests {
     use super::{
-        can_fire_weapon_at_tick, can_respawn_at_tick, room_membership_is_consistent,
-        should_accept_input_sequence, validate_room_code,
+        can_fire_weapon_at_tick, room_membership_is_consistent, should_accept_input_sequence,
+        validate_room_code,
     };
 
     #[test]
     fn weapon_cooldown_enforcement_is_authoritative() {
         assert!(can_fire_weapon_at_tick(8, 8));
         assert!(!can_fire_weapon_at_tick(9, 8));
-    }
-
-    #[test]
-    fn respawn_timing_requires_authoritative_tick() {
-        assert!(!can_respawn_at_tick(40, 39));
-        assert!(can_respawn_at_tick(40, 40));
     }
 
     #[test]

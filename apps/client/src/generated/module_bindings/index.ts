@@ -39,6 +39,7 @@ import FireWeaponReducer from "./fire_weapon_reducer";
 import JoinRoomReducer from "./join_room_reducer";
 import LeaveRoomReducer from "./leave_room_reducer";
 import RequestRespawnReducer from "./request_respawn_reducer";
+import SendChatMessageReducer from "./send_chat_message_reducer";
 import SetNicknameReducer from "./set_nickname_reducer";
 import StartMatchReducer from "./start_match_reducer";
 import SubmitInputReducer from "./submit_input_reducer";
@@ -47,6 +48,7 @@ import SubmitInputReducer from "./submit_input_reducer";
 
 // Import all table schema definitions
 import AmmoPackRow from "./ammo_pack_table";
+import ChatEventRow from "./chat_event_table";
 import DamageEventRow from "./damage_event_table";
 import HealthPackRow from "./health_pack_table";
 import ImpactMarkRow from "./impact_mark_table";
@@ -73,6 +75,17 @@ const tablesSchema = __schema({
       { name: 'ammo_pack_id_key', constraint: 'unique', columns: ['id'] },
     ],
   }, AmmoPackRow),
+  chat_event: __table({
+    name: 'chat_event',
+    indexes: [
+      { accessor: 'id', name: 'chat_event_id_idx_btree', algorithm: 'btree', columns: [
+        'id',
+      ] },
+    ],
+    constraints: [
+      { name: 'chat_event_id_key', constraint: 'unique', columns: ['id'] },
+    ],
+  }, ChatEventRow),
   damage_event: __table({
     name: 'damage_event',
     indexes: [
@@ -192,6 +205,7 @@ const reducersSchema = __reducers(
   __reducerSchema("join_room", JoinRoomReducer),
   __reducerSchema("leave_room", LeaveRoomReducer),
   __reducerSchema("request_respawn", RequestRespawnReducer),
+  __reducerSchema("send_chat_message", SendChatMessageReducer),
   __reducerSchema("set_nickname", SetNicknameReducer),
   __reducerSchema("start_match", StartMatchReducer),
   __reducerSchema("submit_input", SubmitInputReducer),
