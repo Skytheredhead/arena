@@ -9,7 +9,7 @@ import {
   type RemotePlayerState
 } from '@arena/shared';
 import { useGameStore } from '../state/gameStore';
-import { SPACETIMEDB_DATABASE, SPACETIMEDB_URI } from '../utils/env';
+import { SPACETIMEDB_DATABASE, getSpacetimeUriCandidates } from '../utils/env';
 import { identityToString } from '../utils/identity';
 import {
   DbConnection,
@@ -27,6 +27,9 @@ import WeaponStateTable from '../generated/module_bindings/weapon_state_table';
 import type { Infer } from 'spacetimedb';
 
 const TOKEN_STORAGE_KEY = 'vector-drift-token';
+const normalizeError = (error: unknown): Error =>
+  error instanceof Error ? error : new Error(String(error));
+
 type RoomRow = Infer<typeof RoomTable>;
 type PlayerRow = Infer<typeof PlayerTable>;
 type PlayerStateRow = Infer<typeof PlayerStateTable>;
@@ -56,6 +59,7 @@ export class SpacetimeBridge {
   private localIdentity = '';
   private latestWeaponTick = -1;
   private latestWeaponAmmo = -1;
+  private suppressDisconnectEvents = false;
 
   constructor(private readonly callbacks: BridgeCallbacks) {}
 
@@ -64,59 +68,30 @@ export class SpacetimeBridge {
     store.setConnection('connecting', null);
     this.latestWeaponTick = -1;
     this.latestWeaponAmmo = -1;
+    const endpointCandidates = getSpacetimeUriCandidates(store.forceLocalBackend);
+    const failures: string[] = [];
 
-    await new Promise<void>((resolve, reject) => {
-      const builder = DbConnection.builder()
-        .withUri(SPACETIMEDB_URI)
-        .withDatabaseName(SPACETIMEDB_DATABASE)
-        .withToken(window.localStorage.getItem(TOKEN_STORAGE_KEY) ?? undefined)
-        .onConnect((connection, identity, token) => {
-          this.connection = connection;
-          this.localIdentity = identityToString(identity);
-          window.localStorage.setItem(TOKEN_STORAGE_KEY, token);
-          useGameStore.getState().setLocalIdentity(this.localIdentity);
-          this.installListeners(connection);
-          void (async () => {
-            try {
-              await Promise.resolve(
-                connection
-                  .subscriptionBuilder()
-                  .subscribe([
-                    tables.room,
-                    tables.player,
-                    tables.player_state,
-                    tables.weapon_state,
-                    tables.match_state,
-                    tables.ammo_pack,
-                    tables.health_pack,
-                    tables.kill_feed_event,
-                    tables.damage_event
-                  ])
-              );
+    for (const uri of endpointCandidates) {
+      try {
+        await this.connectWithUri(uri, options);
+        return;
+      } catch (error) {
+        const normalized = normalizeError(error);
+        failures.push(`${uri} (${normalized.message})`);
 
-              await this.bootstrap(connection, options);
-              useGameStore.getState().setConnection('connected', null);
-              useGameStore.getState().setConnectedRoomCode(options.roomCode);
-              resolve();
-            } catch (error) {
-              reject(error instanceof Error ? error : new Error(String(error)));
-            }
-          })();
-        })
-        .onConnectError((_ctx, error) => {
-          useGameStore.getState().setConnection('error', error.message);
-          reject(error);
-        })
-        .onDisconnect((_ctx, error) => {
-          useGameStore.getState().setConnection(
-            error ? 'error' : 'disconnected',
-            error?.message ?? null
-          );
-          this.callbacks.onDisconnected(error?.message);
-        });
+        if (this.connection) {
+          this.suppressDisconnectEvents = true;
+          this.connection.disconnect();
+          this.suppressDisconnectEvents = false;
+        }
+        this.connection = null;
+        this.localIdentity = '';
+      }
+    }
 
-      builder.build();
-    });
+    const message = `Unable to connect to backend. Tried: ${failures.join(' -> ')}`;
+    store.setConnection('error', message);
+    throw new Error(message);
   }
 
   disconnect(): void {
@@ -157,6 +132,86 @@ export class SpacetimeBridge {
     }
 
     await this.connection.reducers.requestRespawn({});
+  }
+
+  private async connectWithUri(uri: string, options: ConnectOptions): Promise<void> {
+    await new Promise<void>((resolve, reject) => {
+      let settled = false;
+      let established = false;
+      const fail = (error: unknown): void => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        reject(normalizeError(error));
+      };
+
+      const succeed = (): void => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        resolve();
+      };
+
+      const builder = DbConnection.builder()
+        .withUri(uri)
+        .withDatabaseName(SPACETIMEDB_DATABASE)
+        .withToken(window.localStorage.getItem(TOKEN_STORAGE_KEY) ?? undefined)
+        .onConnect((connection, identity, token) => {
+          established = true;
+          this.connection = connection;
+          this.localIdentity = identityToString(identity);
+          window.localStorage.setItem(TOKEN_STORAGE_KEY, token);
+          useGameStore.getState().setLocalIdentity(this.localIdentity);
+          this.installListeners(connection);
+          void (async () => {
+            try {
+              await Promise.resolve(
+                connection
+                  .subscriptionBuilder()
+                  .subscribe([
+                    tables.room,
+                    tables.player,
+                    tables.player_state,
+                    tables.weapon_state,
+                    tables.match_state,
+                    tables.ammo_pack,
+                    tables.health_pack,
+                    tables.kill_feed_event,
+                    tables.damage_event
+                  ])
+              );
+
+              await this.bootstrap(connection, options);
+              useGameStore.getState().setConnection('connected', null);
+              useGameStore.getState().setConnectedRoomCode(options.roomCode);
+              succeed();
+            } catch (error) {
+              fail(error);
+            }
+          })();
+        })
+        .onConnectError((_ctx, error) => {
+          fail(error);
+        })
+        .onDisconnect((_ctx, error) => {
+          if (!established || this.suppressDisconnectEvents) {
+            return;
+          }
+          useGameStore.getState().setConnection(
+            error ? 'error' : 'disconnected',
+            error?.message ?? null
+          );
+          this.callbacks.onDisconnected(error?.message);
+        });
+
+      try {
+        builder.build();
+      } catch (error) {
+        fail(error);
+      }
+    });
   }
 
   private installListeners(connection: DbConnection): void {

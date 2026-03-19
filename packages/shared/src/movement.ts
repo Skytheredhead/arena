@@ -11,7 +11,7 @@ import {
   SPRINT_SPEED,
   WALK_SPEED
 } from './gameplay';
-import { ARENA_BLOCKS, ARENA_HALF_SIZE } from './map';
+import { ARENA_BLOCKS, ARENA_MAX_X, ARENA_MAX_Z, ARENA_MIN_X, ARENA_MIN_Z } from './map';
 import type { InputCommand, LocalPlayerState, Vec3 } from './netcode';
 
 const clamp = (value: number, min: number, max: number): number =>
@@ -78,10 +78,10 @@ const groundHeightAt = (x: number, z: number, currentFeetY: number): number => {
 
 const collidesAt = (x: number, y: number, z: number): boolean => {
   if (
-    x - PLAYER_RADIUS < -ARENA_HALF_SIZE ||
-    x + PLAYER_RADIUS > ARENA_HALF_SIZE ||
-    z - PLAYER_RADIUS < -ARENA_HALF_SIZE ||
-    z + PLAYER_RADIUS > ARENA_HALF_SIZE
+    x - PLAYER_RADIUS < ARENA_MIN_X ||
+    x + PLAYER_RADIUS > ARENA_MAX_X ||
+    z - PLAYER_RADIUS < ARENA_MIN_Z ||
+    z + PLAYER_RADIUS > ARENA_MAX_Z
   ) {
     return true;
   }

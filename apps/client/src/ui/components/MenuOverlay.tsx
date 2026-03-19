@@ -17,6 +17,7 @@ interface MenuOverlayProps {
   connectionStatus: string;
   backendConnected: boolean;
   backendPingMs: number | null;
+  forceLocalBackend: boolean;
   openRooms: RoomView[];
   connectionError: string | null;
   onNicknameChange: (value: string) => void;
@@ -24,6 +25,7 @@ interface MenuOverlayProps {
   onCreateRoom: () => void;
   onJoinRoom: () => void;
   onJoinOpenRoom: (code: string) => void;
+  onForceLocalBackendChange: (value: boolean) => void;
 }
 
 export function MenuOverlay({
@@ -34,13 +36,15 @@ export function MenuOverlay({
   connectionStatus,
   backendConnected,
   backendPingMs,
+  forceLocalBackend,
   openRooms,
   connectionError,
   onNicknameChange,
   onRoomCodeChange,
   onCreateRoom,
   onJoinRoom,
-  onJoinOpenRoom
+  onJoinOpenRoom,
+  onForceLocalBackendChange
 }: MenuOverlayProps): React.JSX.Element {
   if (connected && !connectionError) {
     return (
@@ -218,6 +222,23 @@ export function MenuOverlay({
               placeholder="XK-0000"
               style={{ letterSpacing: '5px', textTransform: 'uppercase' }}
             />
+            <div className="cyber-label">backend mode</div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+              <CyberButton
+                small
+                primary={!forceLocalBackend}
+                onClick={() => onForceLocalBackendChange(false)}
+              >
+                Auto
+              </CyberButton>
+              <CyberButton
+                small
+                primary={forceLocalBackend}
+                onClick={() => onForceLocalBackendChange(true)}
+              >
+                Force Local
+              </CyberButton>
+            </div>
             {connectionError ? (
               <CyberPanel
                 style={{

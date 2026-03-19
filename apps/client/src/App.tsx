@@ -4,7 +4,7 @@ import { HudOverlay } from './ui/components/HudOverlay';
 import { PauseOverlay } from './ui/components/PauseOverlay';
 import { useGameStore } from './state/gameStore';
 import { GameRuntime } from './app/GameRuntime';
-import { SPACETIMEDB_URI } from './utils/env';
+import { getSpacetimeUriCandidates } from './utils/env';
 import { normalizeRoomCode } from './utils/roomCode';
 import { CyberGlobalStyles } from './ui/cyberTheme';
 
@@ -51,8 +51,10 @@ export default function App(): React.JSX.Element {
   const graphicsQuality = useGameStore(state => state.graphicsQuality);
   const lookSensitivity = useGameStore(state => state.lookSensitivity);
   const fov = useGameStore(state => state.fov);
+  const forceLocalBackend = useGameStore(state => state.forceLocalBackend);
   const setNickname = useGameStore(state => state.setNickname);
   const setRoomCode = useGameStore(state => state.setRoomCode);
+  const setForceLocalBackend = useGameStore(state => state.setForceLocalBackend);
   const setGraphicsQuality = useGameStore(state => state.setGraphicsQuality);
   const setLookSensitivity = useGameStore(state => state.setLookSensitivity);
   const setFov = useGameStore(state => state.setFov);
@@ -105,7 +107,7 @@ export default function App(): React.JSX.Element {
   useEffect(() => {
     let cancelled = false;
     let timerId = 0;
-    const probeUrl = toBackendProbeUrl(SPACETIMEDB_URI);
+    const probeCandidates = getSpacetimeUriCandidates(forceLocalBackend).map(toBackendProbeUrl);
 
     const schedule = (delayMs: number): void => {
       if (cancelled) {
@@ -116,7 +118,7 @@ export default function App(): React.JSX.Element {
       }, delayMs);
     };
 
-    const probe = async (): Promise<void> => {
+    const probeUri = async (probeUrl: string): Promise<number> => {
       const startedAt = performance.now();
       const controller = new AbortController();
       const timeoutId = window.setTimeout(() => controller.abort(), BACKEND_PROBE_TIMEOUT_MS);
@@ -128,31 +130,45 @@ export default function App(): React.JSX.Element {
           cache: 'no-store',
           signal: controller.signal
         });
-        if (cancelled) {
-          return;
-        }
-        setBackendConnected(true);
-        setBackendPingMs(Math.round(performance.now() - startedAt));
-        schedule(BACKEND_PROBE_INTERVAL_MS);
-      } catch {
-        if (cancelled) {
-          return;
-        }
-        setBackendConnected(false);
-        setBackendPingMs(null);
-        schedule(BACKEND_RETRY_INTERVAL_MS);
+        return Math.round(performance.now() - startedAt);
       } finally {
         window.clearTimeout(timeoutId);
       }
     };
 
+    const probe = async (): Promise<void> => {
+      for (const probeUrl of probeCandidates) {
+        try {
+          const pingMs = await probeUri(probeUrl);
+          if (cancelled) {
+            return;
+          }
+          setBackendConnected(true);
+          setBackendPingMs(pingMs);
+          schedule(BACKEND_PROBE_INTERVAL_MS);
+          return;
+        } catch {
+          // Try next backend candidate.
+        }
+      }
+
+      if (cancelled) {
+        return;
+      }
+      setBackendConnected(false);
+      setBackendPingMs(null);
+      schedule(BACKEND_RETRY_INTERVAL_MS);
+    };
+
+    setBackendConnected(false);
+    setBackendPingMs(null);
     void probe();
 
     return () => {
       cancelled = true;
       window.clearTimeout(timerId);
     };
-  }, []);
+  }, [forceLocalBackend]);
 
   useEffect(() => {
     pausedRef.current = paused;
@@ -345,6 +361,7 @@ export default function App(): React.JSX.Element {
         connectionStatus={connectionStatus}
         backendConnected={backendConnected}
         backendPingMs={backendPingMs}
+        forceLocalBackend={forceLocalBackend}
         openRooms={openRooms}
         connectionError={runtimeError ?? connectionError}
         onNicknameChange={setNickname}
@@ -352,6 +369,7 @@ export default function App(): React.JSX.Element {
         onCreateRoom={() => connectToRoom(true)}
         onJoinRoom={() => connectToRoom(false)}
         onJoinOpenRoom={code => connectToRoom(false, code)}
+        onForceLocalBackendChange={setForceLocalBackend}
       />
       <PauseOverlay
         visible={paused && connected}
@@ -359,9 +377,11 @@ export default function App(): React.JSX.Element {
         graphicsQuality={graphicsQuality}
         lookSensitivity={lookSensitivity}
         fov={fov}
+        forceLocalBackend={forceLocalBackend}
         onGraphicsQualityChange={setGraphicsQuality}
         onLookSensitivityChange={setLookSensitivity}
         onFovChange={setFov}
+        onForceLocalBackendChange={setForceLocalBackend}
         onResume={resumeFromPause}
         onDisconnect={() => {
           setPaused(false);

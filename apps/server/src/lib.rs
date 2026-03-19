@@ -46,7 +46,10 @@ const HEALTH_PACK_AMOUNT: u16 = 50;
 const HEALTH_PACK_RESPAWN_TICKS: u32 = SERVER_TICK_RATE * 10;
 const HEALTH_PACK_RADIUS: f32 = 0.5;
 const HEALTH_PACK_ACTIVE_COUNT: usize = 2;
-const ARENA_HALF_SIZE: f32 = 30.0;
+const ARENA_MIN_X: f32 = -30.0;
+const ARENA_MAX_X: f32 = 30.0;
+const ARENA_MIN_Z: f32 = -31.204_71;
+const ARENA_MAX_Z: f32 = 28.795_29;
 
 #[derive(Clone, Copy)]
 struct Vec3 {
@@ -65,43 +68,71 @@ struct Block {
     max_z: f32,
 }
 
-const ARENA_BLOCKS: [Block; 5] = [
-    Block { min_x: -2.0, min_y: 0.0, min_z: -2.0, max_x: 2.0, max_y: 2.0, max_z: 2.0 },
-    Block { min_x: -14.0, min_y: 0.0, min_z: -2.0, max_x: -10.0, max_y: 2.4, max_z: 2.0 },
-    Block { min_x: 10.0, min_y: 0.0, min_z: -2.0, max_x: 14.0, max_y: 2.4, max_z: 2.0 },
-    Block { min_x: -2.0, min_y: 0.0, min_z: -14.0, max_x: 2.0, max_y: 2.4, max_z: -10.0 },
-    Block { min_x: -2.0, min_y: 0.0, min_z: 10.0, max_x: 2.0, max_y: 2.4, max_z: 14.0 },
+const ARENA_BLOCKS: [Block; 33] = [
+    Block { min_x: 4.69, min_y: 0.12, min_z: -1.35, max_x: 5.49, max_y: 1.92, max_z: -0.55 },
+    Block { min_x: -4.84, min_y: 0.94, min_z: 1.22, max_x: -2.84, max_y: 2.94, max_z: 3.22 },
+    Block { min_x: -19.32, min_y: 0.0, min_z: -0.1, max_x: -11.32, max_y: 8.0, max_z: 0.3 },
+    Block { min_x: -19.32, min_y: 0.0, min_z: -11.75, max_x: -11.32, max_y: 8.0, max_z: -11.35 },
+    Block { min_x: -19.69, min_y: 0.0, min_z: -11.55, max_x: -19.29, max_y: 8.0, max_z: 0.13 },
+    Block { min_x: 14.49, min_y: 0.0, min_z: 5.17, max_x: 14.89, max_y: 8.0, max_z: 16.85 },
+    Block { min_x: 6.88, min_y: 0.0, min_z: 4.97, max_x: 14.88, max_y: 8.0, max_z: 5.37 },
+    Block { min_x: 14.5, min_y: 0.0, min_z: 16.62, max_x: 22.5, max_y: 8.0, max_z: 17.02 },
+    Block { min_x: 4.4, min_y: 0.0, min_z: -15.22, max_x: 22.08, max_y: 8.0, max_z: -14.82 },
+    Block { min_x: 10.78, min_y: 0.0, min_z: -19.73, max_x: 18.6, max_y: 8.0, max_z: -10.52 },
+    Block { min_x: -2.3, min_y: 0.1, min_z: 13.29, max_x: 2.46, max_y: 3.78, max_z: 13.49 },
+    Block { min_x: -10.99, min_y: 0.1, min_z: 7.45, max_x: -6.23, max_y: 3.78, max_z: 7.65 },
+    Block { min_x: 6.88, min_y: 0.1, min_z: 1.18, max_x: 7.08, max_y: 3.78, max_z: 9.46 },
+    Block { min_x: -26.86, min_y: -0.4, min_z: 13.35, max_x: -23.94, max_y: 2.52, max_z: 14.35 },
+    Block { min_x: 10.78, min_y: 0.02, min_z: -8.94, max_x: 18.6, max_y: 2.22, max_z: 0.27 },
+    Block { min_x: -17.11, min_y: 0.02, min_z: -25.01, max_x: -9.29, max_y: 2.22, max_z: -15.81 },
+    Block { min_x: 10.78, min_y: 0.02, min_z: -29.59, max_x: 18.6, max_y: 2.22, max_z: -20.39 },
+    Block { min_x: -4.85, min_y: 0.02, min_z: -25.71, max_x: 2.97, max_y: 2.22, max_z: -16.51 },
+    Block { min_x: 0.97, min_y: 0.02, min_z: 14.73, max_x: 8.78, max_y: 2.22, max_z: 23.94 },
+    Block { min_x: 20.17, min_y: 0.02, min_z: 2.12, max_x: 27.98, max_y: 2.22, max_z: 11.33 },
+    Block { min_x: -20.56, min_y: 0.02, min_z: 3.07, max_x: -12.74, max_y: 2.22, max_z: 12.28 },
+    Block { min_x: -12.67, min_y: 0.1, min_z: 15.56, max_x: -7.85, max_y: 3.84, max_z: 20.32 },
+    Block { min_x: -1.71, min_y: 0.1, min_z: -13.71, max_x: 5.06, max_y: 3.84, max_z: -6.94 },
+    Block { min_x: 19.35, min_y: 0.1, min_z: -6.83, max_x: 26.12, max_y: 3.84, max_z: -0.05 },
+    Block { min_x: -24.13, min_y: 0.1, min_z: -21.3, max_x: -19.31, max_y: 3.84, max_z: -16.54 },
+    Block { min_x: -19.56, min_y: 0.1, min_z: -8.12, max_x: -14.85, max_y: 3.78, max_z: -6.99 },
+    Block { min_x: -7.45, min_y: 0.1, min_z: -15.29, max_x: -4.6, max_y: 3.78, max_z: -11.24 },
+    Block { min_x: 3.6, min_y: 0.1, min_z: -24.78, max_x: 8.3, max_y: 3.78, max_z: -23.62 },
+    Block { min_x: -11.0, min_y: 0.12, min_z: -6.07, max_x: -10.2, max_y: 1.92, max_z: -5.27 },
+    Block { min_x: 6.84, min_y: 0.12, min_z: -20.67, max_x: 7.64, max_y: 1.92, max_z: -19.87 },
+    Block { min_x: 9.98, min_y: 0.12, min_z: 10.25, max_x: 10.26, max_y: 1.92, max_z: 14.17 },
+    Block { min_x: -18.4, min_y: 0.12, min_z: 14.09, max_x: -18.12, max_y: 1.92, max_z: 18.01 },
+    Block { min_x: -7.57, min_y: -0.24, min_z: -3.77, max_x: 2.67, max_y: 5.62, max_z: 4.8 },
 ];
 
 const SPAWN_POINTS: [Vec3; 8] = [
-    Vec3 { x: -22.0, y: 0.0, z: -22.0 },
-    Vec3 { x: 22.0, y: 0.0, z: -22.0 },
-    Vec3 { x: -22.0, y: 0.0, z: 22.0 },
-    Vec3 { x: 22.0, y: 0.0, z: 22.0 },
-    Vec3 { x: 0.0, y: 0.0, z: -24.0 },
-    Vec3 { x: 0.0, y: 0.0, z: 24.0 },
-    Vec3 { x: -24.0, y: 0.0, z: 0.0 },
-    Vec3 { x: 24.0, y: 0.0, z: 0.0 },
+    Vec3 { x: -26.0, y: 0.0, z: -28.0 },
+    Vec3 { x: 26.0, y: 0.0, z: -28.0 },
+    Vec3 { x: -26.0, y: 0.0, z: 24.0 },
+    Vec3 { x: 26.0, y: 0.0, z: 24.0 },
+    Vec3 { x: 0.0, y: 0.0, z: -29.0 },
+    Vec3 { x: 0.0, y: 0.0, z: 27.0 },
+    Vec3 { x: -24.0, y: 0.0, z: -10.0 },
+    Vec3 { x: 24.0, y: 0.0, z: -10.0 },
 ];
 
 const AMMO_PACK_LOCATIONS: [Vec3; 10] = [
-    Vec3 { x: -20.0, y: 0.0, z: 0.0 },
-    Vec3 { x: 20.0, y: 0.0, z: 0.0 },
-    Vec3 { x: 0.0, y: 0.0, z: -20.0 },
-    Vec3 { x: 0.0, y: 0.0, z: 20.0 },
-    Vec3 { x: -8.0, y: 0.0, z: -8.0 },
-    Vec3 { x: 8.0, y: 0.0, z: -8.0 },
-    Vec3 { x: -8.0, y: 0.0, z: 8.0 },
-    Vec3 { x: 8.0, y: 0.0, z: 8.0 },
-    Vec3 { x: -16.0, y: 0.0, z: 16.0 },
-    Vec3 { x: 16.0, y: 0.0, z: -16.0 },
+    Vec3 { x: -20.0, y: 0.0, z: 20.0 },
+    Vec3 { x: 20.0, y: 0.0, z: 20.0 },
+    Vec3 { x: -22.0, y: 0.0, z: 2.0 },
+    Vec3 { x: -25.0, y: 0.0, z: 8.0 },
+    Vec3 { x: -6.0, y: 0.0, z: 24.0 },
+    Vec3 { x: 6.0, y: 0.0, z: 12.0 },
+    Vec3 { x: -1.0, y: 0.0, z: -16.0 },
+    Vec3 { x: -15.0, y: 0.0, z: -6.0 },
+    Vec3 { x: 15.0, y: 0.0, z: 4.0 },
+    Vec3 { x: 15.0, y: 0.0, z: -10.0 },
 ];
 
 const HEALTH_PACK_LOCATIONS: [Vec3; 4] = [
-    Vec3 { x: -12.0, y: 0.0, z: 12.0 },
-    Vec3 { x: 12.0, y: 0.0, z: 12.0 },
-    Vec3 { x: -12.0, y: 0.0, z: -12.0 },
-    Vec3 { x: 12.0, y: 0.0, z: -12.0 },
+    Vec3 { x: -12.0, y: 0.0, z: 8.0 },
+    Vec3 { x: 12.0, y: 0.0, z: 8.0 },
+    Vec3 { x: -9.0, y: 0.0, z: -8.0 },
+    Vec3 { x: 9.0, y: 0.0, z: -8.0 },
 ];
 
 #[table(accessor = world_state)]
@@ -1303,10 +1334,10 @@ fn ground_height_at(x: f32, z: f32, current_feet_y: f32) -> f32 {
 }
 
 fn collides_at(x: f32, y: f32, z: f32) -> bool {
-    if x - PLAYER_RADIUS < -ARENA_HALF_SIZE
-        || x + PLAYER_RADIUS > ARENA_HALF_SIZE
-        || z - PLAYER_RADIUS < -ARENA_HALF_SIZE
-        || z + PLAYER_RADIUS > ARENA_HALF_SIZE
+    if x - PLAYER_RADIUS < ARENA_MIN_X
+        || x + PLAYER_RADIUS > ARENA_MAX_X
+        || z - PLAYER_RADIUS < ARENA_MIN_Z
+        || z + PLAYER_RADIUS > ARENA_MAX_Z
     {
         return true;
     }

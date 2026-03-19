@@ -9,10 +9,10 @@
     "lint": "eslint \"apps/**/*.ts\" \"apps/**/*.tsx\" \"packages/**/*.ts\"",
     "format": "prettier --write .",
     "test": "pnpm --filter @arena/client test",
-    "generate:bindings": "spacetime generate --lang typescript --server local --out-dir apps/client/src/generated/module_bindings ${SPACETIMEDB_DB_NAME:-arena-fps-slice}",
+    "generate:bindings": "spacetime generate --lang typescript --server http://127.0.0.1:4789 --out-dir apps/client/src/generated/module_bindings ${SPACETIMEDB_DB_NAME:-arena-fps-slice}",
     "server:build": "spacetime build --project-path apps/server",
-    "server:publish:local": "spacetime publish --server local --project-path apps/server ${SPACETIMEDB_DB_NAME:-arena-fps-slice}",
-    "server:start": "spacetime start"
+    "server:publish:local": "spacetime publish --server http://127.0.0.1:4789 --project-path apps/server ${SPACETIMEDB_DB_NAME:-arena-fps-slice}",
+    "server:start": "spacetime start --listen-addr 0.0.0.0:4789"
   },
   "devDependencies": {
     "@eslint/js": "^9.22.0",

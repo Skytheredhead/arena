@@ -8,9 +8,11 @@ interface PauseOverlayProps {
   graphicsQuality: GraphicsQuality;
   lookSensitivity: number;
   fov: number;
+  forceLocalBackend: boolean;
   onGraphicsQualityChange: (value: GraphicsQuality) => void;
   onLookSensitivityChange: (value: number) => void;
   onFovChange: (value: number) => void;
+  onForceLocalBackendChange: (value: boolean) => void;
   onResume: () => void;
   onDisconnect: () => void;
 }
@@ -21,9 +23,11 @@ export function PauseOverlay({
   graphicsQuality,
   lookSensitivity,
   fov,
+  forceLocalBackend,
   onGraphicsQualityChange,
   onLookSensitivityChange,
   onFovChange,
+  onForceLocalBackendChange,
   onResume,
   onDisconnect
 }: PauseOverlayProps): React.JSX.Element | null {
@@ -143,6 +147,36 @@ export function PauseOverlay({
                   onChange={event => onFovChange(Number(event.target.value))}
                   style={{ width: '100%', accentColor: CYBER.a }}
                 />
+              </div>
+
+              <div>
+                <div
+                  style={{
+                    color: CYBER.textDim,
+                    fontSize: '9px',
+                    letterSpacing: '2px',
+                    fontFamily: CYBER.font,
+                    marginBottom: '6px'
+                  }}
+                >
+                  BACKEND MODE
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                  <CyberButton
+                    small
+                    primary={!forceLocalBackend}
+                    onClick={() => onForceLocalBackendChange(false)}
+                  >
+                    Auto
+                  </CyberButton>
+                  <CyberButton
+                    small
+                    primary={forceLocalBackend}
+                    onClick={() => onForceLocalBackendChange(true)}
+                  >
+                    Force Local
+                  </CyberButton>
+                </div>
               </div>
             </div>
           </CyberPanel>
