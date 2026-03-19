@@ -13,6 +13,7 @@ const MAX_OPEN_ROOMS: usize = 5;
 const MAX_TOTAL_PLAYERS: usize = 50;
 const MAX_PLAYERS_PER_ROOM: u16 = 5;
 const ROOM_ACTION_RATE_LIMIT_TICKS: u32 = 8;
+const ROOM_PRUNE_GRACE_TICKS: u32 = SERVER_TICK_RATE * 15;
 const NICKNAME_RATE_LIMIT_TICKS: u32 = 24;
 
 const PLAYER_HEIGHT: f32 = 1.8;
@@ -1160,11 +1161,16 @@ fn remove_room_artifacts(ctx: &ReducerContext, room_code: &str) {
 }
 
 fn prune_empty_rooms(ctx: &ReducerContext) {
+    let tick = current_tick(ctx);
     let empty_rooms: Vec<Room> = ctx
         .db
         .room()
         .iter()
-        .filter(|room| room.player_count == 0 && !room.active)
+        .filter(|room| {
+            room.player_count == 0
+                && !room.active
+                && tick.saturating_sub(room.created_tick) >= ROOM_PRUNE_GRACE_TICKS
+        })
         .collect();
     for room in empty_rooms {
         remove_room_artifacts(ctx, &room.code);

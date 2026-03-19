@@ -302,7 +302,12 @@ export class GameRuntime {
   }
 
   private fixedTick(now: number): void {
-    if (!this.prediction || !this.bridge || this.paused) {
+    if (
+      !this.prediction ||
+      !this.bridge ||
+      this.paused ||
+      useGameStore.getState().connectionStatus !== 'connected'
+    ) {
       return;
     }
 
