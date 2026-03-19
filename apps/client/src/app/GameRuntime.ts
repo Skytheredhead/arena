@@ -6,6 +6,7 @@ import {
   simulatePlayerTick,
   type AmmoPackView,
   type HealthPackView,
+  type ImpactMarkView,
   type LocalPlayerState,
   type RemotePlayerState
 } from '@arena/shared';
@@ -35,6 +36,7 @@ export class GameRuntime {
   private readonly input: InputController;
   private readonly rifle = new RifleController();
   private readonly remoteBuffers = new Map<string, SnapshotBuffer>();
+  private readonly impactMarks = new Map<number, ImpactMarkView>();
   private prediction: PredictionController | null = null;
   private bridge: SpacetimeBridge | null = null;
   private frameHandle = 0;
@@ -99,6 +101,8 @@ export class GameRuntime {
     this.bridge = new SpacetimeBridge({
       onLocalState: state => this.handleAuthoritativeLocalState(state),
       onRemoteState: state => this.handleRemoteState(state),
+      onImpactMark: mark => this.impactMarks.set(mark.id, mark),
+      onImpactMarkRemoved: id => this.impactMarks.delete(id),
       onServerTick: serverTimeMs => this.observeServerTime(serverTimeMs),
       onWeaponAmmo: ammo => this.syncAuthoritativeAmmo(ammo),
       onDisconnected: () => this.disconnect(false)
@@ -118,6 +122,7 @@ export class GameRuntime {
     this.bridge?.disconnect();
     this.bridge = null;
     this.remoteBuffers.clear();
+    this.impactMarks.clear();
     this.prediction = null;
     this.sequence = 0;
     this.lastRespawnTick = 0;
@@ -257,6 +262,9 @@ export class GameRuntime {
       remotePlayers,
       ammoPacks,
       healthPacks,
+      impactMarks: Array.from(this.impactMarks.values()).filter(
+        mark => !connectedRoomCode || mark.roomCode === connectedRoomCode
+      ),
       scoped: frameInput.scoped,
       deltaSeconds,
       recoil: this.rifle.getRecoil(),

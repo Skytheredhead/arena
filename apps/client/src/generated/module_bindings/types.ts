@@ -45,6 +45,19 @@ export const HealthPack = __t.object("HealthPack", {
 });
 export type HealthPack = __Infer<typeof HealthPack>;
 
+export const ImpactMark = __t.object("ImpactMark", {
+  id: __t.u32(),
+  roomCode: __t.string(),
+  x: __t.f32(),
+  y: __t.f32(),
+  z: __t.f32(),
+  normalX: __t.f32(),
+  normalY: __t.f32(),
+  normalZ: __t.f32(),
+  tick: __t.u32(),
+});
+export type ImpactMark = __Infer<typeof ImpactMark>;
+
 export const KillFeedEvent = __t.object("KillFeedEvent", {
   id: __t.u32(),
   roomCode: __t.string(),
@@ -156,4 +169,3 @@ export const WorldState = __t.object("WorldState", {
   currentTick: __t.u32(),
 });
 export type WorldState = __Infer<typeof WorldState>;
-

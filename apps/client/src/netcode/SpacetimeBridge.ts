@@ -3,6 +3,7 @@ import {
   SERVER_TICK_MS,
   type AmmoPackView,
   type HealthPackView,
+  type ImpactMarkView,
   type InputCommand,
   type LocalPlayerState,
   type MatchView,
@@ -18,6 +19,7 @@ import {
 import AmmoPackTable from '../generated/module_bindings/ammo_pack_table';
 import DamageEventTable from '../generated/module_bindings/damage_event_table';
 import HealthPackTable from '../generated/module_bindings/health_pack_table';
+import ImpactMarkTable from '../generated/module_bindings/impact_mark_table';
 import KillFeedEventTable from '../generated/module_bindings/kill_feed_event_table';
 import MatchStateTable from '../generated/module_bindings/match_state_table';
 import PlayerTable from '../generated/module_bindings/player_table';
@@ -39,6 +41,7 @@ type KillFeedEventRow = Infer<typeof KillFeedEventTable>;
 type AmmoPackRow = Infer<typeof AmmoPackTable>;
 type HealthPackRow = Infer<typeof HealthPackTable>;
 type DamageEventRow = Infer<typeof DamageEventTable>;
+type ImpactMarkRow = Infer<typeof ImpactMarkTable>;
 
 export interface ConnectOptions {
   nickname: string;
@@ -49,6 +52,8 @@ export interface ConnectOptions {
 interface BridgeCallbacks {
   onLocalState: (state: LocalPlayerState) => void;
   onRemoteState: (state: RemotePlayerState) => void;
+  onImpactMark: (mark: ImpactMarkView) => void;
+  onImpactMarkRemoved: (id: number) => void;
   onServerTick: (serverTimeMs: number) => void;
   onWeaponAmmo: (ammo: number) => void;
   onDisconnected: (reason?: string) => void;
@@ -247,6 +252,7 @@ export class SpacetimeBridge {
                     tables.match_state,
                     tables.ammo_pack,
                     tables.health_pack,
+                    tables.impact_mark,
                     tables.kill_feed_event,
                     tables.damage_event
                   ])
@@ -309,6 +315,9 @@ export class SpacetimeBridge {
     connection.db.health_pack.onDelete((_ctx, row) =>
       useGameStore.getState().removeHealthPack(row.id)
     );
+    connection.db.impact_mark.onInsert((_ctx, row) => this.handleImpactMarkRow(row));
+    connection.db.impact_mark.onUpdate((_ctx, row) => this.handleImpactMarkRow(row));
+    connection.db.impact_mark.onDelete((_ctx, row) => this.callbacks.onImpactMarkRemoved(row.id));
     connection.db.kill_feed_event.onInsert((_ctx, row) => this.handleKillFeedRow(row));
     connection.db.damage_event.onInsert((_ctx, row) => this.handleDamageEventRow(row));
   }
@@ -478,6 +487,21 @@ export class SpacetimeBridge {
     if (identityToString(row.attackerIdentity) === this.localIdentity) {
       useGameStore.getState().triggerHitmarker(performance.now() + 180);
     }
+  }
+
+  private handleImpactMarkRow(row: ImpactMarkRow): void {
+    const connectedRoom = useGameStore.getState().connectedRoomCode;
+    if (connectedRoom && row.roomCode !== connectedRoom) {
+      return;
+    }
+
+    this.callbacks.onImpactMark({
+      id: row.id,
+      roomCode: row.roomCode,
+      position: { x: row.x, y: row.y, z: row.z },
+      normal: { x: row.normalX, y: row.normalY, z: row.normalZ },
+      tick: row.tick
+    });
   }
 
   getFireIntervalTicks(): number {

@@ -53,11 +53,27 @@ const moveHorizontalTowards = (
   };
 };
 
-const overlapsBlock = (x: number, z: number, block: (typeof ARENA_BLOCKS)[number]): boolean =>
-  x + PLAYER_RADIUS > block.minX &&
-  x - PLAYER_RADIUS < block.maxX &&
-  z + PLAYER_RADIUS > block.minZ &&
-  z - PLAYER_RADIUS < block.maxZ;
+const toBlockLocal = (
+  x: number,
+  z: number,
+  block: (typeof ARENA_BLOCKS)[number]
+): { x: number; z: number } => {
+  const dx = x - block.centerX;
+  const dz = z - block.centerZ;
+  const cos = Math.cos(block.yaw);
+  const sin = Math.sin(block.yaw);
+  return {
+    x: dx * cos + dz * sin,
+    z: -dx * sin + dz * cos
+  };
+};
+
+const overlapsBlock = (x: number, z: number, block: (typeof ARENA_BLOCKS)[number]): boolean => {
+  const local = toBlockLocal(x, z, block);
+  const closestX = clamp(local.x, -block.halfX, block.halfX);
+  const closestZ = clamp(local.z, -block.halfZ, block.halfZ);
+  return length2D(local.x - closestX, local.z - closestZ) < PLAYER_RADIUS;
+};
 
 const groundHeightAt = (x: number, z: number, currentFeetY: number): number => {
   let ground = 0;
@@ -88,14 +104,7 @@ const collidesAt = (x: number, y: number, z: number): boolean => {
 
   const headY = y + PLAYER_HEIGHT;
   for (const block of ARENA_BLOCKS) {
-    if (
-      x + PLAYER_RADIUS > block.minX &&
-      x - PLAYER_RADIUS < block.maxX &&
-      z + PLAYER_RADIUS > block.minZ &&
-      z - PLAYER_RADIUS < block.maxZ &&
-      y < block.maxY &&
-      headY > block.minY
-    ) {
+    if (overlapsBlock(x, z, block) && y < block.maxY && headY > block.minY) {
       return true;
     }
   }

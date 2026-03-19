@@ -49,6 +49,7 @@ import SubmitInputReducer from "./submit_input_reducer";
 import AmmoPackRow from "./ammo_pack_table";
 import DamageEventRow from "./damage_event_table";
 import HealthPackRow from "./health_pack_table";
+import ImpactMarkRow from "./impact_mark_table";
 import KillFeedEventRow from "./kill_feed_event_table";
 import MatchStateRow from "./match_state_table";
 import PlayerRow from "./player_table";
@@ -94,6 +95,17 @@ const tablesSchema = __schema({
       { name: 'health_pack_id_key', constraint: 'unique', columns: ['id'] },
     ],
   }, HealthPackRow),
+  impact_mark: __table({
+    name: 'impact_mark',
+    indexes: [
+      { accessor: 'id', name: 'impact_mark_id_idx_btree', algorithm: 'btree', columns: [
+        'id',
+      ] },
+    ],
+    constraints: [
+      { name: 'impact_mark_id_key', constraint: 'unique', columns: ['id'] },
+    ],
+  }, ImpactMarkRow),
   kill_feed_event: __table({
     name: 'kill_feed_event',
     indexes: [
@@ -238,4 +250,3 @@ export class DbConnection extends __DbConnectionImpl<typeof REMOTE_MODULE> {
     return new SubscriptionBuilder(this);
   };
 }
-

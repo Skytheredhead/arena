@@ -22,7 +22,7 @@ const buildFallbackArena = (): THREE.Group => {
 
   for (const block of ARENA_BLOCKS) {
     const mesh = new THREE.Mesh(
-      new THREE.BoxGeometry(block.maxX - block.minX, block.maxY - block.minY, block.maxZ - block.minZ),
+      new THREE.BoxGeometry(block.halfX * 2, block.maxY - block.minY, block.halfZ * 2),
       new THREE.MeshStandardMaterial({
         color: block.color,
         roughness: 0.74,
@@ -30,10 +30,11 @@ const buildFallbackArena = (): THREE.Group => {
       })
     );
     mesh.position.set(
-      (block.minX + block.maxX) * 0.5,
+      block.centerX,
       (block.minY + block.maxY) * 0.5,
-      (block.minZ + block.maxZ) * 0.5
+      block.centerZ
     );
+    mesh.rotation.y = block.yaw;
     mesh.castShadow = true;
     mesh.receiveShadow = true;
     group.add(mesh);

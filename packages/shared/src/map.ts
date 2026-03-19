@@ -9,7 +9,14 @@ export interface Aabb {
   maxZ: number;
 }
 
-export interface ArenaBlock extends Aabb {
+export interface ArenaBlock {
+  centerX: number;
+  centerZ: number;
+  minY: number;
+  maxY: number;
+  halfX: number;
+  halfZ: number;
+  yaw: number;
   color: string;
 }
 
@@ -20,90 +27,111 @@ export const ARENA_MIN_Z = -31.20470965;
 export const ARENA_MAX_Z = 28.79529035;
 
 export const ARENA_BLOCKS: ArenaBlock[] = [
-  { minX: 4.69, minY: 0.12, minZ: -1.35, maxX: 5.49, maxY: 1.92, maxZ: -0.55, color: '#64748b' },
-  { minX: -4.84, minY: 0.94, minZ: 1.22, maxX: -2.84, maxY: 2.94, maxZ: 3.22, color: '#64748b' },
-  { minX: -19.32, minY: 0, minZ: -0.1, maxX: -11.32, maxY: 8, maxZ: 0.3, color: '#64748b' },
-  { minX: -19.32, minY: 0, minZ: -11.75, maxX: -11.32, maxY: 8, maxZ: -11.35, color: '#64748b' },
-  { minX: -19.69, minY: 0, minZ: -11.55, maxX: -19.29, maxY: 8, maxZ: 0.13, color: '#64748b' },
-  { minX: 14.49, minY: 0, minZ: 5.17, maxX: 14.89, maxY: 8, maxZ: 16.85, color: '#64748b' },
-  { minX: 6.88, minY: 0, minZ: 4.97, maxX: 14.88, maxY: 8, maxZ: 5.37, color: '#64748b' },
-  { minX: 14.5, minY: 0, minZ: 16.62, maxX: 22.5, maxY: 8, maxZ: 17.02, color: '#64748b' },
-  { minX: 4.4, minY: 0, minZ: -15.22, maxX: 22.08, maxY: 8, maxZ: -14.82, color: '#64748b' },
-  { minX: 10.78, minY: 0, minZ: -19.73, maxX: 18.6, maxY: 8, maxZ: -10.52, color: '#64748b' },
-  { minX: -2.3, minY: 0.1, minZ: 13.29, maxX: 2.46, maxY: 3.78, maxZ: 13.49, color: '#64748b' },
-  { minX: -10.99, minY: 0.1, minZ: 7.45, maxX: -6.23, maxY: 3.78, maxZ: 7.65, color: '#64748b' },
-  { minX: 6.88, minY: 0.1, minZ: 1.18, maxX: 7.08, maxY: 3.78, maxZ: 9.46, color: '#64748b' },
-  { minX: -26.86, minY: -0.4, minZ: 13.35, maxX: -23.94, maxY: 2.52, maxZ: 14.35, color: '#64748b' },
-  { minX: 10.78, minY: 0.02, minZ: -8.94, maxX: 18.6, maxY: 2.22, maxZ: 0.27, color: '#64748b' },
-  { minX: -17.11, minY: 0.02, minZ: -25.01, maxX: -9.29, maxY: 2.22, maxZ: -15.81, color: '#64748b' },
-  { minX: 10.78, minY: 0.02, minZ: -29.59, maxX: 18.6, maxY: 2.22, maxZ: -20.39, color: '#64748b' },
-  { minX: -4.85, minY: 0.02, minZ: -25.71, maxX: 2.97, maxY: 2.22, maxZ: -16.51, color: '#64748b' },
-  { minX: 0.97, minY: 0.02, minZ: 14.73, maxX: 8.78, maxY: 2.22, maxZ: 23.94, color: '#64748b' },
-  { minX: 20.17, minY: 0.02, minZ: 2.12, maxX: 27.98, maxY: 2.22, maxZ: 11.33, color: '#64748b' },
-  { minX: -20.56, minY: 0.02, minZ: 3.07, maxX: -12.74, maxY: 2.22, maxZ: 12.28, color: '#64748b' },
-  { minX: -12.67, minY: 0.1, minZ: 15.56, maxX: -7.85, maxY: 3.84, maxZ: 20.32, color: '#64748b' },
-  { minX: -1.71, minY: 0.1, minZ: -13.71, maxX: 5.06, maxY: 3.84, maxZ: -6.94, color: '#64748b' },
-  { minX: 19.35, minY: 0.1, minZ: -6.83, maxX: 26.12, maxY: 3.84, maxZ: -0.05, color: '#64748b' },
-  { minX: -24.13, minY: 0.1, minZ: -21.3, maxX: -19.31, maxY: 3.84, maxZ: -16.54, color: '#64748b' },
-  { minX: -19.56, minY: 0.1, minZ: -8.12, maxX: -14.85, maxY: 3.78, maxZ: -6.99, color: '#64748b' },
-  { minX: -7.45, minY: 0.1, minZ: -15.29, maxX: -4.6, maxY: 3.78, maxZ: -11.24, color: '#64748b' },
-  { minX: 3.6, minY: 0.1, minZ: -24.78, maxX: 8.3, maxY: 3.78, maxZ: -23.62, color: '#64748b' },
-  { minX: -11, minY: 0.12, minZ: -6.07, maxX: -10.2, maxY: 1.92, maxZ: -5.27, color: '#64748b' },
-  { minX: 6.84, minY: 0.12, minZ: -20.67, maxX: 7.64, maxY: 1.92, maxZ: -19.87, color: '#64748b' },
-  { minX: 9.98, minY: 0.12, minZ: 10.25, maxX: 10.26, maxY: 1.92, maxZ: 14.17, color: '#64748b' },
-  { minX: -18.4, minY: 0.12, minZ: 14.09, maxX: -18.12, maxY: 1.92, maxZ: 18.01, color: '#64748b' },
-  { minX: -7.57, minY: -0.24, minZ: -3.77, maxX: 2.67, maxY: 5.62, maxZ: 4.8, color: '#64748b' }
+  { centerX: 5.09392, centerZ: -0.95117, minY: 0.12000, maxY: 1.92000, halfX: 0.40000, halfZ: 0.40000, yaw: 0.000000, color: '#64748b' },
+  { centerX: -3.84218, centerZ: 2.21927, minY: 0.94444, maxY: 2.94444, halfX: 1.00000, halfZ: 1.00000, yaw: 0.000000, color: '#64748b' },
+  { centerX: -15.31586, centerZ: 0.10082, minY: 0.00368, maxY: 8.00368, halfX: 4.00000, halfZ: 0.20000, yaw: 0.000000, color: '#64748b' },
+  { centerX: -15.31586, centerZ: -11.54711, minY: 0.00368, maxY: 8.00368, halfX: 4.00000, halfZ: 0.20000, yaw: 0.000000, color: '#64748b' },
+  { centerX: -19.48598, centerZ: -5.71170, minY: 0.00368, maxY: 8.00368, halfX: 5.84000, halfZ: 0.20000, yaw: 1.570796, color: '#64748b' },
+  { centerX: 14.68880, centerZ: 11.00890, minY: 0.00368, maxY: 8.00368, halfX: 5.84000, halfZ: 0.20000, yaw: 1.570796, color: '#64748b' },
+  { centerX: 10.87891, centerZ: 5.17349, minY: 0.00368, maxY: 8.00368, halfX: 4.00000, halfZ: 0.20000, yaw: 0.000000, color: '#64748b' },
+  { centerX: 18.49891, centerZ: 16.82142, minY: 0.00368, maxY: 8.00368, halfX: 4.00000, halfZ: 0.20000, yaw: 0.000000, color: '#64748b' },
+  { centerX: 13.23891, centerZ: -15.02226, minY: 0.00368, maxY: 8.00368, halfX: 8.84000, halfZ: 0.20000, yaw: 0.000000, color: '#64748b' },
+  { centerX: 14.68880, centerZ: -15.12684, minY: 0.00368, maxY: 8.00368, halfX: 5.84000, halfZ: 0.20000, yaw: 2.268928, color: '#64748b' },
+  { centerX: 0.08281, centerZ: 13.39227, minY: 0.10444, maxY: 3.78444, halfX: 2.38000, halfZ: 0.10000, yaw: 0.000000, color: '#64748b' },
+  { centerX: -8.60557, centerZ: 7.54725, minY: 0.10444, maxY: 3.78444, halfX: 2.38000, halfZ: 0.10000, yaw: 0.000000, color: '#64748b' },
+  { centerX: 6.97860, centerZ: 5.31945, minY: 0.10444, maxY: 3.78444, halfX: 4.14000, halfZ: 0.10000, yaw: 1.570796, color: '#64748b' },
+  { centerX: -25.39542, centerZ: 13.85416, minY: -0.40000, maxY: 2.52000, halfX: 1.46000, halfZ: 0.50000, yaw: 0.000000, color: '#64748b' },
+  { centerX: 14.68880, centerZ: -4.33563, minY: 0.02368, maxY: 2.22368, halfX: 5.84000, halfZ: 0.20000, yaw: 2.268928, color: '#64748b' },
+  { centerX: -13.19907, centerZ: -20.40905, minY: 0.02368, maxY: 2.22368, halfX: 5.84000, halfZ: 0.20000, yaw: 2.268928, color: '#64748b' },
+  { centerX: 14.68880, centerZ: -24.98794, minY: 0.02368, maxY: 2.22368, halfX: 5.84000, halfZ: 0.20000, yaw: 2.268928, color: '#64748b' },
+  { centerX: -0.93795, centerZ: -21.10769, minY: 0.02368, maxY: 2.22368, halfX: 5.84000, halfZ: 0.20000, yaw: 2.268928, color: '#64748b' },
+  { centerX: 4.87588, centerZ: 19.33433, minY: 0.02368, maxY: 2.22368, halfX: 5.84000, halfZ: 0.20000, yaw: 2.268928, color: '#64748b' },
+  { centerX: 24.07576, centerZ: 6.72323, minY: 0.02368, maxY: 2.22368, halfX: 5.84000, halfZ: 0.20000, yaw: 2.268928, color: '#64748b' },
+  { centerX: -16.65078, centerZ: 7.67395, minY: 0.02368, maxY: 2.22368, halfX: 5.84000, halfZ: 0.20000, yaw: 2.268928, color: '#64748b' },
+  { centerX: -10.25691, centerZ: 17.93814, minY: 0.10444, maxY: 3.84444, halfX: 2.41037, halfZ: 2.38000, yaw: 0.000000, color: '#64748b' },
+  { centerX: 0.07336, centerZ: -9.66446, minY: 0.10444, maxY: 3.84444, halfX: 2.41037, halfZ: 2.38000, yaw: 0.785398, color: '#64748b' },
+  { centerX: 21.12998, centerZ: -2.77633, minY: 0.10444, maxY: 3.84444, halfX: 2.41037, halfZ: 2.38000, yaw: 0.785398, color: '#64748b' },
+  { centerX: -21.72169, centerZ: -18.92193, minY: 0.10444, maxY: 3.84444, halfX: 2.41037, halfZ: 2.38000, yaw: 0.000000, color: '#64748b' },
+  { centerX: -17.20196, centerZ: -7.55309, minY: 0.10444, maxY: 3.78444, halfX: 2.38000, halfZ: 0.10000, yaw: 2.944276, color: '#64748b' },
+  { centerX: -6.02308, centerZ: -13.26200, minY: 0.10444, maxY: 3.78444, halfX: 2.38000, halfZ: 0.10000, yaw: -2.168545, color: '#64748b' },
+  { centerX: 5.94835, centerZ: -24.19974, minY: 0.10444, maxY: 3.78444, halfX: 2.38000, halfZ: 0.10000, yaw: -2.938323, color: '#64748b' },
+  { centerX: -10.59860, centerZ: -5.66869, minY: 0.12000, maxY: 1.92000, halfX: 0.40000, halfZ: 0.40000, yaw: 0.000000, color: '#64748b' },
+  { centerX: 7.24234, centerZ: -20.27291, minY: 0.12000, maxY: 1.92000, halfX: 0.40000, halfZ: 0.40000, yaw: 0.000000, color: '#64748b' },
+  { centerX: 10.11569, centerZ: 12.20886, minY: 0.12000, maxY: 1.92000, halfX: 0.14000, halfZ: 1.96000, yaw: 0.000000, color: '#64748b' },
+  { centerX: -18.25787, centerZ: 16.05289, minY: 0.12000, maxY: 1.92000, halfX: 0.14000, halfZ: 1.96000, yaw: 0.000000, color: '#64748b' },
+  { centerX: -2.45024, centerZ: 0.51373, minY: -0.23556, maxY: 5.61836, halfX: 5.12457, halfZ: 4.28400, yaw: 0.000000, color: '#64748b' }
 ];
 
 export const ARENA_WALLS: ArenaBlock[] = [
   {
-    minX: -ARENA_HALF_SIZE,
+    centerX: 0,
+    centerZ: -1.20470965,
     minY: 0,
-    minZ: -ARENA_HALF_SIZE,
-    maxX: ARENA_HALF_SIZE,
     maxY: 0.2,
-    maxZ: ARENA_HALF_SIZE,
+    halfX: ARENA_HALF_SIZE,
+    halfZ: ARENA_HALF_SIZE,
+    yaw: 0,
     color: '#1b2433'
   },
   {
-    minX: -ARENA_HALF_SIZE - 0.8,
+    centerX: -ARENA_HALF_SIZE - 0.4,
+    centerZ: -1.20470965,
     minY: 0,
-    minZ: -ARENA_HALF_SIZE - 0.8,
-    maxX: -ARENA_HALF_SIZE,
     maxY: 4.5,
-    maxZ: ARENA_HALF_SIZE + 0.8,
+    halfX: 0.4,
+    halfZ: ARENA_HALF_SIZE + 0.8,
+    yaw: 0,
     color: '#111827'
   },
   {
-    minX: ARENA_HALF_SIZE,
+    centerX: ARENA_HALF_SIZE + 0.4,
+    centerZ: -1.20470965,
     minY: 0,
-    minZ: -ARENA_HALF_SIZE - 0.8,
-    maxX: ARENA_HALF_SIZE + 0.8,
     maxY: 4.5,
-    maxZ: ARENA_HALF_SIZE + 0.8,
+    halfX: 0.4,
+    halfZ: ARENA_HALF_SIZE + 0.8,
+    yaw: 0,
     color: '#111827'
   },
   {
-    minX: -ARENA_HALF_SIZE - 0.8,
+    centerX: 0,
+    centerZ: -ARENA_HALF_SIZE - 0.4,
     minY: 0,
-    minZ: -ARENA_HALF_SIZE - 0.8,
-    maxX: ARENA_HALF_SIZE + 0.8,
     maxY: 4.5,
-    maxZ: -ARENA_HALF_SIZE,
+    halfX: ARENA_HALF_SIZE + 0.8,
+    halfZ: 0.4,
+    yaw: 0,
     color: '#111827'
   },
   {
-    minX: -ARENA_HALF_SIZE - 0.8,
+    centerX: 0,
+    centerZ: ARENA_HALF_SIZE + 0.4,
     minY: 0,
-    minZ: ARENA_HALF_SIZE,
-    maxX: ARENA_HALF_SIZE + 0.8,
     maxY: 4.5,
-    maxZ: ARENA_HALF_SIZE + 0.8,
+    halfX: ARENA_HALF_SIZE + 0.8,
+    halfZ: 0.4,
+    yaw: 0,
     color: '#111827'
   }
 ];
 
-export const ARENA_SOLIDS: Aabb[] = [...ARENA_BLOCKS, ...ARENA_WALLS.slice(1)];
+export const toAabb = (block: ArenaBlock): Aabb => {
+  const cos = Math.cos(block.yaw);
+  const sin = Math.sin(block.yaw);
+  const worldHalfX = Math.abs(cos) * block.halfX + Math.abs(sin) * block.halfZ;
+  const worldHalfZ = Math.abs(sin) * block.halfX + Math.abs(cos) * block.halfZ;
+
+  return {
+    minX: block.centerX - worldHalfX,
+    minY: block.minY,
+    minZ: block.centerZ - worldHalfZ,
+    maxX: block.centerX + worldHalfX,
+    maxY: block.maxY,
+    maxZ: block.centerZ + worldHalfZ
+  };
+};
+
+export const ARENA_SOLIDS: Aabb[] = [...ARENA_BLOCKS, ...ARENA_WALLS.slice(1)].map(toAabb);
 
 export const SPAWN_POINTS: Vec3[] = [
   { x: -26, y: 0, z: -28 },

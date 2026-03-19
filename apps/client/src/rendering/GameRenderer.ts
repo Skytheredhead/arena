@@ -3,6 +3,7 @@ import {
   PLAYER_EYE_HEIGHT,
   type AmmoPackView,
   type HealthPackView,
+  type ImpactMarkView,
   type LocalPlayerState,
   type RemotePlayerState
 } from '@arena/shared';
@@ -14,6 +15,7 @@ interface RenderFrameState {
   remotePlayers: RemotePlayerState[];
   ammoPacks: AmmoPackView[];
   healthPacks: HealthPackView[];
+  impactMarks: ImpactMarkView[];
   scoped: boolean;
   recoil: number;
   muzzleFlashVisible: boolean;
@@ -32,10 +34,12 @@ export class GameRenderer {
   private readonly healthPackMeshes = new Map<number, THREE.Group>();
   private readonly healthPackActiveState = new Map<number, boolean>();
   private readonly healthPackActivatedAt = new Map<number, number>();
+  private readonly impactMarkMeshes = new Map<number, THREE.Mesh>();
   private readonly muzzleFlash: THREE.Mesh;
   private readonly weaponModel: THREE.Group;
   private readonly smoothedCameraPosition = new THREE.Vector3();
   private readonly targetCameraPosition = new THREE.Vector3();
+  private readonly decalUp = new THREE.Vector3(0, 0, 1);
   private graphicsQuality: GraphicsQuality = 'high';
   private baseFov = 80;
   private cameraPositionInitialized = false;
@@ -335,6 +339,29 @@ export class GameRenderer {
     return mesh;
   }
 
+  private ensureImpactMarkMesh(id: number): THREE.Mesh {
+    let mesh = this.impactMarkMeshes.get(id);
+    if (mesh) {
+      return mesh;
+    }
+
+    mesh = new THREE.Mesh(
+      new THREE.CircleGeometry(0.055, 12),
+      new THREE.MeshBasicMaterial({
+        color: '#0b1117',
+        transparent: true,
+        opacity: 0.92,
+        depthWrite: false,
+        polygonOffset: true,
+        polygonOffsetFactor: -2,
+        polygonOffsetUnits: -2
+      })
+    );
+    this.scene.add(mesh);
+    this.impactMarkMeshes.set(id, mesh);
+    return mesh;
+  }
+
   private setPickupOpacity(mesh: THREE.Group, opacity: number): void {
     mesh.traverse(object => {
       if (!(object instanceof THREE.Mesh)) {
@@ -465,6 +492,25 @@ export class GameRenderer {
         mesh.visible = false;
         this.healthPackActiveState.delete(id);
         this.healthPackActivatedAt.delete(id);
+      }
+    }
+
+    const activeImpactIds = new Set(frame.impactMarks.map(mark => mark.id));
+    for (const mark of frame.impactMarks) {
+      const mesh = this.ensureImpactMarkMesh(mark.id);
+      mesh.visible = true;
+      mesh.position.set(
+        mark.position.x + mark.normal.x * 0.02,
+        mark.position.y + mark.normal.y * 0.02,
+        mark.position.z + mark.normal.z * 0.02
+      );
+      const normal = new THREE.Vector3(mark.normal.x, mark.normal.y, mark.normal.z).normalize();
+      mesh.quaternion.setFromUnitVectors(this.decalUp, normal);
+      mesh.rotateZ(mark.id * 0.371);
+    }
+    for (const [id, mesh] of this.impactMarkMeshes) {
+      if (!activeImpactIds.has(id)) {
+        mesh.visible = false;
       }
     }
 

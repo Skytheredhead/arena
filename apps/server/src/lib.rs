@@ -1,6 +1,4 @@
-use spacetimedb::{
-    reducer, table, Identity, ReducerContext, ScheduleAt, Table, TimeDuration,
-};
+use spacetimedb::{reducer, table, Identity, ReducerContext, ScheduleAt, Table, TimeDuration};
 
 const SERVER_TICK_RATE: u32 = 40;
 const SERVER_TICK_MS: u32 = 1000 / SERVER_TICK_RATE;
@@ -15,6 +13,7 @@ const MAX_PLAYERS_PER_ROOM: u16 = 5;
 const ROOM_ACTION_RATE_LIMIT_TICKS: u32 = 8;
 const ROOM_PRUNE_GRACE_TICKS: u32 = SERVER_TICK_RATE * 15;
 const NICKNAME_RATE_LIMIT_TICKS: u32 = 24;
+const MAX_IMPACT_MARKS_PER_ROOM: usize = 120;
 
 const PLAYER_HEIGHT: f32 = 1.8;
 const PLAYER_RADIUS: f32 = 0.4;
@@ -61,79 +60,432 @@ struct Vec3 {
 
 #[derive(Clone, Copy)]
 struct Block {
-    min_x: f32,
     min_y: f32,
-    min_z: f32,
-    max_x: f32,
+    center_x: f32,
+    center_z: f32,
     max_y: f32,
-    max_z: f32,
+    half_x: f32,
+    half_z: f32,
+    yaw: f32,
 }
 
 const ARENA_BLOCKS: [Block; 33] = [
-    Block { min_x: 4.69, min_y: 0.12, min_z: -1.35, max_x: 5.49, max_y: 1.92, max_z: -0.55 },
-    Block { min_x: -4.84, min_y: 0.94, min_z: 1.22, max_x: -2.84, max_y: 2.94, max_z: 3.22 },
-    Block { min_x: -19.32, min_y: 0.0, min_z: -0.1, max_x: -11.32, max_y: 8.0, max_z: 0.3 },
-    Block { min_x: -19.32, min_y: 0.0, min_z: -11.75, max_x: -11.32, max_y: 8.0, max_z: -11.35 },
-    Block { min_x: -19.69, min_y: 0.0, min_z: -11.55, max_x: -19.29, max_y: 8.0, max_z: 0.13 },
-    Block { min_x: 14.49, min_y: 0.0, min_z: 5.17, max_x: 14.89, max_y: 8.0, max_z: 16.85 },
-    Block { min_x: 6.88, min_y: 0.0, min_z: 4.97, max_x: 14.88, max_y: 8.0, max_z: 5.37 },
-    Block { min_x: 14.5, min_y: 0.0, min_z: 16.62, max_x: 22.5, max_y: 8.0, max_z: 17.02 },
-    Block { min_x: 4.4, min_y: 0.0, min_z: -15.22, max_x: 22.08, max_y: 8.0, max_z: -14.82 },
-    Block { min_x: 10.78, min_y: 0.0, min_z: -19.73, max_x: 18.6, max_y: 8.0, max_z: -10.52 },
-    Block { min_x: -2.3, min_y: 0.1, min_z: 13.29, max_x: 2.46, max_y: 3.78, max_z: 13.49 },
-    Block { min_x: -10.99, min_y: 0.1, min_z: 7.45, max_x: -6.23, max_y: 3.78, max_z: 7.65 },
-    Block { min_x: 6.88, min_y: 0.1, min_z: 1.18, max_x: 7.08, max_y: 3.78, max_z: 9.46 },
-    Block { min_x: -26.86, min_y: -0.4, min_z: 13.35, max_x: -23.94, max_y: 2.52, max_z: 14.35 },
-    Block { min_x: 10.78, min_y: 0.02, min_z: -8.94, max_x: 18.6, max_y: 2.22, max_z: 0.27 },
-    Block { min_x: -17.11, min_y: 0.02, min_z: -25.01, max_x: -9.29, max_y: 2.22, max_z: -15.81 },
-    Block { min_x: 10.78, min_y: 0.02, min_z: -29.59, max_x: 18.6, max_y: 2.22, max_z: -20.39 },
-    Block { min_x: -4.85, min_y: 0.02, min_z: -25.71, max_x: 2.97, max_y: 2.22, max_z: -16.51 },
-    Block { min_x: 0.97, min_y: 0.02, min_z: 14.73, max_x: 8.78, max_y: 2.22, max_z: 23.94 },
-    Block { min_x: 20.17, min_y: 0.02, min_z: 2.12, max_x: 27.98, max_y: 2.22, max_z: 11.33 },
-    Block { min_x: -20.56, min_y: 0.02, min_z: 3.07, max_x: -12.74, max_y: 2.22, max_z: 12.28 },
-    Block { min_x: -12.67, min_y: 0.1, min_z: 15.56, max_x: -7.85, max_y: 3.84, max_z: 20.32 },
-    Block { min_x: -1.71, min_y: 0.1, min_z: -13.71, max_x: 5.06, max_y: 3.84, max_z: -6.94 },
-    Block { min_x: 19.35, min_y: 0.1, min_z: -6.83, max_x: 26.12, max_y: 3.84, max_z: -0.05 },
-    Block { min_x: -24.13, min_y: 0.1, min_z: -21.3, max_x: -19.31, max_y: 3.84, max_z: -16.54 },
-    Block { min_x: -19.56, min_y: 0.1, min_z: -8.12, max_x: -14.85, max_y: 3.78, max_z: -6.99 },
-    Block { min_x: -7.45, min_y: 0.1, min_z: -15.29, max_x: -4.6, max_y: 3.78, max_z: -11.24 },
-    Block { min_x: 3.6, min_y: 0.1, min_z: -24.78, max_x: 8.3, max_y: 3.78, max_z: -23.62 },
-    Block { min_x: -11.0, min_y: 0.12, min_z: -6.07, max_x: -10.2, max_y: 1.92, max_z: -5.27 },
-    Block { min_x: 6.84, min_y: 0.12, min_z: -20.67, max_x: 7.64, max_y: 1.92, max_z: -19.87 },
-    Block { min_x: 9.98, min_y: 0.12, min_z: 10.25, max_x: 10.26, max_y: 1.92, max_z: 14.17 },
-    Block { min_x: -18.4, min_y: 0.12, min_z: 14.09, max_x: -18.12, max_y: 1.92, max_z: 18.01 },
-    Block { min_x: -7.57, min_y: -0.24, min_z: -3.77, max_x: 2.67, max_y: 5.62, max_z: 4.8 },
+    Block {
+        center_x: 5.0939,
+        center_z: -0.95117,
+        min_y: 0.12,
+        max_y: 1.92,
+        half_x: 0.4,
+        half_z: 0.4,
+        yaw: 0.0,
+    },
+    Block {
+        center_x: -3.8422,
+        center_z: 2.2193,
+        min_y: 0.94444,
+        max_y: 2.9444,
+        half_x: 1.0,
+        half_z: 1.0,
+        yaw: 0.0,
+    },
+    Block {
+        center_x: -15.316,
+        center_z: 0.10082,
+        min_y: 0.00368,
+        max_y: 8.0037,
+        half_x: 4.0,
+        half_z: 0.2,
+        yaw: 0.0,
+    },
+    Block {
+        center_x: -15.316,
+        center_z: -11.547,
+        min_y: 0.00368,
+        max_y: 8.0037,
+        half_x: 4.0,
+        half_z: 0.2,
+        yaw: 0.0,
+    },
+    Block {
+        center_x: -19.486,
+        center_z: -5.7117,
+        min_y: 0.00368,
+        max_y: 8.0037,
+        half_x: 5.84,
+        half_z: 0.2,
+        yaw: 1.5708,
+    },
+    Block {
+        center_x: 14.689,
+        center_z: 11.009,
+        min_y: 0.00368,
+        max_y: 8.0037,
+        half_x: 5.84,
+        half_z: 0.2,
+        yaw: 1.5708,
+    },
+    Block {
+        center_x: 10.879,
+        center_z: 5.1735,
+        min_y: 0.00368,
+        max_y: 8.0037,
+        half_x: 4.0,
+        half_z: 0.2,
+        yaw: 0.0,
+    },
+    Block {
+        center_x: 18.499,
+        center_z: 16.821,
+        min_y: 0.00368,
+        max_y: 8.0037,
+        half_x: 4.0,
+        half_z: 0.2,
+        yaw: 0.0,
+    },
+    Block {
+        center_x: 13.239,
+        center_z: -15.022,
+        min_y: 0.00368,
+        max_y: 8.0037,
+        half_x: 8.84,
+        half_z: 0.2,
+        yaw: 0.0,
+    },
+    Block {
+        center_x: 14.689,
+        center_z: -15.127,
+        min_y: 0.00368,
+        max_y: 8.0037,
+        half_x: 5.84,
+        half_z: 0.2,
+        yaw: 2.26893,
+    },
+    Block {
+        center_x: 0.08281,
+        center_z: 13.392,
+        min_y: 0.10444,
+        max_y: 3.7844,
+        half_x: 2.38,
+        half_z: 0.1,
+        yaw: 0.0,
+    },
+    Block {
+        center_x: -8.6056,
+        center_z: 7.5473,
+        min_y: 0.10444,
+        max_y: 3.7844,
+        half_x: 2.38,
+        half_z: 0.1,
+        yaw: 0.0,
+    },
+    Block {
+        center_x: 6.9786,
+        center_z: 5.3194,
+        min_y: 0.10444,
+        max_y: 3.7844,
+        half_x: 4.14,
+        half_z: 0.1,
+        yaw: 1.5708,
+    },
+    Block {
+        center_x: -25.395,
+        center_z: 13.854,
+        min_y: -0.4,
+        max_y: 2.52,
+        half_x: 1.46,
+        half_z: 0.5,
+        yaw: 0.0,
+    },
+    Block {
+        center_x: 14.689,
+        center_z: -4.3356,
+        min_y: 0.02368,
+        max_y: 2.2237,
+        half_x: 5.84,
+        half_z: 0.2,
+        yaw: 2.26893,
+    },
+    Block {
+        center_x: -13.199,
+        center_z: -20.409,
+        min_y: 0.02368,
+        max_y: 2.2237,
+        half_x: 5.84,
+        half_z: 0.2,
+        yaw: 2.26893,
+    },
+    Block {
+        center_x: 14.689,
+        center_z: -24.988,
+        min_y: 0.02368,
+        max_y: 2.2237,
+        half_x: 5.84,
+        half_z: 0.2,
+        yaw: 2.26893,
+    },
+    Block {
+        center_x: -0.93795,
+        center_z: -21.108,
+        min_y: 0.02368,
+        max_y: 2.2237,
+        half_x: 5.84,
+        half_z: 0.2,
+        yaw: 2.26893,
+    },
+    Block {
+        center_x: 4.8759,
+        center_z: 19.334,
+        min_y: 0.02368,
+        max_y: 2.2237,
+        half_x: 5.84,
+        half_z: 0.2,
+        yaw: 2.26893,
+    },
+    Block {
+        center_x: 24.076,
+        center_z: 6.7232,
+        min_y: 0.02368,
+        max_y: 2.2237,
+        half_x: 5.84,
+        half_z: 0.2,
+        yaw: 2.26893,
+    },
+    Block {
+        center_x: -16.651,
+        center_z: 7.6739,
+        min_y: 0.02368,
+        max_y: 2.2237,
+        half_x: 5.84,
+        half_z: 0.2,
+        yaw: 2.26893,
+    },
+    Block {
+        center_x: -10.257,
+        center_z: 17.938,
+        min_y: 0.10444,
+        max_y: 3.8444,
+        half_x: 2.4104,
+        half_z: 2.38,
+        yaw: 0.0,
+    },
+    Block {
+        center_x: 0.07336,
+        center_z: -9.6645,
+        min_y: 0.10444,
+        max_y: 3.8444,
+        half_x: 2.4104,
+        half_z: 2.38,
+        yaw: 0.785398,
+    },
+    Block {
+        center_x: 21.13,
+        center_z: -2.7763,
+        min_y: 0.10444,
+        max_y: 3.8444,
+        half_x: 2.4104,
+        half_z: 2.38,
+        yaw: 0.785398,
+    },
+    Block {
+        center_x: -21.722,
+        center_z: -18.922,
+        min_y: 0.10444,
+        max_y: 3.8444,
+        half_x: 2.4104,
+        half_z: 2.38,
+        yaw: 0.0,
+    },
+    Block {
+        center_x: -17.202,
+        center_z: -7.5531,
+        min_y: 0.10444,
+        max_y: 3.7844,
+        half_x: 2.38,
+        half_z: 0.1,
+        yaw: 2.94428,
+    },
+    Block {
+        center_x: -6.0231,
+        center_z: -13.262,
+        min_y: 0.10444,
+        max_y: 3.7844,
+        half_x: 2.38,
+        half_z: 0.1,
+        yaw: -2.16854,
+    },
+    Block {
+        center_x: 5.9483,
+        center_z: -24.2,
+        min_y: 0.10444,
+        max_y: 3.7844,
+        half_x: 2.38,
+        half_z: 0.1,
+        yaw: -2.93832,
+    },
+    Block {
+        center_x: -10.599,
+        center_z: -5.6687,
+        min_y: 0.12,
+        max_y: 1.92,
+        half_x: 0.4,
+        half_z: 0.4,
+        yaw: 0.0,
+    },
+    Block {
+        center_x: 7.2423,
+        center_z: -20.273,
+        min_y: 0.12,
+        max_y: 1.92,
+        half_x: 0.4,
+        half_z: 0.4,
+        yaw: 0.0,
+    },
+    Block {
+        center_x: 10.116,
+        center_z: 12.209,
+        min_y: 0.12,
+        max_y: 1.92,
+        half_x: 0.14,
+        half_z: 1.96,
+        yaw: 0.0,
+    },
+    Block {
+        center_x: -18.258,
+        center_z: 16.053,
+        min_y: 0.12,
+        max_y: 1.92,
+        half_x: 0.14,
+        half_z: 1.96,
+        yaw: 0.0,
+    },
+    Block {
+        center_x: -2.4502,
+        center_z: 0.51373,
+        min_y: -0.23556,
+        max_y: 5.6184,
+        half_x: 5.1246,
+        half_z: 4.284,
+        yaw: 0.0,
+    },
 ];
 
 const SPAWN_POINTS: [Vec3; 8] = [
-    Vec3 { x: -26.0, y: 0.0, z: -28.0 },
-    Vec3 { x: 26.0, y: 0.0, z: -28.0 },
-    Vec3 { x: -26.0, y: 0.0, z: 24.0 },
-    Vec3 { x: 26.0, y: 0.0, z: 24.0 },
-    Vec3 { x: 0.0, y: 0.0, z: -29.0 },
-    Vec3 { x: 0.0, y: 0.0, z: 27.0 },
-    Vec3 { x: -24.0, y: 0.0, z: -10.0 },
-    Vec3 { x: 24.0, y: 0.0, z: -10.0 },
+    Vec3 {
+        x: -26.0,
+        y: 0.0,
+        z: -28.0,
+    },
+    Vec3 {
+        x: 26.0,
+        y: 0.0,
+        z: -28.0,
+    },
+    Vec3 {
+        x: -26.0,
+        y: 0.0,
+        z: 24.0,
+    },
+    Vec3 {
+        x: 26.0,
+        y: 0.0,
+        z: 24.0,
+    },
+    Vec3 {
+        x: 0.0,
+        y: 0.0,
+        z: -29.0,
+    },
+    Vec3 {
+        x: 0.0,
+        y: 0.0,
+        z: 27.0,
+    },
+    Vec3 {
+        x: -24.0,
+        y: 0.0,
+        z: -10.0,
+    },
+    Vec3 {
+        x: 24.0,
+        y: 0.0,
+        z: -10.0,
+    },
 ];
 
 const AMMO_PACK_LOCATIONS: [Vec3; 10] = [
-    Vec3 { x: -20.0, y: 0.0, z: 20.0 },
-    Vec3 { x: 20.0, y: 0.0, z: 20.0 },
-    Vec3 { x: -22.0, y: 0.0, z: 2.0 },
-    Vec3 { x: -25.0, y: 0.0, z: 8.0 },
-    Vec3 { x: -6.0, y: 0.0, z: 24.0 },
-    Vec3 { x: 6.0, y: 0.0, z: 12.0 },
-    Vec3 { x: -1.0, y: 0.0, z: -16.0 },
-    Vec3 { x: -15.0, y: 0.0, z: -6.0 },
-    Vec3 { x: 15.0, y: 0.0, z: 4.0 },
-    Vec3 { x: 15.0, y: 0.0, z: -10.0 },
+    Vec3 {
+        x: -20.0,
+        y: 0.0,
+        z: 20.0,
+    },
+    Vec3 {
+        x: 20.0,
+        y: 0.0,
+        z: 20.0,
+    },
+    Vec3 {
+        x: -22.0,
+        y: 0.0,
+        z: 2.0,
+    },
+    Vec3 {
+        x: -25.0,
+        y: 0.0,
+        z: 8.0,
+    },
+    Vec3 {
+        x: -6.0,
+        y: 0.0,
+        z: 24.0,
+    },
+    Vec3 {
+        x: 6.0,
+        y: 0.0,
+        z: 12.0,
+    },
+    Vec3 {
+        x: -1.0,
+        y: 0.0,
+        z: -16.0,
+    },
+    Vec3 {
+        x: -15.0,
+        y: 0.0,
+        z: -6.0,
+    },
+    Vec3 {
+        x: 15.0,
+        y: 0.0,
+        z: 4.0,
+    },
+    Vec3 {
+        x: 15.0,
+        y: 0.0,
+        z: -10.0,
+    },
 ];
 
 const HEALTH_PACK_LOCATIONS: [Vec3; 4] = [
-    Vec3 { x: -12.0, y: 0.0, z: 8.0 },
-    Vec3 { x: 12.0, y: 0.0, z: 8.0 },
-    Vec3 { x: -9.0, y: 0.0, z: -8.0 },
-    Vec3 { x: 9.0, y: 0.0, z: -8.0 },
+    Vec3 {
+        x: -12.0,
+        y: 0.0,
+        z: 8.0,
+    },
+    Vec3 {
+        x: 12.0,
+        y: 0.0,
+        z: 8.0,
+    },
+    Vec3 {
+        x: -9.0,
+        y: 0.0,
+        z: -8.0,
+    },
+    Vec3 {
+        x: 9.0,
+        y: 0.0,
+        z: -8.0,
+    },
 ];
 
 #[table(accessor = world_state)]
@@ -276,6 +628,21 @@ pub struct HealthPack {
     respawn_tick: u32,
 }
 
+#[table(accessor = impact_mark, public)]
+pub struct ImpactMark {
+    #[primary_key]
+    #[auto_inc]
+    id: u32,
+    room_code: String,
+    x: f32,
+    y: f32,
+    z: f32,
+    normal_x: f32,
+    normal_y: f32,
+    normal_z: f32,
+    tick: u32,
+}
+
 #[table(accessor = kill_feed_event, public)]
 pub struct KillFeedEvent {
     #[primary_key]
@@ -352,7 +719,13 @@ pub fn client_connected(ctx: &ReducerContext) {
         });
     }
 
-    if ctx.db.player_state().identity().find(ctx.sender()).is_none() {
+    if ctx
+        .db
+        .player_state()
+        .identity()
+        .find(ctx.sender())
+        .is_none()
+    {
         ctx.db.player_state().insert(PlayerState {
             identity: ctx.sender(),
             room_code: None,
@@ -375,7 +748,13 @@ pub fn client_connected(ctx: &ReducerContext) {
         });
     }
 
-    if ctx.db.weapon_state().identity().find(ctx.sender()).is_none() {
+    if ctx
+        .db
+        .weapon_state()
+        .identity()
+        .find(ctx.sender())
+        .is_none()
+    {
         ctx.db.weapon_state().insert(WeaponState {
             identity: ctx.sender(),
             room_code: None,
@@ -494,7 +873,8 @@ pub fn join_room(ctx: &ReducerContext, room_code: String) -> Result<(), String> 
         .ok_or_else(|| "Room not found".to_string())?;
     let joined_total = current_joined_players(ctx);
     let player = require_player(ctx, ctx.sender())?;
-    if player.room_code.as_deref() != Some(room_code.as_str()) && room.player_count >= MAX_PLAYERS_PER_ROOM
+    if player.room_code.as_deref() != Some(room_code.as_str())
+        && room.player_count >= MAX_PLAYERS_PER_ROOM
     {
         return Err("Room is full (5 players max)".to_string());
     }
@@ -700,6 +1080,7 @@ pub fn fire_weapon(ctx: &ReducerContext, yaw: f32, pitch: f32, scoped: bool) -> 
         y: state.y + PLAYER_EYE_HEIGHT,
         z: state.z,
     };
+    let block_hit = ray_hits_any_block(origin, direction);
 
     let mut best_hit: Option<(Identity, f32)> = None;
     for target in ctx.db.player_state().iter() {
@@ -726,14 +1107,35 @@ pub fn fire_weapon(ctx: &ReducerContext, yaw: f32, pitch: f32, scoped: bool) -> 
     }
 
     if let Some((victim_identity, victim_distance)) = best_hit {
-        if let Some(block_distance) = ray_hits_any_block(origin, direction) {
-            if block_distance < victim_distance {
+        if let Some(block_hit) = block_hit {
+            if block_hit.distance < victim_distance {
+                insert_impact_mark(
+                    ctx,
+                    &room_code,
+                    point_along_ray(origin, direction, block_hit.distance),
+                    block_hit.normal,
+                    tick,
+                );
                 apply_weapon_cooldown(ctx, weapon, tick);
                 return Ok(());
             }
         }
 
-        apply_damage(ctx, room_code.clone(), ctx.sender(), victim_identity, RIFLE_DAMAGE)?;
+        apply_damage(
+            ctx,
+            room_code.clone(),
+            ctx.sender(),
+            victim_identity,
+            RIFLE_DAMAGE,
+        )?;
+    } else if let Some(block_hit) = block_hit {
+        insert_impact_mark(
+            ctx,
+            &room_code,
+            point_along_ray(origin, direction, block_hit.distance),
+            block_hit.normal,
+            tick,
+        );
     }
 
     apply_weapon_cooldown(ctx, weapon, tick);
@@ -772,7 +1174,10 @@ pub fn sim_tick(ctx: &ReducerContext, _schedule: SimTickSchedule) -> Result<(), 
             None => continue,
         };
 
-        let mut updated = MatchState { tick, ..match_state };
+        let mut updated = MatchState {
+            tick,
+            ..match_state
+        };
         if updated.active {
             if tick >= updated.end_tick {
                 updated.end_tick = tick + MATCH_DURATION_TICKS;
@@ -944,7 +1349,13 @@ fn enforce_rate_limit(
         RateLimitKind::StartMatch => limiter.last_start_match_tick = tick,
     }
 
-    if ctx.db.player_rate_limit().identity().find(identity).is_some() {
+    if ctx
+        .db
+        .player_rate_limit()
+        .identity()
+        .find(identity)
+        .is_some()
+    {
         ctx.db.player_rate_limit().identity().update(limiter);
     } else {
         ctx.db.player_rate_limit().insert(limiter);
@@ -955,10 +1366,9 @@ fn enforce_rate_limit(
 fn coerce_unique_nickname(ctx: &ReducerContext, base: &str, self_identity: Identity) -> String {
     let mut candidate = base.to_string();
     let taken = |name: &str| {
-        ctx.db
-            .player()
-            .iter()
-            .any(|player| player.identity != self_identity && player.nickname.eq_ignore_ascii_case(name))
+        ctx.db.player().iter().any(|player| {
+            player.identity != self_identity && player.nickname.eq_ignore_ascii_case(name)
+        })
     };
     if !taken(&candidate) {
         return candidate;
@@ -979,12 +1389,12 @@ fn coerce_unique_nickname(ctx: &ReducerContext, base: &str, self_identity: Ident
 
 fn default_nickname_for_identity(identity: Identity) -> String {
     let prefixes = [
-        "Ghost", "Nova", "Rogue", "Echo", "Vector", "Shadow", "Blitz", "Cipher", "Volt",
-        "Reaper", "Viper", "Mako",
+        "Ghost", "Nova", "Rogue", "Echo", "Vector", "Shadow", "Blitz", "Cipher", "Volt", "Reaper",
+        "Viper", "Mako",
     ];
     let suffixes = [
-        "Wolf", "Hawk", "Raven", "Strike", "Pulse", "Frost", "Drift", "Scope", "Forge",
-        "Rift", "Storm", "Flare",
+        "Wolf", "Hawk", "Raven", "Strike", "Pulse", "Frost", "Drift", "Scope", "Forge", "Rift",
+        "Storm", "Flare",
     ];
 
     let id_text = format!("{identity}");
@@ -1055,7 +1465,9 @@ fn room_membership_is_consistent(
     match player_room {
         Some(room_code) => {
             state_room == Some(room_code)
-                && weapon_room.map(|weapon_code| weapon_code == room_code).unwrap_or(true)
+                && weapon_room
+                    .map(|weapon_code| weapon_code == room_code)
+                    .unwrap_or(true)
         }
         None => state_room.is_none() && weapon_room.is_none(),
     }
@@ -1136,7 +1548,10 @@ fn remove_room_artifacts(ctx: &ReducerContext, room_code: &str) {
         .find(room_code.to_string())
         .is_some()
     {
-        ctx.db.match_state().room_code().delete(room_code.to_string());
+        ctx.db
+            .match_state()
+            .room_code()
+            .delete(room_code.to_string());
     }
 
     let packs: Vec<AmmoPack> = ctx
@@ -1157,6 +1572,16 @@ fn remove_room_artifacts(ctx: &ReducerContext, room_code: &str) {
         .collect();
     for pack in health_packs {
         ctx.db.health_pack().id().delete(pack.id);
+    }
+
+    let impact_marks: Vec<ImpactMark> = ctx
+        .db
+        .impact_mark()
+        .iter()
+        .filter(|mark| mark.room_code == room_code)
+        .collect();
+    for mark in impact_marks {
+        ctx.db.impact_mark().id().delete(mark.id);
     }
 }
 
@@ -1224,7 +1649,11 @@ fn simulate_movement_tick(state: PlayerState, input: PlayerInput) -> PlayerState
         wish.z /= wish_len;
     }
 
-    let desired_speed = if input.sprinting { SPRINT_SPEED } else { WALK_SPEED } * move_len;
+    let desired_speed = if input.sprinting {
+        SPRINT_SPEED
+    } else {
+        WALK_SPEED
+    } * move_len;
     let desired_vel_x = wish.x * desired_speed;
     let desired_vel_z = wish.z * desired_speed;
 
@@ -1234,7 +1663,12 @@ fn simulate_movement_tick(state: PlayerState, input: PlayerInput) -> PlayerState
         } else {
             GROUND_FRICTION
         };
-        move_horizontal_towards(&mut updated, desired_vel_x, desired_vel_z, ground_control * dt);
+        move_horizontal_towards(
+            &mut updated,
+            desired_vel_x,
+            desired_vel_z,
+            ground_control * dt,
+        );
         if input.jumping {
             updated.vel_y = JUMP_SPEED;
             updated.on_ground = false;
@@ -1242,7 +1676,12 @@ fn simulate_movement_tick(state: PlayerState, input: PlayerInput) -> PlayerState
             updated.vel_y = 0.0;
         }
     } else {
-        move_horizontal_towards(&mut updated, desired_vel_x, desired_vel_z, AIR_ACCELERATION * dt);
+        move_horizontal_towards(
+            &mut updated,
+            desired_vel_x,
+            desired_vel_z,
+            AIR_ACCELERATION * dt,
+        );
         updated.vel_y -= GRAVITY * dt;
     }
 
@@ -1282,7 +1721,11 @@ fn apply_passive_regen(state: &mut PlayerState, tick: u32) {
         return;
     }
 
-    if tick < state.last_damage_tick.saturating_add(HEALTH_REGEN_DELAY_TICKS) {
+    if tick
+        < state
+            .last_damage_tick
+            .saturating_add(HEALTH_REGEN_DELAY_TICKS)
+    {
         return;
     }
 
@@ -1298,12 +1741,7 @@ fn apply_passive_regen(state: &mut PlayerState, tick: u32) {
     }
 }
 
-fn move_horizontal_towards(
-    state: &mut PlayerState,
-    target_x: f32,
-    target_z: f32,
-    max_delta: f32,
-) {
+fn move_horizontal_towards(state: &mut PlayerState, target_x: f32, target_z: f32, max_delta: f32) {
     let delta_x = target_x - state.vel_x;
     let delta_z = target_z - state.vel_z;
     let delta_len = (delta_x * delta_x + delta_z * delta_z).sqrt();
@@ -1319,11 +1757,33 @@ fn move_horizontal_towards(
     state.vel_z += delta_z * scale;
 }
 
+#[derive(Clone, Copy)]
+struct BlockHit {
+    distance: f32,
+    normal: Vec3,
+}
+
+fn rotate_into_block_space(x: f32, z: f32, block: Block) -> (f32, f32) {
+    let dx = x - block.center_x;
+    let dz = z - block.center_z;
+    let cos = block.yaw.cos();
+    let sin = block.yaw.sin();
+    (dx * cos + dz * sin, -dx * sin + dz * cos)
+}
+
+fn rotate_out_of_block_space(x: f32, z: f32, block: Block) -> (f32, f32) {
+    let cos = block.yaw.cos();
+    let sin = block.yaw.sin();
+    (x * cos - z * sin, x * sin + z * cos)
+}
+
 fn overlaps_block(x: f32, z: f32, block: Block) -> bool {
-    x + PLAYER_RADIUS > block.min_x
-        && x - PLAYER_RADIUS < block.max_x
-        && z + PLAYER_RADIUS > block.min_z
-        && z - PLAYER_RADIUS < block.max_z
+    let (local_x, local_z) = rotate_into_block_space(x, z, block);
+    let closest_x = local_x.clamp(-block.half_x, block.half_x);
+    let closest_z = local_z.clamp(-block.half_z, block.half_z);
+    let dx = local_x - closest_x;
+    let dz = local_z - closest_z;
+    dx * dx + dz * dz < PLAYER_RADIUS * PLAYER_RADIUS
 }
 
 fn ground_height_at(x: f32, z: f32, current_feet_y: f32) -> f32 {
@@ -1350,13 +1810,7 @@ fn collides_at(x: f32, y: f32, z: f32) -> bool {
 
     let head_y = y + PLAYER_HEIGHT;
     for block in ARENA_BLOCKS {
-        if x + PLAYER_RADIUS > block.min_x
-            && x - PLAYER_RADIUS < block.max_x
-            && z + PLAYER_RADIUS > block.min_z
-            && z - PLAYER_RADIUS < block.max_z
-            && y < block.max_y
-            && head_y > block.min_y
-        {
+        if overlaps_block(x, z, block) && y < block.max_y && head_y > block.min_y {
             return true;
         }
     }
@@ -1400,41 +1854,118 @@ fn ray_hits_player(origin: Vec3, direction: Vec3, center: Vec3) -> Option<f32> {
     None
 }
 
-fn ray_hits_any_block(origin: Vec3, direction: Vec3) -> Option<f32> {
-    let mut best: Option<f32> = None;
+fn ray_hits_any_block(origin: Vec3, direction: Vec3) -> Option<BlockHit> {
+    let mut best: Option<BlockHit> = None;
     for block in ARENA_BLOCKS {
-        if let Some(distance) = ray_hits_block(origin, direction, block) {
+        if let Some(hit) = ray_hits_block(origin, direction, block) {
             match best {
-                Some(best_distance) if best_distance <= distance => {}
-                _ => best = Some(distance),
+                Some(ref best_hit) if best_hit.distance <= hit.distance => {}
+                _ => best = Some(hit),
             }
         }
     }
     best
 }
 
-fn ray_hits_block(origin: Vec3, direction: Vec3, block: Block) -> Option<f32> {
-    let inv_x = if direction.x.abs() < 0.0001 { f32::INFINITY } else { 1.0 / direction.x };
-    let inv_y = if direction.y.abs() < 0.0001 { f32::INFINITY } else { 1.0 / direction.y };
-    let inv_z = if direction.z.abs() < 0.0001 { f32::INFINITY } else { 1.0 / direction.z };
+fn ray_hits_block(origin: Vec3, direction: Vec3, block: Block) -> Option<BlockHit> {
+    let (origin_x, origin_z) = rotate_into_block_space(origin.x, origin.z, block);
+    let cos = block.yaw.cos();
+    let sin = block.yaw.sin();
+    let direction_x = direction.x * cos + direction.z * sin;
+    let direction_z = -direction.x * sin + direction.z * cos;
+    let inv_x = if direction_x.abs() < 0.0001 {
+        f32::INFINITY
+    } else {
+        1.0 / direction_x
+    };
+    let inv_y = if direction.y.abs() < 0.0001 {
+        f32::INFINITY
+    } else {
+        1.0 / direction.y
+    };
+    let inv_z = if direction_z.abs() < 0.0001 {
+        f32::INFINITY
+    } else {
+        1.0 / direction_z
+    };
 
-    let mut t1 = (block.min_x - origin.x) * inv_x;
-    let mut t2 = (block.max_x - origin.x) * inv_x;
+    let mut enter_normal = Vec3 {
+        x: 0.0,
+        y: 0.0,
+        z: 0.0,
+    };
+
+    let mut t1 = (-block.half_x - origin_x) * inv_x;
+    let mut t2 = (block.half_x - origin_x) * inv_x;
     let mut t_min = t1.min(t2);
     let mut t_max = t1.max(t2);
+    enter_normal = if t1 <= t2 {
+        Vec3 {
+            x: -1.0,
+            y: 0.0,
+            z: 0.0,
+        }
+    } else {
+        Vec3 {
+            x: 1.0,
+            y: 0.0,
+            z: 0.0,
+        }
+    };
 
     t1 = (block.min_y - origin.y) * inv_y;
     t2 = (block.max_y - origin.y) * inv_y;
-    t_min = t_min.max(t1.min(t2));
+    let y_min = t1.min(t2);
+    if y_min > t_min {
+        enter_normal = if t1 <= t2 {
+            Vec3 {
+                x: 0.0,
+                y: -1.0,
+                z: 0.0,
+            }
+        } else {
+            Vec3 {
+                x: 0.0,
+                y: 1.0,
+                z: 0.0,
+            }
+        };
+    }
+    t_min = t_min.max(y_min);
     t_max = t_max.min(t1.max(t2));
 
-    t1 = (block.min_z - origin.z) * inv_z;
-    t2 = (block.max_z - origin.z) * inv_z;
-    t_min = t_min.max(t1.min(t2));
+    t1 = (-block.half_z - origin_z) * inv_z;
+    t2 = (block.half_z - origin_z) * inv_z;
+    let z_min = t1.min(t2);
+    if z_min > t_min {
+        enter_normal = if t1 <= t2 {
+            Vec3 {
+                x: 0.0,
+                y: 0.0,
+                z: -1.0,
+            }
+        } else {
+            Vec3 {
+                x: 0.0,
+                y: 0.0,
+                z: 1.0,
+            }
+        };
+    }
+    t_min = t_min.max(z_min);
     t_max = t_max.min(t1.max(t2));
 
     if t_max >= t_min.max(0.0) {
-        Some(t_min.max(0.0))
+        let distance = t_min.max(0.0);
+        let (normal_x, normal_z) = rotate_out_of_block_space(enter_normal.x, enter_normal.z, block);
+        Some(BlockHit {
+            distance,
+            normal: Vec3 {
+                x: normal_x,
+                y: enter_normal.y,
+                z: normal_z,
+            },
+        })
     } else {
         None
     }
@@ -1449,10 +1980,50 @@ fn hash01(seed: f32) -> f32 {
     value - value.floor()
 }
 
+fn point_along_ray(origin: Vec3, direction: Vec3, distance: f32) -> Vec3 {
+    Vec3 {
+        x: origin.x + direction.x * distance,
+        y: origin.y + direction.y * distance,
+        z: origin.z + direction.z * distance,
+    }
+}
+
 fn apply_weapon_cooldown(ctx: &ReducerContext, mut weapon: WeaponState, tick: u32) {
     weapon.ammo_in_mag = weapon.ammo_in_mag.saturating_sub(1);
     weapon.next_ready_tick = tick + RIFLE_FIRE_INTERVAL_TICKS;
     ctx.db.weapon_state().identity().update(weapon);
+}
+
+fn insert_impact_mark(
+    ctx: &ReducerContext,
+    room_code: &str,
+    position: Vec3,
+    normal: Vec3,
+    tick: u32,
+) {
+    let existing: Vec<ImpactMark> = ctx
+        .db
+        .impact_mark()
+        .iter()
+        .filter(|mark| mark.room_code == room_code)
+        .collect();
+    if existing.len() >= MAX_IMPACT_MARKS_PER_ROOM {
+        if let Some(oldest) = existing.into_iter().min_by_key(|mark| mark.tick) {
+            ctx.db.impact_mark().id().delete(oldest.id);
+        }
+    }
+
+    ctx.db.impact_mark().insert(ImpactMark {
+        id: 0,
+        room_code: room_code.to_string(),
+        x: position.x,
+        y: position.y,
+        z: position.z,
+        normal_x: normal.x,
+        normal_y: normal.y,
+        normal_z: normal.z,
+        tick,
+    });
 }
 
 fn apply_damage(
@@ -1563,10 +2134,9 @@ fn initialize_room_ammo_packs(ctx: &ReducerContext, room_code: &str, tick: u32) 
         return;
     }
 
-    let room_seed = room_code
-        .bytes()
-        .fold(0u32, |acc, byte| acc.wrapping_mul(31).wrapping_add(byte as u32))
-        as usize;
+    let room_seed = room_code.bytes().fold(0u32, |acc, byte| {
+        acc.wrapping_mul(31).wrapping_add(byte as u32)
+    }) as usize;
     for slot in 0..AMMO_PACK_ACTIVE_COUNT {
         let location_index = ((room_seed + slot * 3) % AMMO_PACK_LOCATIONS.len()) as u16;
         let point = AMMO_PACK_LOCATIONS[location_index as usize];
@@ -1593,10 +2163,9 @@ fn initialize_room_health_packs(ctx: &ReducerContext, room_code: &str, tick: u32
         return;
     }
 
-    let room_seed = room_code
-        .bytes()
-        .fold(0u32, |acc, byte| acc.wrapping_mul(41).wrapping_add(byte as u32))
-        as usize;
+    let room_seed = room_code.bytes().fold(0u32, |acc, byte| {
+        acc.wrapping_mul(41).wrapping_add(byte as u32)
+    }) as usize;
     for slot in 0..HEALTH_PACK_ACTIVE_COUNT {
         let location_index = ((room_seed + slot * 5) % HEALTH_PACK_LOCATIONS.len()) as u16;
         let point = HEALTH_PACK_LOCATIONS[location_index as usize];
@@ -1761,7 +2330,8 @@ fn process_health_packs(ctx: &ReducerContext, tick: u32) {
                 continue;
             }
 
-            let Some(mut player_state) = ctx.db.player_state().identity().find(state.identity) else {
+            let Some(mut player_state) = ctx.db.player_state().identity().find(state.identity)
+            else {
                 continue;
             };
             if player_state.health >= MAX_HEALTH {
@@ -1865,8 +2435,8 @@ fn reset_player_input(ctx: &ReducerContext, identity: Identity, tick: u32) {
 #[cfg(test)]
 mod tests {
     use super::{
-        can_fire_weapon_at_tick, can_respawn_at_tick, should_accept_input_sequence,
-        room_membership_is_consistent, validate_room_code,
+        can_fire_weapon_at_tick, can_respawn_at_tick, room_membership_is_consistent,
+        should_accept_input_sequence, validate_room_code,
     };
 
     #[test]

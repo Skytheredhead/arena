@@ -64,6 +64,14 @@ export interface HealthPackView {
   respawnTick: number;
 }
 
+export interface ImpactMarkView {
+  id: number;
+  roomCode: string;
+  position: Vec3;
+  normal: Vec3;
+  tick: number;
+}
+
 export interface ScoreRow {
   identity: string;
   nickname: string;
