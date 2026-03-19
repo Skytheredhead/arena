@@ -186,68 +186,19 @@ export class GameRenderer {
 
   private createRemotePlayerModel(): THREE.Group {
     const group = new THREE.Group();
-    const bodyMat = new THREE.MeshStandardMaterial({
-      color: '#4cc1d7',
-      roughness: 0.58,
-      metalness: 0.18
-    });
-    const accentMat = new THREE.MeshStandardMaterial({
-      color: '#00f5ff',
-      roughness: 0.25,
-      metalness: 0.72,
-      emissive: '#00f5ff',
-      emissiveIntensity: 0.12
-    });
-    const darkMat = new THREE.MeshStandardMaterial({
-      color: '#172636',
-      roughness: 0.7,
-      metalness: 0.12
+    const material = new THREE.MeshStandardMaterial({
+      color: '#ef4444',
+      roughness: 0.5,
+      metalness: 0.08,
+      emissive: '#3f0a0a',
+      emissiveIntensity: 0.16
     });
 
-    const torso = new THREE.Mesh(new THREE.BoxGeometry(0.78, 0.92, 0.42), bodyMat);
-    torso.position.y = 1.08;
-    torso.castShadow = true;
-    torso.receiveShadow = true;
-    group.add(torso);
-
-    const head = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.38, 0.38), accentMat);
-    head.position.y = 1.78;
-    head.castShadow = true;
-    group.add(head);
-
-    const pelvis = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.28, 0.32), darkMat);
-    pelvis.position.y = 0.52;
-    pelvis.castShadow = true;
-    group.add(pelvis);
-
-    const leftLeg = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.7, 0.18), darkMat);
-    leftLeg.position.set(-0.14, 0.14, 0);
-    leftLeg.castShadow = true;
-    group.add(leftLeg);
-
-    const rightLeg = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.7, 0.18), darkMat);
-    rightLeg.position.set(0.14, 0.14, 0);
-    rightLeg.castShadow = true;
-    group.add(rightLeg);
-
-    const leftArm = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.62, 0.16), darkMat);
-    leftArm.position.set(-0.52, 1.06, 0);
-    leftArm.rotation.z = 0.1;
-    leftArm.castShadow = true;
-    group.add(leftArm);
-
-    const rightArm = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.62, 0.16), darkMat);
-    rightArm.position.set(0.52, 1.06, 0);
-    rightArm.rotation.z = -0.14;
-    rightArm.castShadow = true;
-    group.add(rightArm);
-
-    const rifle = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.1, 0.78), accentMat);
-    rifle.position.set(0.18, 1.02, -0.34);
-    rifle.rotation.x = Math.PI * 0.5;
-    rifle.rotation.z = -0.12;
-    rifle.castShadow = true;
-    group.add(rifle);
+    const body = new THREE.Mesh(new THREE.BoxGeometry(0.9, 1.8, 0.9), material);
+    body.position.y = 0.9;
+    body.castShadow = true;
+    body.receiveShadow = true;
+    group.add(body);
 
     return group;
   }
@@ -416,13 +367,13 @@ export class GameRenderer {
       mesh.rotation.y = player.yaw;
       const previousAlive = this.remoteAliveState.get(player.identity);
       if (previousAlive !== player.alive) {
-        const tint = player.alive ? '#81e6d9' : '#334155';
+        const tint = player.alive ? '#ef4444' : '#334155';
         mesh.traverse(object => {
           if (object instanceof THREE.Mesh) {
             const material = object.material as THREE.MeshStandardMaterial;
             material.color.set(tint);
-            material.emissive?.set(player.alive ? '#00f5ff' : '#000000');
-            material.emissiveIntensity = player.alive ? 0.08 : 0;
+            material.emissive?.set(player.alive ? '#3f0a0a' : '#000000');
+            material.emissiveIntensity = player.alive ? 0.16 : 0;
           }
         });
         this.remoteAliveState.set(player.identity, player.alive);

@@ -343,7 +343,8 @@ export class SpacetimeBridge {
 
   private handlePlayerRow(row: PlayerRow): void {
     const identity = identityToString(row.identity);
-    useGameStore.getState().upsertPlayerMeta({
+    const store = useGameStore.getState();
+    store.upsertPlayerMeta({
       identity,
       nickname: row.nickname,
       kills: row.kills,
@@ -351,6 +352,10 @@ export class SpacetimeBridge {
       connected: row.connected,
       roomCode: row.roomCode ?? null
     });
+
+    if (identity !== this.localIdentity && (!row.connected || !row.roomCode)) {
+      store.removeRemotePlayer(identity);
+    }
   }
 
   private handlePlayerStateRow(row: PlayerStateRow): void {

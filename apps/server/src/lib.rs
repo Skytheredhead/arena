@@ -17,6 +17,7 @@ const MAX_IMPACT_MARKS_PER_ROOM: usize = 120;
 
 const PLAYER_HEIGHT: f32 = 1.8;
 const PLAYER_RADIUS: f32 = 0.4;
+const PLAYER_HITBOX_HALF: f32 = 0.45;
 const PLAYER_STEP_HEIGHT: f32 = 0.65;
 const PLAYER_EYE_HEIGHT: f32 = 1.58;
 
@@ -46,6 +47,8 @@ const HEALTH_PACK_AMOUNT: u16 = 50;
 const HEALTH_PACK_RESPAWN_TICKS: u32 = SERVER_TICK_RATE * 10;
 const HEALTH_PACK_RADIUS: f32 = 0.5;
 const HEALTH_PACK_ACTIVE_COUNT: usize = 2;
+const PICKUP_HORIZONTAL_GRACE: f32 = 0.35;
+const PICKUP_VERTICAL_GRACE: f32 = 0.25;
 const ARENA_MIN_X: f32 = -30.0;
 const ARENA_MAX_X: f32 = 30.0;
 const ARENA_MIN_Z: f32 = -31.204_71;
@@ -1091,12 +1094,12 @@ pub fn fire_weapon(ctx: &ReducerContext, yaw: f32, pitch: f32, scoped: bool) -> 
             continue;
         }
 
-        let center = Vec3 {
+        let position = Vec3 {
             x: target.x,
-            y: target.y + PLAYER_HEIGHT * 0.5,
+            y: target.y,
             z: target.z,
         };
-        if let Some(distance) = ray_hits_player(origin, direction, center) {
+        if let Some(distance) = ray_hits_player(origin, direction, position) {
             if distance <= RIFLE_RANGE {
                 match best_hit {
                     Some((_, best_distance)) if best_distance <= distance => {}
@@ -1826,32 +1829,59 @@ fn direction_from_yaw_pitch(yaw: f32, pitch: f32) -> Vec3 {
     }
 }
 
-fn ray_hits_player(origin: Vec3, direction: Vec3, center: Vec3) -> Option<f32> {
-    let radius = 0.65;
-    let offset = Vec3 {
-        x: origin.x - center.x,
-        y: origin.y - center.y,
-        z: origin.z - center.z,
+fn ray_hits_player(origin: Vec3, direction: Vec3, position: Vec3) -> Option<f32> {
+    let min_x = position.x - PLAYER_HITBOX_HALF;
+    let max_x = position.x + PLAYER_HITBOX_HALF;
+    let min_y = position.y;
+    let max_y = position.y + PLAYER_HEIGHT;
+    let min_z = position.z - PLAYER_HITBOX_HALF;
+    let max_z = position.z + PLAYER_HITBOX_HALF;
+
+    let inv_x = if direction.x.abs() < 0.0001 {
+        if origin.x < min_x || origin.x > max_x {
+            return None;
+        }
+        f32::INFINITY
+    } else {
+        1.0 / direction.x
     };
-    let a = dot(direction, direction);
-    let b = 2.0 * dot(direction, offset);
-    let c = dot(offset, offset) - radius * radius;
-    let discriminant = b * b - 4.0 * a * c;
-    if discriminant < 0.0 {
-        return None;
-    }
+    let inv_y = if direction.y.abs() < 0.0001 {
+        if origin.y < min_y || origin.y > max_y {
+            return None;
+        }
+        f32::INFINITY
+    } else {
+        1.0 / direction.y
+    };
+    let inv_z = if direction.z.abs() < 0.0001 {
+        if origin.z < min_z || origin.z > max_z {
+            return None;
+        }
+        f32::INFINITY
+    } else {
+        1.0 / direction.z
+    };
 
-    let sqrt = discriminant.sqrt();
-    let near = (-b - sqrt) / (2.0 * a);
-    if near >= 0.0 {
-        return Some(near);
-    }
+    let mut t1 = (min_x - origin.x) * inv_x;
+    let mut t2 = (max_x - origin.x) * inv_x;
+    let mut t_min = t1.min(t2);
+    let mut t_max = t1.max(t2);
 
-    let far = (-b + sqrt) / (2.0 * a);
-    if far >= 0.0 {
-        return Some(far);
+    t1 = (min_y - origin.y) * inv_y;
+    t2 = (max_y - origin.y) * inv_y;
+    t_min = t_min.max(t1.min(t2));
+    t_max = t_max.min(t1.max(t2));
+
+    t1 = (min_z - origin.z) * inv_z;
+    t2 = (max_z - origin.z) * inv_z;
+    t_min = t_min.max(t1.min(t2));
+    t_max = t_max.min(t1.max(t2));
+
+    if t_max >= t_min.max(0.0) {
+        Some(t_min.max(0.0))
+    } else {
+        None
     }
-    None
 }
 
 fn ray_hits_any_block(origin: Vec3, direction: Vec3) -> Option<BlockHit> {
@@ -2185,15 +2215,15 @@ fn initialize_room_health_packs(ctx: &ReducerContext, room_code: &str, tick: u32
 fn player_touches_pickup(state: &PlayerState, pickup: Vec3, pickup_radius: f32) -> bool {
     let dx = state.x - pickup.x;
     let dz = state.z - pickup.z;
-    let max_horizontal = PLAYER_RADIUS + pickup_radius;
+    let max_horizontal = PLAYER_RADIUS + pickup_radius + PICKUP_HORIZONTAL_GRACE;
     if dx * dx + dz * dz > max_horizontal * max_horizontal {
         return false;
     }
 
-    let player_min_y = state.y;
-    let player_max_y = state.y + PLAYER_HEIGHT;
-    let pickup_min_y = pickup.y - pickup_radius;
-    let pickup_max_y = pickup.y + pickup_radius;
+    let player_min_y = state.y - PICKUP_VERTICAL_GRACE;
+    let player_max_y = state.y + PLAYER_HEIGHT + PICKUP_VERTICAL_GRACE;
+    let pickup_min_y = pickup.y - pickup_radius - PICKUP_VERTICAL_GRACE;
+    let pickup_max_y = pickup.y + pickup_radius + PICKUP_VERTICAL_GRACE;
 
     pickup_max_y >= player_min_y && pickup_min_y <= player_max_y
 }

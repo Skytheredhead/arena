@@ -231,6 +231,13 @@ export class GameRuntime {
     );
     const remotePlayers: RemotePlayerState[] = [];
     for (const [identity, buffer] of this.remoteBuffers) {
+      const meta = useGameStore.getState().players[identity];
+      if (meta && (!meta.connected || !meta.roomCode)) {
+        this.remoteBuffers.delete(identity);
+        useGameStore.getState().removeRemotePlayer(identity);
+        continue;
+      }
+
       const sample = buffer.sample(renderServerTimeMs);
       if (!sample) {
         continue;
