@@ -1,0 +1,27 @@
+{
+  "name": "arena-fps-slice",
+  "private": true,
+  "packageManager": "pnpm@10.10.0",
+  "scripts": {
+    "build": "pnpm --filter @arena/shared build && pnpm --filter @arena/client build",
+    "dev": "pnpm --filter @arena/client dev",
+    "dev:client": "pnpm --filter @arena/client dev",
+    "lint": "eslint \"apps/**/*.ts\" \"apps/**/*.tsx\" \"packages/**/*.ts\"",
+    "format": "prettier --write .",
+    "test": "pnpm --filter @arena/client test",
+    "generate:bindings": "spacetime generate --lang typescript --server local --out-dir apps/client/src/generated/module_bindings ${SPACETIMEDB_DB_NAME:-arena-fps-slice}",
+    "server:build": "spacetime build --project-path apps/server",
+    "server:publish:local": "spacetime publish --server local --project-path apps/server ${SPACETIMEDB_DB_NAME:-arena-fps-slice}",
+    "server:start": "spacetime start"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.22.0",
+    "eslint": "^9.22.0",
+    "eslint-plugin-react-hooks": "^5.2.0",
+    "eslint-plugin-react-refresh": "^0.4.19",
+    "globals": "^16.0.0",
+    "prettier": "^3.5.3",
+    "typescript": "^5.8.2",
+    "typescript-eslint": "^8.26.1"
+  }
+}

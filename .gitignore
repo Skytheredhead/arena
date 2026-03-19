@@ -1,0 +1,36 @@
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
+
+# JS / TS
+node_modules/
+.pnpm-store/
+.npm-cache/
+dist/
+coverage/
+*.tsbuildinfo
+pnpm-lock.yaml
+
+# Rust / server build artifacts
+target/
+apps/server/target/
+
+# Local tool/runtime caches and data
+.cargo-home/
+.local-rust/
+.local-bin/
+.local-spacetime/
+.playwright-cache/
+.st-home/
+
+# Logs
+*.log
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+# Generated scratch binding file
+apps/client/src/generated/module_bindings/index.generated.ts
