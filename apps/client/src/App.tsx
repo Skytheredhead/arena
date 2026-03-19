@@ -4,35 +4,19 @@ import { HudOverlay } from './ui/components/HudOverlay';
 import { PauseOverlay } from './ui/components/PauseOverlay';
 import { useGameStore } from './state/gameStore';
 import { GameRuntime } from './app/GameRuntime';
-import { getSpacetimeUriCandidates } from './utils/env';
 import { normalizeRoomCode } from './utils/roomCode';
 import { CyberGlobalStyles } from './ui/cyberTheme';
-
-const BACKEND_PROBE_TIMEOUT_MS = 2500;
-const BACKEND_PROBE_INTERVAL_MS = 4000;
-const BACKEND_RETRY_INTERVAL_MS = 1600;
-
-const toBackendProbeUrl = (uri: string): string => {
-  if (uri.startsWith('wss://')) {
-    return `https://${uri.slice('wss://'.length)}`;
-  }
-  if (uri.startsWith('ws://')) {
-    return `http://${uri.slice('ws://'.length)}`;
-  }
-  return uri;
-};
 
 export default function App(): React.JSX.Element {
   const mountRef = useRef<HTMLDivElement | null>(null);
   const runtimeRef = useRef<GameRuntime | null>(null);
+  const connectInFlightRef = useRef(false);
   const hadPointerLockRef = useRef(false);
   const pointerLockedRef = useRef(false);
   const pausedRef = useRef(false);
   const resumeOnEscapeKeyupRef = useRef(false);
   const [runtimeError, setRuntimeError] = useState<string | null>(null);
   const [paused, setPaused] = useState(false);
-  const [backendConnected, setBackendConnected] = useState(false);
-  const [backendPingMs, setBackendPingMs] = useState<number | null>(null);
   const connectionStatus = useGameStore(state => state.connectionStatus);
   const connectionError = useGameStore(state => state.connectionError);
   const nickname = useGameStore(state => state.nickname);
@@ -103,72 +87,8 @@ export default function App(): React.JSX.Element {
 
   const connected = connectionStatus === 'connected';
   const connecting = connectionStatus === 'connecting';
-
-  useEffect(() => {
-    let cancelled = false;
-    let timerId = 0;
-    const probeCandidates = getSpacetimeUriCandidates(forceLocalBackend).map(toBackendProbeUrl);
-
-    const schedule = (delayMs: number): void => {
-      if (cancelled) {
-        return;
-      }
-      timerId = window.setTimeout(() => {
-        void probe();
-      }, delayMs);
-    };
-
-    const probeUri = async (probeUrl: string): Promise<number> => {
-      const startedAt = performance.now();
-      const controller = new AbortController();
-      const timeoutId = window.setTimeout(() => controller.abort(), BACKEND_PROBE_TIMEOUT_MS);
-
-      try {
-        await fetch(probeUrl, {
-          method: 'GET',
-          mode: 'no-cors',
-          cache: 'no-store',
-          signal: controller.signal
-        });
-        return Math.round(performance.now() - startedAt);
-      } finally {
-        window.clearTimeout(timeoutId);
-      }
-    };
-
-    const probe = async (): Promise<void> => {
-      for (const probeUrl of probeCandidates) {
-        try {
-          const pingMs = await probeUri(probeUrl);
-          if (cancelled) {
-            return;
-          }
-          setBackendConnected(true);
-          setBackendPingMs(pingMs);
-          schedule(BACKEND_PROBE_INTERVAL_MS);
-          return;
-        } catch {
-          // Try next backend candidate.
-        }
-      }
-
-      if (cancelled) {
-        return;
-      }
-      setBackendConnected(false);
-      setBackendPingMs(null);
-      schedule(BACKEND_RETRY_INTERVAL_MS);
-    };
-
-    setBackendConnected(false);
-    setBackendPingMs(null);
-    void probe();
-
-    return () => {
-      cancelled = true;
-      window.clearTimeout(timerId);
-    };
-  }, [forceLocalBackend]);
+  const backendConnected = connected;
+  const backendPingMs = null;
 
   useEffect(() => {
     pausedRef.current = paused;
@@ -318,6 +238,10 @@ export default function App(): React.JSX.Element {
   );
 
   const connectToRoom = (createRoom: boolean, explicitRoomCode?: string): void => {
+    if (connectInFlightRef.current || useGameStore.getState().connectionStatus === 'connecting') {
+      return;
+    }
+
     const runtime = ensureRuntime();
     if (!runtime) {
       return;
@@ -330,6 +254,7 @@ export default function App(): React.JSX.Element {
 
     setPaused(false);
     runtime.setPaused(false);
+    connectInFlightRef.current = true;
 
     void runtime
       .connect({
@@ -345,6 +270,9 @@ export default function App(): React.JSX.Element {
       .catch(error => {
         const message = error instanceof Error ? error.message : 'Connection failed';
         useGameStore.getState().setConnection('error', message);
+      })
+      .finally(() => {
+        connectInFlightRef.current = false;
       });
   };
 
