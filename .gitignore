@@ -10,7 +10,6 @@ node_modules/
 dist/
 coverage/
 *.tsbuildinfo
-pnpm-lock.yaml
 
 # Rust / server build artifacts
 target/

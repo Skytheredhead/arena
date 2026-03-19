@@ -1,5 +1,6 @@
 {
-  "installCommand": "pnpm install --frozen-lockfile",
+  "framework": "vite",
+  "installCommand": "pnpm --version >/dev/null 2>&1 || npm install -g pnpm@10.10.0; pnpm install --no-frozen-lockfile",
   "buildCommand": "pnpm --filter @arena/shared build && pnpm --filter @arena/client build",
   "outputDirectory": "apps/client/dist"
 }
