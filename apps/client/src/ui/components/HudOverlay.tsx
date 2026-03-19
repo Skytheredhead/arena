@@ -33,6 +33,7 @@ interface HudOverlayProps {
   scoreboardOpen: boolean;
   connected: boolean;
   hitmarkerVisible: boolean;
+  damageFlashToken: number;
   crosshairSpread: number;
   scoped: boolean;
 }
@@ -49,6 +50,7 @@ export function HudOverlay({
   scoreboardOpen,
   connected,
   hitmarkerVisible,
+  damageFlashToken,
   crosshairSpread,
   scoped
 }: HudOverlayProps): React.JSX.Element {
@@ -65,6 +67,22 @@ export function HudOverlay({
           zIndex: 2
         }}
       />
+
+      {damageFlashToken > 0 ? (
+        <div
+          key={damageFlashToken}
+          aria-hidden="true"
+          style={{
+            position: 'absolute',
+            inset: 0,
+            zIndex: 12,
+            pointerEvents: 'none',
+            background:
+              'radial-gradient(ellipse at center, rgba(255,32,32,0.02) 28%, rgba(255,32,32,0.18) 62%, rgba(100,0,0,0.55) 100%)',
+            animation: 'cyberDamageFlash .55s cubic-bezier(.16,1,.3,1) both'
+          }}
+        />
+      ) : null}
 
       <CyberCrosshair
         hitmarkerVisible={hitmarkerVisible}

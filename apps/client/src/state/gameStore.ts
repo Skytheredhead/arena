@@ -88,6 +88,7 @@ interface SessionState {
   scoped: boolean;
   hitmarkerUntil: number;
   muzzleFlashUntil: number;
+  damageFlashToken: number;
   setConnection: (status: ConnectionStatus, error?: string | null) => void;
   setNickname: (nickname: string) => void;
   setRoomCode: (roomCode: string) => void;
@@ -120,6 +121,7 @@ interface SessionState {
   setScoped: (scoped: boolean) => void;
   triggerHitmarker: (until: number) => void;
   triggerMuzzleFlash: (until: number) => void;
+  triggerDamageFlash: () => void;
 }
 
 const initialLocal = makeDefaultLocalPlayer();
@@ -158,6 +160,7 @@ export const useGameStore = create<SessionState>(set => ({
   scoped: false,
   hitmarkerUntil: 0,
   muzzleFlashUntil: 0,
+  damageFlashToken: 0,
   setConnection: (connectionStatus, connectionError = null) =>
     set({ connectionStatus, connectionError }),
   setNickname: nickname => set({ nickname }),
@@ -194,7 +197,8 @@ export const useGameStore = create<SessionState>(set => ({
       crosshairSpread: 0,
       scoped: false,
       hitmarkerUntil: 0,
-      muzzleFlashUntil: 0
+      muzzleFlashUntil: 0,
+      damageFlashToken: 0
     }),
   upsertPlayerMeta: player =>
     set(state => ({
@@ -336,5 +340,7 @@ export const useGameStore = create<SessionState>(set => ({
     ),
   setScoped: scoped => set(state => (state.scoped === scoped ? state : { scoped })),
   triggerHitmarker: hitmarkerUntil => set({ hitmarkerUntil }),
-  triggerMuzzleFlash: muzzleFlashUntil => set({ muzzleFlashUntil })
+  triggerMuzzleFlash: muzzleFlashUntil => set({ muzzleFlashUntil }),
+  triggerDamageFlash: () =>
+    set(state => ({ damageFlashToken: state.damageFlashToken + 1 }))
 }));

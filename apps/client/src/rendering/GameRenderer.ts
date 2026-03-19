@@ -10,12 +10,20 @@ import {
 import { createArena } from '../scene/createArena';
 import type { GraphicsQuality } from '../types/settings';
 
+interface BloodBurstView {
+  id: number;
+  position: { x: number; y: number; z: number };
+  createdAt: number;
+  expiresAt: number;
+}
+
 interface RenderFrameState {
   localPlayer: LocalPlayerState;
   remotePlayers: RemotePlayerState[];
   ammoPacks: AmmoPackView[];
   healthPacks: HealthPackView[];
   impactMarks: ImpactMarkView[];
+  bloodBursts: BloodBurstView[];
   scoped: boolean;
   recoil: number;
   muzzleFlashVisible: boolean;
@@ -35,6 +43,7 @@ export class GameRenderer {
   private readonly healthPackActiveState = new Map<number, boolean>();
   private readonly healthPackActivatedAt = new Map<number, number>();
   private readonly impactMarkMeshes = new Map<number, THREE.Mesh>();
+  private readonly bloodBurstMeshes = new Map<number, THREE.Group>();
   private readonly muzzleFlash: THREE.Mesh;
   private readonly weaponModel: THREE.Group;
   private readonly smoothedCameraPosition = new THREE.Vector3();
@@ -313,6 +322,38 @@ export class GameRenderer {
     return mesh;
   }
 
+  private ensureBloodBurstMesh(id: number): THREE.Group {
+    let mesh = this.bloodBurstMeshes.get(id);
+    if (mesh) {
+      return mesh;
+    }
+
+    mesh = new THREE.Group();
+    const seedBase = (id % 997) + 1;
+    for (let index = 0; index < 7; index += 1) {
+      const seed = seedBase * (index + 3);
+      const sphere = new THREE.Mesh(
+        new THREE.SphereGeometry(0.045 + (seed % 3) * 0.01, 8, 8),
+        new THREE.MeshBasicMaterial({
+          color: index % 2 === 0 ? '#a01212' : '#d81f1f',
+          transparent: true,
+          opacity: 0.92,
+          depthWrite: false
+        })
+      );
+      sphere.position.set(
+        (((seed * 17) % 100) / 100 - 0.5) * 0.45,
+        (((seed * 29) % 100) / 100 - 0.5) * 0.38,
+        (((seed * 37) % 100) / 100 - 0.5) * 0.18
+      );
+      mesh.add(sphere);
+    }
+
+    this.scene.add(mesh);
+    this.bloodBurstMeshes.set(id, mesh);
+    return mesh;
+  }
+
   private setPickupOpacity(mesh: THREE.Group, opacity: number): void {
     mesh.traverse(object => {
       if (!(object instanceof THREE.Mesh)) {
@@ -461,6 +502,31 @@ export class GameRenderer {
     }
     for (const [id, mesh] of this.impactMarkMeshes) {
       if (!activeImpactIds.has(id)) {
+        mesh.visible = false;
+      }
+    }
+
+    const activeBloodIds = new Set(frame.bloodBursts.map(burst => burst.id));
+    for (const burst of frame.bloodBursts) {
+      const mesh = this.ensureBloodBurstMesh(burst.id);
+      const life = Math.max(0, Math.min(1, (now - burst.createdAt) / (burst.expiresAt - burst.createdAt)));
+      mesh.visible = true;
+      mesh.position.set(
+        burst.position.x,
+        burst.position.y + life * 0.12,
+        burst.position.z
+      );
+      mesh.scale.setScalar(1 + life * 0.35);
+      mesh.traverse(object => {
+        if (!(object instanceof THREE.Mesh)) {
+          return;
+        }
+        const material = object.material as THREE.MeshBasicMaterial;
+        material.opacity = 0.95 - life * 0.95;
+      });
+    }
+    for (const [id, mesh] of this.bloodBurstMeshes) {
+      if (!activeBloodIds.has(id)) {
         mesh.visible = false;
       }
     }

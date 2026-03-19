@@ -25,6 +25,7 @@ export default function App(): React.JSX.Element {
   const killFeed = useGameStore(state => state.killFeed);
   const scoreboardOpen = useGameStore(state => state.scoreboardOpen);
   const hitmarkerUntil = useGameStore(state => state.hitmarkerUntil);
+  const damageFlashToken = useGameStore(state => state.damageFlashToken);
   const crosshairSpread = useGameStore(state => state.crosshairSpread);
   const scoped = useGameStore(state => state.scoped);
   const localPlayer = useGameStore(state => state.localPlayer);
@@ -217,12 +218,14 @@ export default function App(): React.JSX.Element {
       scoreboardOpen,
       connected,
       hitmarkerVisible,
+      damageFlashToken,
       crosshairSpread,
       scoped
     }),
     [
       connected,
       crosshairSpread,
+      damageFlashToken,
       hitmarkerVisible,
       killFeed,
       localIdentity,

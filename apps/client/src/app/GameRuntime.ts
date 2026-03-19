@@ -5,9 +5,11 @@ import {
   SERVER_TICK_MS,
   simulatePlayerTick,
   type AmmoPackView,
+  type DamageEvent,
   type HealthPackView,
   type ImpactMarkView,
   type LocalPlayerState,
+  type Vec3,
   type RemotePlayerState
 } from '@arena/shared';
 import { InputController } from '../input/InputController';
@@ -37,6 +39,12 @@ export class GameRuntime {
   private readonly rifle = new RifleController();
   private readonly remoteBuffers = new Map<string, SnapshotBuffer>();
   private readonly impactMarks = new Map<number, ImpactMarkView>();
+  private readonly bloodBursts: Array<{
+    id: number;
+    position: Vec3;
+    createdAt: number;
+    expiresAt: number;
+  }> = [];
   private prediction: PredictionController | null = null;
   private bridge: SpacetimeBridge | null = null;
   private frameHandle = 0;
@@ -101,6 +109,7 @@ export class GameRuntime {
     this.bridge = new SpacetimeBridge({
       onLocalState: state => this.handleAuthoritativeLocalState(state),
       onRemoteState: state => this.handleRemoteState(state),
+      onDamageEvent: event => this.handleDamageEvent(event),
       onImpactMark: mark => this.impactMarks.set(mark.id, mark),
       onImpactMarkRemoved: id => this.impactMarks.delete(id),
       onServerTick: serverTimeMs => this.observeServerTime(serverTimeMs),
@@ -123,6 +132,7 @@ export class GameRuntime {
     this.bridge = null;
     this.remoteBuffers.clear();
     this.impactMarks.clear();
+    this.bloodBursts.length = 0;
     this.prediction = null;
     this.sequence = 0;
     this.lastRespawnTick = 0;
@@ -195,6 +205,36 @@ export class GameRuntime {
     useGameStore.getState().setLocalPlayer({ ammo: clamped });
   }
 
+  private handleDamageEvent(event: DamageEvent): void {
+    const store = useGameStore.getState();
+    const localIdentity = store.localIdentity;
+    const now = performance.now();
+
+    if (event.victimIdentity === localIdentity) {
+      store.triggerDamageFlash();
+    }
+
+    if (event.attackerIdentity !== localIdentity || event.victimIdentity === localIdentity) {
+      return;
+    }
+
+    const victim = store.remotePlayers[event.victimIdentity];
+    if (!victim || !victim.alive) {
+      return;
+    }
+
+    this.bloodBursts.push({
+      id: event.id,
+      position: {
+        x: victim.position.x,
+        y: victim.position.y + 1.0,
+        z: victim.position.z
+      },
+      createdAt: now,
+      expiresAt: now + 320
+    });
+  }
+
   private readonly frame = (now: number): void => {
     const deltaSeconds = (now - this.lastFrameTime) / 1000;
     this.lastFrameTime = now;
@@ -263,6 +303,11 @@ export class GameRuntime {
     const healthPacks: HealthPackView[] = Object.values(useGameStore.getState().healthPacks).filter(
       pack => !connectedRoomCode || pack.roomCode === connectedRoomCode
     );
+    const bloodBursts = this.bloodBursts.filter(burst => burst.expiresAt > now);
+    if (bloodBursts.length !== this.bloodBursts.length) {
+      this.bloodBursts.length = 0;
+      this.bloodBursts.push(...bloodBursts);
+    }
     this.publishDebug(now);
     this.renderer.render({
       localPlayer: currentLocal,
@@ -272,6 +317,7 @@ export class GameRuntime {
       impactMarks: Array.from(this.impactMarks.values()).filter(
         mark => !connectedRoomCode || mark.roomCode === connectedRoomCode
       ),
+      bloodBursts,
       scoped: frameInput.scoped,
       deltaSeconds,
       recoil: this.rifle.getRecoil(),

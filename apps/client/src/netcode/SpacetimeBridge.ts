@@ -2,6 +2,7 @@ import {
   RIFLE_FIRE_INTERVAL_TICKS,
   SERVER_TICK_MS,
   type AmmoPackView,
+  type DamageEvent,
   type HealthPackView,
   type ImpactMarkView,
   type InputCommand,
@@ -52,6 +53,7 @@ export interface ConnectOptions {
 interface BridgeCallbacks {
   onLocalState: (state: LocalPlayerState) => void;
   onRemoteState: (state: RemotePlayerState) => void;
+  onDamageEvent: (event: DamageEvent) => void;
   onImpactMark: (mark: ImpactMarkView) => void;
   onImpactMarkRemoved: (id: number) => void;
   onServerTick: (serverTimeMs: number) => void;
@@ -489,9 +491,19 @@ export class SpacetimeBridge {
   }
 
   private handleDamageEventRow(row: DamageEventRow): void {
-    if (identityToString(row.attackerIdentity) === this.localIdentity) {
+    const event: DamageEvent = {
+      id: row.id,
+      attackerIdentity: identityToString(row.attackerIdentity),
+      victimIdentity: identityToString(row.victimIdentity),
+      amount: row.amount,
+      tick: row.tick,
+      causedDeath: row.causedDeath
+    };
+
+    if (event.attackerIdentity === this.localIdentity) {
       useGameStore.getState().triggerHitmarker(performance.now() + 180);
     }
+    this.callbacks.onDamageEvent(event);
   }
 
   private handleImpactMarkRow(row: ImpactMarkRow): void {

@@ -90,6 +90,11 @@ const CSS = `
     0%,100% { transform: translateY(0px); }
     50% { transform: translateY(-6px); }
   }
+  @keyframes cyberDamageFlash {
+    0% { opacity: 0; }
+    12% { opacity: 1; }
+    100% { opacity: 0; }
+  }
 
   .cyber-fade-up { animation: cyberFadeUp .4s cubic-bezier(.16,1,.3,1) both; }
   .cyber-fade-in { animation: cyberFadeIn .3s ease both; }
