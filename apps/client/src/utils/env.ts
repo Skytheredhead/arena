@@ -24,8 +24,6 @@ export const SPACETIMEDB_DATABASE =
   readEnv('VITE_SPACETIMEDB_DATABASE') ?? 'arena-fps-slice';
 
 export const getSpacetimeUriCandidates = (forceLocalBackend: boolean): string[] => {
-  const ordered = forceLocalBackend
-    ? [SPACETIMEDB_LOCAL_URI]
-    : [SPACETIMEDB_REMOTE_URI, SPACETIMEDB_LOCAL_URI];
+  const ordered = forceLocalBackend ? [SPACETIMEDB_LOCAL_URI] : [SPACETIMEDB_REMOTE_URI];
   return Array.from(new Set(ordered));
 };

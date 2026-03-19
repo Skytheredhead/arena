@@ -78,14 +78,7 @@ export class SpacetimeBridge {
       } catch (error) {
         const normalized = normalizeError(error);
         failures.push(`${uri} (${normalized.message})`);
-
-        if (this.connection) {
-          this.suppressDisconnectEvents = true;
-          this.connection.disconnect();
-          this.suppressDisconnectEvents = false;
-        }
-        this.connection = null;
-        this.localIdentity = '';
+        this.resetActiveConnection();
       }
     }
 
@@ -134,7 +127,83 @@ export class SpacetimeBridge {
     await this.connection.reducers.requestRespawn({});
   }
 
+  private readStoredToken(): string | undefined {
+    if (typeof window === 'undefined') {
+      return undefined;
+    }
+
+    try {
+      return window.localStorage.getItem(TOKEN_STORAGE_KEY) ?? undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
+  private setStoredToken(token: string): void {
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    try {
+      window.localStorage.setItem(TOKEN_STORAGE_KEY, token);
+    } catch {
+      // Ignore storage write failures; session can continue with in-memory auth.
+    }
+  }
+
+  private clearStoredToken(): void {
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    try {
+      window.localStorage.removeItem(TOKEN_STORAGE_KEY);
+    } catch {
+      // Ignore storage write failures; retry still proceeds without explicit token.
+    }
+  }
+
+  private resetActiveConnection(): void {
+    if (this.connection) {
+      this.suppressDisconnectEvents = true;
+      this.connection.disconnect();
+      this.suppressDisconnectEvents = false;
+    }
+    this.connection = null;
+    this.localIdentity = '';
+  }
+
   private async connectWithUri(uri: string, options: ConnectOptions): Promise<void> {
+    const storedToken = this.readStoredToken();
+
+    try {
+      await this.connectWithUriAttempt(uri, options, storedToken);
+      return;
+    } catch (error) {
+      const initialError = normalizeError(error);
+      if (!storedToken) {
+        throw initialError;
+      }
+
+      this.clearStoredToken();
+      this.resetActiveConnection();
+
+      try {
+        await this.connectWithUriAttempt(uri, options, undefined);
+      } catch (retryError) {
+        const normalizedRetryError = normalizeError(retryError);
+        throw new Error(
+          `${normalizedRetryError.message} (retry without stored token also failed; initial error: ${initialError.message})`
+        );
+      }
+    }
+  }
+
+  private async connectWithUriAttempt(
+    uri: string,
+    options: ConnectOptions,
+    token?: string
+  ): Promise<void> {
     await new Promise<void>((resolve, reject) => {
       let settled = false;
       let established = false;
@@ -157,12 +226,12 @@ export class SpacetimeBridge {
       const builder = DbConnection.builder()
         .withUri(uri)
         .withDatabaseName(SPACETIMEDB_DATABASE)
-        .withToken(window.localStorage.getItem(TOKEN_STORAGE_KEY) ?? undefined)
+        .withToken(token)
         .onConnect((connection, identity, token) => {
           established = true;
           this.connection = connection;
           this.localIdentity = identityToString(identity);
-          window.localStorage.setItem(TOKEN_STORAGE_KEY, token);
+          this.setStoredToken(token);
           useGameStore.getState().setLocalIdentity(this.localIdentity);
           this.installListeners(connection);
           void (async () => {
