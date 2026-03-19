@@ -21,7 +21,6 @@ export class InputController {
   private fireHeld = false;
   private lookSensitivity = CAMERA_SENSITIVITY;
   private touchControlsActive = false;
-  private textInputActive = false;
   private virtualMove = { x: 0, z: 0 };
   private virtualLook = { x: 0, y: 0 };
   private virtualFireHeld = false;
@@ -79,7 +78,6 @@ export class InputController {
   }
 
   setTextInputActive(active: boolean): void {
-    this.textInputActive = active;
     if (active) {
       this.clearPressed();
     }
@@ -127,9 +125,6 @@ export class InputController {
   };
 
   private readonly handleMouseDown = (event: MouseEvent): void => {
-    if (this.textInputActive) {
-      return;
-    }
     if (event.button === 0) {
       this.fireHeld = true;
     }
@@ -166,9 +161,6 @@ export class InputController {
     if (typingIntoField && document.pointerLockElement !== this.element) {
       return;
     }
-    if (this.textInputActive) {
-      return;
-    }
 
     if (event.code === SCOREBOARD_KEY) {
       event.preventDefault();
@@ -187,9 +179,6 @@ export class InputController {
     if (typingIntoField && document.pointerLockElement !== this.element) {
       return;
     }
-    if (this.textInputActive) {
-      return;
-    }
 
     this.pressed.delete(event.code);
   };
@@ -204,18 +193,6 @@ export class InputController {
   }
 
   getFrameInput(): FrameInput {
-    if (this.textInputActive) {
-      return {
-        moveX: 0,
-        moveZ: 0,
-        jumping: false,
-        sprinting: false,
-        scoped: false,
-        scoreboardHeld: false,
-        wantsFire: false
-      };
-    }
-
     const keyboardMoveX =
       (this.pressed.has('KeyD') ? 1 : 0) - (this.pressed.has('KeyA') ? 1 : 0);
     const keyboardMoveZ =
