@@ -4,7 +4,7 @@ import { PredictionController } from '../player/PredictionController';
 
 const makeState = (): LocalPlayerState => ({
   identity: 'player',
-  position: { x: -8, y: 0, z: -12 },
+  position: { x: 8, y: 0, z: 0 },
   velocity: { x: 0, y: 0, z: 0 },
   serverTick: 10,
   serverTimeMs: 500,
@@ -36,7 +36,7 @@ describe('PredictionController', () => {
 
     const reconciled = controller.reconcile({
       ...makeState(),
-      position: { x: -8, y: 0, z: -11.63 },
+      position: { x: 8, y: 0, z: -0.02 },
       serverTick: 11,
       serverTimeMs: 550,
       lastProcessedInput: 1
@@ -44,7 +44,7 @@ describe('PredictionController', () => {
 
     expect(reconciled.lastProcessedInput).toBe(1);
     expect(controller.getDebugState().pendingInputs).toBe(1);
-    expect(reconciled.position.z).toBeLessThan(-11.63);
+    expect(reconciled.position.z).toBeLessThan(-0.02);
   });
 
   it('ignores stale authoritative snapshots', () => {

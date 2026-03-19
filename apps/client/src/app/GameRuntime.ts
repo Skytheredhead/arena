@@ -326,7 +326,6 @@ export class GameRuntime {
       void this.bridge
         .fireWeapon(localState.yaw, localState.pitch, frameInput.scoped)
         .catch(() => {
-          this.setLocalAmmo(useGameStore.getState().localPlayer.ammo + 1);
           useGameStore.getState().incrementRejectedShots();
         });
     }

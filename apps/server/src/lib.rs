@@ -40,11 +40,11 @@ const HEALTH_REGEN_DELAY_TICKS: u32 = SERVER_TICK_RATE * 5;
 const HEALTH_REGEN_PER_TICK: f32 = 3.0 / SERVER_TICK_RATE as f32;
 const AMMO_PACK_AMOUNT: u16 = 6;
 const AMMO_PACK_RESPAWN_TICKS: u32 = SERVER_TICK_RATE * 3;
-const AMMO_PACK_RADIUS: f32 = 0.32;
-const AMMO_PACK_ACTIVE_COUNT: usize = 10;
+const AMMO_PACK_RADIUS: f32 = 0.6;
+const AMMO_PACK_ACTIVE_COUNT: usize = 6;
 const HEALTH_PACK_AMOUNT: u16 = 50;
 const HEALTH_PACK_RESPAWN_TICKS: u32 = SERVER_TICK_RATE * 10;
-const HEALTH_PACK_RADIUS: f32 = 0.4;
+const HEALTH_PACK_RADIUS: f32 = 0.5;
 const HEALTH_PACK_ACTIVE_COUNT: usize = 2;
 const ARENA_HALF_SIZE: f32 = 30.0;
 
@@ -65,98 +65,43 @@ struct Block {
     max_z: f32,
 }
 
-const ARENA_BLOCKS: [Block; 34] = [
-    Block { min_x: -2.2, min_y: 0.0, min_z: -2.2, max_x: 2.2, max_y: 6.0, max_z: 2.2 },
-    Block { min_x: -4.0, min_y: 0.0, min_z: 3.6, max_x: 4.0, max_y: 2.4, max_z: 5.2 },
-    Block { min_x: -4.0, min_y: 0.0, min_z: -5.2, max_x: 4.0, max_y: 2.4, max_z: -3.6 },
-    Block { min_x: 3.6, min_y: 0.0, min_z: -4.0, max_x: 5.2, max_y: 2.4, max_z: 4.0 },
-    Block { min_x: -5.2, min_y: 0.0, min_z: -4.0, max_x: -3.6, max_y: 2.4, max_z: 4.0 },
-    Block { min_x: -3.0, min_y: 3.0, min_z: 7.2, max_x: 3.0, max_y: 3.4, max_z: 9.2 },
-    Block { min_x: -3.0, min_y: 3.0, min_z: -9.2, max_x: 3.0, max_y: 3.4, max_z: -7.2 },
-    Block { min_x: 7.2, min_y: 3.0, min_z: -3.0, max_x: 9.2, max_y: 3.4, max_z: 3.0 },
-    Block { min_x: -9.2, min_y: 3.0, min_z: -3.0, max_x: -7.2, max_y: 3.4, max_z: 3.0 },
-    Block { min_x: 4.8, min_y: 3.0, min_z: 4.8, max_x: 7.6, max_y: 3.4, max_z: 7.6 },
-    Block { min_x: -7.6, min_y: 3.0, min_z: 4.8, max_x: -4.8, max_y: 3.4, max_z: 7.6 },
-    Block { min_x: 4.8, min_y: 3.0, min_z: -7.6, max_x: 7.6, max_y: 3.4, max_z: -4.8 },
-    Block { min_x: -7.6, min_y: 3.0, min_z: -7.6, max_x: -4.8, max_y: 3.4, max_z: -4.8 },
-    Block { min_x: 7.4, min_y: 0.0, min_z: -0.8, max_x: 8.6, max_y: 3.0, max_z: 0.8 },
-    Block { min_x: -8.6, min_y: 0.0, min_z: -0.8, max_x: -7.4, max_y: 3.0, max_z: 0.8 },
-    Block { min_x: -0.8, min_y: 0.0, min_z: 7.4, max_x: 0.8, max_y: 3.0, max_z: 8.6 },
-    Block { min_x: -0.8, min_y: 0.0, min_z: -8.6, max_x: 0.8, max_y: 3.0, max_z: -7.4 },
-    Block { min_x: 20.0, min_y: 0.0, min_z: -24.0, max_x: 22.0, max_y: 4.0, max_z: 24.0 },
-    Block { min_x: 13.0, min_y: 0.0, min_z: -24.0, max_x: 15.0, max_y: 4.0, max_z: -6.0 },
-    Block { min_x: 13.0, min_y: 0.0, min_z: 6.0, max_x: 15.0, max_y: 4.0, max_z: 24.0 },
-    Block { min_x: -22.0, min_y: 0.0, min_z: -24.0, max_x: -20.0, max_y: 4.0, max_z: 24.0 },
-    Block { min_x: -15.0, min_y: 0.0, min_z: -24.0, max_x: -13.0, max_y: 4.0, max_z: -6.0 },
-    Block { min_x: -15.0, min_y: 0.0, min_z: 6.0, max_x: -13.0, max_y: 4.0, max_z: 24.0 },
-    Block { min_x: 15.0, min_y: 0.0, min_z: 22.0, max_x: 20.0, max_y: 4.0, max_z: 24.0 },
-    Block { min_x: 15.0, min_y: 0.0, min_z: -24.0, max_x: 20.0, max_y: 4.0, max_z: -22.0 },
-    Block { min_x: -20.0, min_y: 0.0, min_z: 22.0, max_x: -15.0, max_y: 4.0, max_z: 24.0 },
-    Block { min_x: -20.0, min_y: 0.0, min_z: -24.0, max_x: -15.0, max_y: 4.0, max_z: -22.0 },
-    Block { min_x: -6.0, min_y: 2.2, min_z: -1.6, max_x: 6.0, max_y: 2.8, max_z: 1.6 },
-    Block { min_x: -2.5, min_y: 3.0, min_z: -12.0, max_x: 2.5, max_y: 3.4, max_z: -9.0 },
-    Block { min_x: -1.0, min_y: 3.0, min_z: -9.0, max_x: 1.0, max_y: 3.4, max_z: -7.2 },
-    Block { min_x: -2.0, min_y: 0.0, min_z: -14.0, max_x: -1.4, max_y: 4.0, max_z: -8.0 },
-    Block { min_x: 1.4, min_y: 0.0, min_z: -14.0, max_x: 2.0, max_y: 4.0, max_z: -8.0 },
-    Block { min_x: -6.0, min_y: 0.0, min_z: -16.0, max_x: -4.0, max_y: 1.6, max_z: -14.0 },
-    Block { min_x: 4.0, min_y: 0.0, min_z: 14.0, max_x: 6.0, max_y: 1.6, max_z: 16.0 },
+const ARENA_BLOCKS: [Block; 5] = [
+    Block { min_x: -2.0, min_y: 0.0, min_z: -2.0, max_x: 2.0, max_y: 2.0, max_z: 2.0 },
+    Block { min_x: -14.0, min_y: 0.0, min_z: -2.0, max_x: -10.0, max_y: 2.4, max_z: 2.0 },
+    Block { min_x: 10.0, min_y: 0.0, min_z: -2.0, max_x: 14.0, max_y: 2.4, max_z: 2.0 },
+    Block { min_x: -2.0, min_y: 0.0, min_z: -14.0, max_x: 2.0, max_y: 2.4, max_z: -10.0 },
+    Block { min_x: -2.0, min_y: 0.0, min_z: 10.0, max_x: 2.0, max_y: 2.4, max_z: 14.0 },
 ];
 
 const SPAWN_POINTS: [Vec3; 8] = [
-    Vec3 { x: -18.0, y: 0.0, z: -18.0 },
-    Vec3 { x: 18.0, y: 0.0, z: -18.0 },
-    Vec3 { x: -18.0, y: 0.0, z: 18.0 },
-    Vec3 { x: 18.0, y: 0.0, z: 18.0 },
-    Vec3 { x: -10.0, y: 0.0, z: 0.0 },
-    Vec3 { x: 10.0, y: 0.0, z: 0.0 },
-    Vec3 { x: 0.0, y: 0.0, z: -18.0 },
-    Vec3 { x: 0.0, y: 0.0, z: 18.0 },
+    Vec3 { x: -22.0, y: 0.0, z: -22.0 },
+    Vec3 { x: 22.0, y: 0.0, z: -22.0 },
+    Vec3 { x: -22.0, y: 0.0, z: 22.0 },
+    Vec3 { x: 22.0, y: 0.0, z: 22.0 },
+    Vec3 { x: 0.0, y: 0.0, z: -24.0 },
+    Vec3 { x: 0.0, y: 0.0, z: 24.0 },
+    Vec3 { x: -24.0, y: 0.0, z: 0.0 },
+    Vec3 { x: 24.0, y: 0.0, z: 0.0 },
 ];
 
-const AMMO_PACK_LOCATIONS: [Vec3; 30] = [
-    Vec3 { x: -18.0, y: 0.0, z: -20.0 },
-    Vec3 { x: -18.0, y: 0.0, z: -12.0 },
-    Vec3 { x: -18.0, y: 0.0, z: -4.0 },
-    Vec3 { x: -18.0, y: 0.0, z: 4.0 },
-    Vec3 { x: -18.0, y: 0.0, z: 12.0 },
-    Vec3 { x: -18.0, y: 0.0, z: 20.0 },
-    Vec3 { x: 18.0, y: 0.0, z: -20.0 },
-    Vec3 { x: 18.0, y: 0.0, z: -12.0 },
-    Vec3 { x: 18.0, y: 0.0, z: -4.0 },
-    Vec3 { x: 18.0, y: 0.0, z: 4.0 },
-    Vec3 { x: 18.0, y: 0.0, z: 12.0 },
-    Vec3 { x: 18.0, y: 0.0, z: 20.0 },
-    Vec3 { x: -10.0, y: 0.0, z: -18.0 },
-    Vec3 { x: -10.0, y: 0.0, z: 18.0 },
-    Vec3 { x: 10.0, y: 0.0, z: -18.0 },
-    Vec3 { x: 10.0, y: 0.0, z: 18.0 },
-    Vec3 { x: -8.0, y: 0.0, z: -8.0 },
-    Vec3 { x: -8.0, y: 0.0, z: 8.0 },
-    Vec3 { x: 8.0, y: 0.0, z: -8.0 },
-    Vec3 { x: 8.0, y: 0.0, z: 8.0 },
-    Vec3 { x: -4.0, y: 0.0, z: -14.0 },
-    Vec3 { x: 4.0, y: 0.0, z: -14.0 },
-    Vec3 { x: -4.0, y: 0.0, z: 14.0 },
-    Vec3 { x: 4.0, y: 0.0, z: 14.0 },
-    Vec3 { x: 0.0, y: 0.0, z: -16.0 },
-    Vec3 { x: 0.0, y: 0.0, z: 16.0 },
-    Vec3 { x: -12.0, y: 0.0, z: 0.0 },
-    Vec3 { x: 12.0, y: 0.0, z: 0.0 },
-    Vec3 { x: -6.0, y: 0.0, z: 0.0 },
-    Vec3 { x: 6.0, y: 0.0, z: 0.0 },
-];
-
-const HEALTH_PACK_LOCATIONS: [Vec3; 10] = [
+const AMMO_PACK_LOCATIONS: [Vec3; 10] = [
     Vec3 { x: -20.0, y: 0.0, z: 0.0 },
     Vec3 { x: 20.0, y: 0.0, z: 0.0 },
     Vec3 { x: 0.0, y: 0.0, z: -20.0 },
     Vec3 { x: 0.0, y: 0.0, z: 20.0 },
-    Vec3 { x: -14.0, y: 0.0, z: -10.0 },
-    Vec3 { x: 14.0, y: 0.0, z: -10.0 },
-    Vec3 { x: -14.0, y: 0.0, z: 10.0 },
-    Vec3 { x: 14.0, y: 0.0, z: 10.0 },
-    Vec3 { x: -6.0, y: 0.0, z: -6.0 },
-    Vec3 { x: 6.0, y: 0.0, z: 6.0 },
+    Vec3 { x: -8.0, y: 0.0, z: -8.0 },
+    Vec3 { x: 8.0, y: 0.0, z: -8.0 },
+    Vec3 { x: -8.0, y: 0.0, z: 8.0 },
+    Vec3 { x: 8.0, y: 0.0, z: 8.0 },
+    Vec3 { x: -16.0, y: 0.0, z: 16.0 },
+    Vec3 { x: 16.0, y: 0.0, z: -16.0 },
+];
+
+const HEALTH_PACK_LOCATIONS: [Vec3; 4] = [
+    Vec3 { x: -12.0, y: 0.0, z: 12.0 },
+    Vec3 { x: 12.0, y: 0.0, z: 12.0 },
+    Vec3 { x: -12.0, y: 0.0, z: -12.0 },
+    Vec3 { x: 12.0, y: 0.0, z: -12.0 },
 ];
 
 #[table(accessor = world_state)]

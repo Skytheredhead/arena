@@ -55,6 +55,7 @@ export class SpacetimeBridge {
   private connection: DbConnection | null = null;
   private localIdentity = '';
   private latestWeaponTick = -1;
+  private latestWeaponAmmo = -1;
 
   constructor(private readonly callbacks: BridgeCallbacks) {}
 
@@ -62,6 +63,7 @@ export class SpacetimeBridge {
     const store = useGameStore.getState();
     store.setConnection('connecting', null);
     this.latestWeaponTick = -1;
+    this.latestWeaponAmmo = -1;
 
     await new Promise<void>((resolve, reject) => {
       const builder = DbConnection.builder()
@@ -122,6 +124,7 @@ export class SpacetimeBridge {
     this.connection = null;
     this.localIdentity = '';
     this.latestWeaponTick = -1;
+    this.latestWeaponAmmo = -1;
   }
 
   async submitInput(command: InputCommand): Promise<void> {
@@ -267,11 +270,17 @@ export class SpacetimeBridge {
     const store = useGameStore.getState();
     const currentAmmo = store.localPlayer.ammo;
     const tick = row.nextReadyTick;
-    if (tick < this.latestWeaponTick) {
+    const previousTick = this.latestWeaponTick;
+    const previousAmmo = this.latestWeaponAmmo;
+    if (tick < previousTick) {
+      return;
+    }
+    if (tick === previousTick && previousAmmo >= 0 && row.ammoInMag < previousAmmo) {
       return;
     }
 
     this.latestWeaponTick = tick;
+    this.latestWeaponAmmo = row.ammoInMag;
     if (row.ammoInMag !== currentAmmo) {
       store.setLocalPlayer({ ammo: row.ammoInMag });
       this.callbacks.onWeaponAmmo(row.ammoInMag);

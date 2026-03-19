@@ -3,7 +3,7 @@ import { simulatePlayerTick, type LocalPlayerState } from '@arena/shared';
 
 const makeState = (): LocalPlayerState => ({
   identity: 'test',
-  position: { x: -8, y: 0, z: -12 },
+  position: { x: 8, y: 0, z: 0 },
   velocity: { x: 0, y: 0, z: 0 },
   serverTick: 0,
   serverTimeMs: 0,
