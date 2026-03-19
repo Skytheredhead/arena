@@ -346,7 +346,7 @@ export class GameRenderer {
     }
 
     mesh = new THREE.Mesh(
-      new THREE.CircleGeometry(0.055, 12),
+      new THREE.CircleGeometry(0.03, 12),
       new THREE.MeshBasicMaterial({
         color: '#0b1117',
         transparent: true,
