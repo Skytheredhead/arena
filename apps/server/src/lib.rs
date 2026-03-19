@@ -310,6 +310,7 @@ pub struct PlayerRateLimit {
     last_join_room_tick: u32,
     last_leave_room_tick: u32,
     last_start_match_tick: u32,
+    #[default(0)]
     last_chat_tick: u32,
 }
 
@@ -1883,17 +1884,11 @@ fn ray_hits_block(origin: Vec3, direction: Vec3, block: Block) -> Option<BlockHi
         1.0 / direction_z
     };
 
-    let mut enter_normal = Vec3 {
-        x: 0.0,
-        y: 0.0,
-        z: 0.0,
-    };
-
     let mut t1 = (-block.half_x - origin_x) * inv_x;
     let mut t2 = (block.half_x - origin_x) * inv_x;
     let mut t_min = t1.min(t2);
     let mut t_max = t1.max(t2);
-    enter_normal = if t1 <= t2 {
+    let mut enter_normal = if t1 <= t2 {
         Vec3 {
             x: -1.0,
             y: 0.0,
@@ -1963,10 +1958,6 @@ fn ray_hits_block(origin: Vec3, direction: Vec3, block: Block) -> Option<BlockHi
     } else {
         None
     }
-}
-
-fn dot(left: Vec3, right: Vec3) -> f32 {
-    left.x * right.x + left.y * right.y + left.z * right.z
 }
 
 fn hash01(seed: f32) -> f32 {
