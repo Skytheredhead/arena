@@ -34,6 +34,7 @@ declare global {
 }
 
 export class GameRuntime {
+  private static readonly MOBILE_LOOK_SPEED = 2.8;
   private readonly renderer: GameRenderer;
   private readonly input: InputController;
   private readonly rifle = new RifleController();
@@ -81,6 +82,22 @@ export class GameRuntime {
 
   isPointerLocked(): boolean {
     return this.input.isPointerLocked();
+  }
+
+  setTouchControlsActive(active: boolean): void {
+    this.input.setTouchControlsActive(active);
+  }
+
+  setVirtualMove(moveX: number, moveZ: number): void {
+    this.input.setVirtualMove(moveX, moveZ);
+  }
+
+  setVirtualLook(lookX: number, lookY: number): void {
+    this.input.setVirtualLook(lookX, lookY);
+  }
+
+  setVirtualFireHeld(held: boolean): void {
+    this.input.setVirtualFireHeld(held);
   }
 
   setPaused(paused: boolean): void {
@@ -250,6 +267,11 @@ export class GameRuntime {
 
     if (this.prediction && !this.paused) {
       const look = this.input.consumeLook();
+      const lookStick = this.input.getVirtualLook();
+      if (lookStick.x !== 0 || lookStick.y !== 0) {
+        look.yawDelta += lookStick.x * GameRuntime.MOBILE_LOOK_SPEED * deltaSeconds;
+        look.pitchDelta += lookStick.y * GameRuntime.MOBILE_LOOK_SPEED * deltaSeconds;
+      }
       if (look.yawDelta !== 0 || look.pitchDelta !== 0) {
         this.prediction.applyLook(look.yawDelta, look.pitchDelta);
         const predicted = this.prediction.getState();

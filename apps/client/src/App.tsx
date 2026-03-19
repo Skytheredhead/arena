@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { MenuOverlay } from './ui/components/MenuOverlay';
 import { HudOverlay } from './ui/components/HudOverlay';
 import { PauseOverlay } from './ui/components/PauseOverlay';
+import { MobileControls } from './ui/components/MobileControls';
 import { useGameStore } from './state/gameStore';
 import { GameRuntime } from './app/GameRuntime';
 import { normalizeRoomCode } from './utils/roomCode';
@@ -17,6 +18,8 @@ export default function App(): React.JSX.Element {
   const resumeOnEscapeKeyupRef = useRef(false);
   const [runtimeError, setRuntimeError] = useState<string | null>(null);
   const [paused, setPaused] = useState(false);
+  const [touchControls, setTouchControls] = useState(false);
+  const [portrait, setPortrait] = useState(false);
   const connectionStatus = useGameStore(state => state.connectionStatus);
   const connectionError = useGameStore(state => state.connectionError);
   const nickname = useGameStore(state => state.nickname);
@@ -36,13 +39,39 @@ export default function App(): React.JSX.Element {
   const graphicsQuality = useGameStore(state => state.graphicsQuality);
   const lookSensitivity = useGameStore(state => state.lookSensitivity);
   const fov = useGameStore(state => state.fov);
-  const forceLocalBackend = useGameStore(state => state.forceLocalBackend);
   const setNickname = useGameStore(state => state.setNickname);
   const setRoomCode = useGameStore(state => state.setRoomCode);
-  const setForceLocalBackend = useGameStore(state => state.setForceLocalBackend);
   const setGraphicsQuality = useGameStore(state => state.setGraphicsQuality);
   const setLookSensitivity = useGameStore(state => state.setLookSensitivity);
   const setFov = useGameStore(state => state.setFov);
+
+  const syncViewportMode = useCallback((): void => {
+    const coarsePointer =
+      typeof window !== 'undefined' &&
+      window.matchMedia('(pointer: coarse)').matches;
+    const touchCapable =
+      typeof navigator !== 'undefined' &&
+      (navigator.maxTouchPoints > 0 || /android|iphone|ipad|ipod/i.test(navigator.userAgent));
+    const mobile = coarsePointer || touchCapable;
+    setTouchControls(mobile);
+    setPortrait(mobile && window.innerHeight > window.innerWidth);
+    runtimeRef.current?.setTouchControlsActive(mobile);
+  }, []);
+
+  const lockLandscape = useCallback((): void => {
+    const orientationApi =
+      typeof screen === 'undefined'
+        ? undefined
+        : (screen.orientation as ScreenOrientation & {
+            lock?: (orientation: 'landscape') => Promise<void>;
+          });
+
+    if (!touchControls || !orientationApi?.lock) {
+      return;
+    }
+
+    void orientationApi.lock('landscape').catch(() => undefined);
+  }, [touchControls]);
 
   const ensureRuntime = (): GameRuntime | null => {
     if (runtimeRef.current) {
@@ -57,6 +86,7 @@ export default function App(): React.JSX.Element {
       runtime.setGraphicsQuality(graphicsQuality);
       runtime.setLookSensitivity(lookSensitivity);
       runtime.setFov(fov);
+      runtime.setTouchControlsActive(touchControls);
       runtimeRef.current = runtime;
       setRuntimeError(null);
       return runtime;
@@ -77,6 +107,16 @@ export default function App(): React.JSX.Element {
   );
 
   useEffect(() => {
+    syncViewportMode();
+    window.addEventListener('resize', syncViewportMode);
+    window.addEventListener('orientationchange', syncViewportMode);
+    return () => {
+      window.removeEventListener('resize', syncViewportMode);
+      window.removeEventListener('orientationchange', syncViewportMode);
+    };
+  }, [syncViewportMode]);
+
+  useEffect(() => {
     const runtime = runtimeRef.current;
     if (!runtime) {
       return;
@@ -84,7 +124,8 @@ export default function App(): React.JSX.Element {
     runtime.setGraphicsQuality(graphicsQuality);
     runtime.setLookSensitivity(lookSensitivity);
     runtime.setFov(fov);
-  }, [fov, graphicsQuality, lookSensitivity]);
+    runtime.setTouchControlsActive(touchControls);
+  }, [fov, graphicsQuality, lookSensitivity, touchControls]);
 
   const connected = connectionStatus === 'connected';
   const connecting = connectionStatus === 'connecting';
@@ -106,6 +147,9 @@ export default function App(): React.JSX.Element {
   }, []);
 
   useEffect(() => {
+    if (touchControls) {
+      return;
+    }
     if (!connected) {
       setPaused(false);
       runtimeRef.current?.setPaused(false);
@@ -135,9 +179,12 @@ export default function App(): React.JSX.Element {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [connected, resumeFromPause]);
+  }, [connected, resumeFromPause, touchControls]);
 
   useEffect(() => {
+    if (touchControls) {
+      return;
+    }
     if (!connected) {
       return;
     }
@@ -156,9 +203,12 @@ export default function App(): React.JSX.Element {
 
     window.addEventListener('keyup', handleKeyUp);
     return () => window.removeEventListener('keyup', handleKeyUp);
-  }, [connected]);
+  }, [connected, touchControls]);
 
   useEffect(() => {
+    if (touchControls) {
+      return;
+    }
     if (!connected) {
       return;
     }
@@ -182,7 +232,7 @@ export default function App(): React.JSX.Element {
 
     document.addEventListener('pointerlockchange', handlePointerLockChange);
     return () => document.removeEventListener('pointerlockchange', handlePointerLockChange);
-  }, [connected]);
+  }, [connected, touchControls]);
 
   const hitmarkerVisible = hitmarkerUntil > performance.now();
   const scoreboard = useMemo(
@@ -257,6 +307,7 @@ export default function App(): React.JSX.Element {
 
     setPaused(false);
     runtime.setPaused(false);
+    lockLandscape();
     connectInFlightRef.current = true;
 
     void runtime
@@ -266,7 +317,7 @@ export default function App(): React.JSX.Element {
         createRoom
       })
       .then(() => {
-        if (useGameStore.getState().connectionStatus === 'connected') {
+        if (useGameStore.getState().connectionStatus === 'connected' && !touchControls) {
           runtime.requestPointerLock();
         }
       })
@@ -292,7 +343,6 @@ export default function App(): React.JSX.Element {
         connectionStatus={connectionStatus}
         backendConnected={backendConnected}
         backendPingMs={backendPingMs}
-        forceLocalBackend={forceLocalBackend}
         openRooms={openRooms}
         connectionError={runtimeError ?? connectionError}
         onNicknameChange={setNickname}
@@ -300,7 +350,6 @@ export default function App(): React.JSX.Element {
         onCreateRoom={() => connectToRoom(true)}
         onJoinRoom={() => connectToRoom(false)}
         onJoinOpenRoom={code => connectToRoom(false, code)}
-        onForceLocalBackendChange={setForceLocalBackend}
       />
       <PauseOverlay
         visible={paused && connected}
@@ -308,16 +357,21 @@ export default function App(): React.JSX.Element {
         graphicsQuality={graphicsQuality}
         lookSensitivity={lookSensitivity}
         fov={fov}
-        forceLocalBackend={forceLocalBackend}
         onGraphicsQualityChange={setGraphicsQuality}
         onLookSensitivityChange={setLookSensitivity}
         onFovChange={setFov}
-        onForceLocalBackendChange={setForceLocalBackend}
         onResume={resumeFromPause}
         onDisconnect={() => {
           setPaused(false);
           runtimeRef.current?.disconnect();
         }}
+      />
+      <MobileControls
+        visible={connected && touchControls}
+        portrait={portrait}
+        onMoveChange={(moveX, moveZ) => runtimeRef.current?.setVirtualMove(moveX, moveZ)}
+        onLookChange={(lookX, lookY) => runtimeRef.current?.setVirtualLook(lookX, lookY)}
+        onFireChange={held => runtimeRef.current?.setVirtualFireHeld(held)}
       />
     </div>
   );

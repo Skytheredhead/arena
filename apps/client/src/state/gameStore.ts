@@ -26,31 +26,6 @@ import {
 import { generateDefaultCallsign } from '../utils/callsign';
 
 type ConnectionStatus = 'disconnected' | 'connecting' | 'connected' | 'error';
-const FORCE_LOCAL_BACKEND_STORAGE_KEY = 'arena-force-local-backend';
-
-const readStoredForceLocalBackend = (): boolean => {
-  if (typeof window === 'undefined') {
-    return false;
-  }
-
-  try {
-    return window.localStorage.getItem(FORCE_LOCAL_BACKEND_STORAGE_KEY) === '1';
-  } catch {
-    return false;
-  }
-};
-
-const persistForceLocalBackend = (value: boolean): void => {
-  if (typeof window === 'undefined') {
-    return;
-  }
-
-  try {
-    window.localStorage.setItem(FORCE_LOCAL_BACKEND_STORAGE_KEY, value ? '1' : '0');
-  } catch {
-    // Ignore storage write failures (private mode/quota/etc.) and keep in-memory setting.
-  }
-};
 
 interface RuntimePlayerMeta extends ScoreRow {
   roomCode: string | null;
@@ -79,7 +54,6 @@ interface SessionState {
   killFeed: KillFeedEntry[];
   predictionDebug: PredictionDebugState;
   rejectedShots: number;
-  forceLocalBackend: boolean;
   graphicsQuality: GraphicsQuality;
   lookSensitivity: number;
   fov: number;
@@ -112,7 +86,6 @@ interface SessionState {
   pruneKillFeed: (nowMs: number) => void;
   setPredictionDebug: (value: PredictionDebugState) => void;
   incrementRejectedShots: () => void;
-  setForceLocalBackend: (value: boolean) => void;
   setGraphicsQuality: (quality: GraphicsQuality) => void;
   setLookSensitivity: (value: number) => void;
   setFov: (value: number) => void;
@@ -151,7 +124,6 @@ export const useGameStore = create<SessionState>(set => ({
   killFeed: [],
   predictionDebug: initialPredictionDebug,
   rejectedShots: 0,
-  forceLocalBackend: readStoredForceLocalBackend(),
   graphicsQuality: 'medium',
   lookSensitivity: CAMERA_SENSITIVITY,
   fov: DEFAULT_FOV,
@@ -311,15 +283,6 @@ export const useGameStore = create<SessionState>(set => ({
   setPredictionDebug: predictionDebug => set({ predictionDebug }),
   incrementRejectedShots: () =>
     set(state => ({ rejectedShots: state.rejectedShots + 1 })),
-  setForceLocalBackend: forceLocalBackend =>
-    set(state => {
-      if (state.forceLocalBackend === forceLocalBackend) {
-        return state;
-      }
-
-      persistForceLocalBackend(forceLocalBackend);
-      return { forceLocalBackend };
-    }),
   setGraphicsQuality: graphicsQuality =>
     set(state => (state.graphicsQuality === graphicsQuality ? state : { graphicsQuality })),
   setLookSensitivity: lookSensitivity =>

@@ -75,7 +75,7 @@ export class SpacetimeBridge {
     store.setConnection('connecting', null);
     this.latestWeaponTick = -1;
     this.latestWeaponAmmo = -1;
-    const endpointCandidates = getSpacetimeUriCandidates(store.forceLocalBackend);
+    const endpointCandidates = getSpacetimeUriCandidates();
     const failures: string[] = [];
 
     for (const uri of endpointCandidates) {
