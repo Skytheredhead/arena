@@ -3073,6 +3073,7 @@ fn player_touches_pickup(
 fn process_ammo_packs(ctx: &ReducerContext, tick: u32) {
     let packs: Vec<AmmoPack> = ctx.db.ammo_pack().iter().collect();
     let states: Vec<PlayerState> = ctx.db.player_state().iter().collect();
+    let mut picked_identities: Vec<Identity> = Vec::new();
 
     for mut pack in packs {
         if !pack.active {
@@ -3145,6 +3146,9 @@ fn process_ammo_packs(ctx: &ReducerContext, tick: u32) {
             if state.room_code.as_deref() != Some(pack.room_code.as_str()) {
                 continue;
             }
+            if picked_identities.contains(&state.identity) {
+                continue;
+            }
             if !player_touches_pickup(
                 state,
                 pickup_position,
@@ -3207,6 +3211,7 @@ fn process_ammo_packs(ctx: &ReducerContext, tick: u32) {
 
         if collected {
             if let Some(identity) = collected_by {
+                picked_identities.push(identity);
                 bump_stat_for_identity(ctx, identity, |stats| {
                     stats.ammo_collected = stats.ammo_collected.saturating_add(1);
                 });

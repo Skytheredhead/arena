@@ -257,8 +257,8 @@ export default function App(): React.JSX.Element {
   }, [fov, graphicsQuality, lookSensitivity, musicVolume, sfxVolume, touchControls]);
 
   useEffect(() => {
-    runtimeRef.current?.setPointerLockEnabled(connected && !touchControls);
-  }, [connected, touchControls]);
+    runtimeRef.current?.setPointerLockEnabled(connected && !touchControls && localPlayer.alive);
+  }, [connected, localPlayer.alive, touchControls]);
 
   useEffect(() => {
     runtimeRef.current?.setLobbyMusicActive(!connected);
@@ -376,7 +376,24 @@ export default function App(): React.JSX.Element {
     if (!eliminated) return;
     setPaused(false); setPauseView('pause'); setChatOpen(false);
     runtimeRef.current?.setPaused(false);
+    if (document.pointerLockElement) void document.exitPointerLock();
   }, [eliminated]);
+
+  const triggerRespawn = useCallback((): void => {
+    void runtimeRef.current?.requestRespawn().catch(() => undefined);
+  }, []);
+
+  useEffect(() => {
+    if (!eliminated) return;
+    const handleKeyDown = (event: KeyboardEvent): void => {
+      if (event.repeat) return;
+      if (event.code !== 'Enter' && event.code !== 'Space') return;
+      event.preventDefault();
+      triggerRespawn();
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [eliminated, triggerRespawn]);
 
   const sendChat = useCallback((): void => {
     const runtime = runtimeRef.current;
@@ -572,7 +589,7 @@ export default function App(): React.JSX.Element {
       />
       <EliminatedOverlay
         visible={eliminated}
-        onRespawn={() => { void runtimeRef.current?.requestRespawn().catch(() => undefined); }}
+        onRespawn={triggerRespawn}
       />
       <MobileControls
         visible={connected && touchControls}

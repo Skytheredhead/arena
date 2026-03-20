@@ -15,6 +15,7 @@ import {
 import { useGameStore } from '../state/gameStore';
 import { SPACETIMEDB_DATABASE, getSpacetimeUriCandidates } from '../utils/env';
 import { identityToString } from '../utils/identity';
+import { readAuthSessionToken } from './authClient';
 import {
   DbConnection,
   tables
@@ -355,6 +356,12 @@ export class SpacetimeBridge {
   }
 
   private async bootstrap(connection: DbConnection, options: ConnectOptions): Promise<void> {
+    const sessionToken = readAuthSessionToken();
+    if (sessionToken) {
+      await connection.reducers
+        .loginWithSession({ sessionToken })
+        .catch(() => undefined);
+    }
     await connection.reducers.setNickname({ nickname: options.nickname || 'Pilot' });
     if (options.createRoom) {
       await connection.reducers.createRoom({ roomCode: options.roomCode });
