@@ -512,15 +512,12 @@ export default function App(): React.JSX.Element {
       .then(() => {
         setChatDraft('');
         setChatOpen(false);
-        if (!touchControls) {
-          runtime.requestPointerLock();
-        }
       })
       .catch(() => undefined)
       .finally(() => {
         setChatBusy(false);
       });
-  }, [chatBusy, chatDraft, touchControls]);
+  }, [chatBusy, chatDraft]);
 
   const hudProps = useMemo(
     () => ({

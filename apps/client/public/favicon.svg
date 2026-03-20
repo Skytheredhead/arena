@@ -1,18 +1,40 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
   <defs>
     <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#08111c" />
-      <stop offset="100%" stop-color="#10314a" />
+      <stop offset="0%" stop-color="#020b14" />
+      <stop offset="100%" stop-color="#0a1621" />
     </linearGradient>
-    <linearGradient id="mark" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#72f7ff" />
-      <stop offset="100%" stop-color="#bdfcff" />
+    <linearGradient id="aFill" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#d0f4ff" />
+      <stop offset="100%" stop-color="#7cefff" />
     </linearGradient>
+    <filter id="glow" x="-70%" y="-70%" width="240%" height="240%">
+      <feGaussianBlur stdDeviation="2.5" result="blur1" />
+      <feGaussianBlur in="SourceGraphic" stdDeviation="5.5" result="blur2" />
+      <feMerge>
+        <feMergeNode in="blur2" />
+        <feMergeNode in="blur1" />
+        <feMergeNode in="SourceGraphic" />
+      </feMerge>
+    </filter>
   </defs>
-  <rect width="64" height="64" rx="16" fill="url(#bg)" />
-  <path
-    d="M32 12 49 21.5v21L32 52 15 42.5v-21L32 12Zm0 7.5-10.5 5.8v13.4L32 44.5l10.5-5.8V25.3L32 19.5Z"
-    fill="url(#mark)"
-  />
-  <path d="M32 24.5 38.5 28v8L32 39.5 25.5 36v-8L32 24.5Z" fill="#ff7d57" />
+
+  <rect x="2" y="2" width="60" height="60" rx="14" fill="url(#bg)" />
+  <rect x="2.5" y="2.5" width="59" height="59" rx="13.5" fill="none" stroke="#00f5ff" stroke-opacity=".38" />
+
+  <g transform="translate(0 1)">
+    <path
+      d="M32 8 52 56h-9l-4-11H25L21 56h-9L32 8Zm-4.4 29h8.8L32 25.8 27.6 37Z"
+      fill="#00f5ff"
+      fill-opacity=".6"
+      filter="url(#glow)"
+    />
+    <path
+      d="M32 8 52 56h-9l-4-11H25L21 56h-9L32 8Zm-4.4 29h8.8L32 25.8 27.6 37Z"
+      fill="url(#aFill)"
+      stroke="#00f5ff"
+      stroke-width="1"
+      stroke-opacity=".85"
+    />
+  </g>
 </svg>

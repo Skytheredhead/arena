@@ -75,7 +75,7 @@ export function MenuOverlay({
   onJoinRoom,
   onJoinOpenRoom
 }: MenuOverlayProps): React.JSX.Element | null {
-  const [authPanel, setAuthPanel] = useState<'none' | 'login' | 'register' | 'stats'>('none');
+  const [authPanel, setAuthPanel] = useState<'none' | 'login' | 'register' | 'account' | 'stats'>('none');
   const [loginIdentifier, setLoginIdentifier] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
   const [registerEmail, setRegisterEmail] = useState('');
@@ -84,6 +84,10 @@ export function MenuOverlay({
 
   useEffect(() => {
     if (authLoggedIn && (authPanel === 'login' || authPanel === 'register')) {
+      setAuthPanel('none');
+      return;
+    }
+    if (!authLoggedIn && (authPanel === 'account' || authPanel === 'stats')) {
       setAuthPanel('none');
     }
   }, [authLoggedIn, authPanel]);
@@ -140,22 +144,15 @@ export function MenuOverlay({
         <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
           {authLoggedIn ? (
             <>
-              <CyberPanel style={{ padding: '7px 10px', fontFamily: CYBER.font, fontSize: '11px', color: CYBER.textBright }}>
-                {authUsername ?? 'Account'}
-              </CyberPanel>
               <CyberButton
                 small
                 primary
                 onClick={() => {
-                  const next = authPanel === 'stats' ? 'none' : 'stats';
-                  setAuthPanel(next);
-                  if (next === 'stats') {
-                    onRefreshStats();
-                  }
+                  setAuthPanel(current => (current === 'account' ? 'none' : 'account'));
                 }}
                 disabled={authBusy}
               >
-                Stats
+                {authUsername ?? 'Account'}
               </CyberButton>
             </>
           ) : (
@@ -282,6 +279,30 @@ export function MenuOverlay({
               </form>
             ) : null}
 
+            {authPanel === 'account' ? (
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                <CyberButton
+                  onClick={() => {
+                    onRefreshStats();
+                    setAuthPanel('stats');
+                  }}
+                  disabled={authBusy}
+                >
+                  Stats
+                </CyberButton>
+                <CyberButton
+                  danger
+                  onClick={() => {
+                    void onLogout();
+                    setAuthPanel('none');
+                  }}
+                  disabled={authBusy}
+                >
+                  Logout
+                </CyberButton>
+              </div>
+            ) : null}
+
             {authPanel === 'stats' ? (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                 <div className="cyber-label">stats · {authUsername ?? 'user'}</div>
@@ -357,20 +378,23 @@ export function MenuOverlay({
           </div>
           <div
             style={{
-              color: CYBER.textDim,
+              color: CYBER.textBright,
               fontSize: '10px',
               letterSpacing: '8px',
               marginTop: '14px',
-              fontFamily: CYBER.font
+              fontFamily: CYBER.font,
+              textShadow: '0 1px 7px rgba(0,0,0,0.9)'
             }}
           >
-            // BROWSER ARENA FPS // ROOM:{roomCode} //
+            arena fps // made by skytheredhead
           </div>
         </div>
 
         <div className="pointer-events-auto" style={{ position: 'relative', zIndex: 2, width: 'min(420px, 92vw)' }}>
           <CyberPanel style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
-            <div className="cyber-label">operator callsign</div>
+            <div className="cyber-label" style={{ color: CYBER.textBright, textShadow: '0 1px 7px rgba(0,0,0,0.9)' }}>
+              operator callsign
+            </div>
             <input
               className="cyber-input"
               value={nickname}
@@ -379,12 +403,9 @@ export function MenuOverlay({
               onChange={event => onNicknameChange(event.target.value.slice(0, 16))}
               placeholder={authLoggedIn ? 'ACCOUNT USERNAME' : 'CALLSIGN'}
             />
-            {authLoggedIn ? (
-              <div style={{ color: CYBER.textDim, fontFamily: CYBER.font, fontSize: '9px', letterSpacing: '1px' }}>
-                Callsign is synced to your signed-in username.
-              </div>
-            ) : null}
-            <div className="cyber-label">room access code</div>
+            <div className="cyber-label" style={{ color: CYBER.textBright, textShadow: '0 1px 7px rgba(0,0,0,0.9)' }}>
+              room access code
+            </div>
             <input
               className="cyber-input"
               value={roomCode}
@@ -419,17 +440,18 @@ export function MenuOverlay({
                 display: 'flex',
                 flexDirection: 'column',
                 gap: '6px',
-                color: CYBER.textDim,
+                color: CYBER.textBright,
                 fontSize: '9px',
                 letterSpacing: '3px',
                 fontFamily: CYBER.font,
-                textTransform: 'uppercase'
+                textTransform: 'uppercase',
+                textShadow: '0 1px 7px rgba(0,0,0,0.9)'
               }}
             >
               <div>Open Rooms</div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
                 {openRooms.length === 0 ? (
-                  <div style={{ color: `${CYBER.textDim}aa`, letterSpacing: '2px', textTransform: 'none' }}>
+                  <div style={{ color: CYBER.textBright, letterSpacing: '2px', textTransform: 'none', textShadow: '0 1px 7px rgba(0,0,0,0.9)' }}>
                     none detected yet
                   </div>
                 ) : (
@@ -475,10 +497,16 @@ export function MenuOverlay({
         }}
       >
         <div style={{ color: CYBER.textDim, fontSize: '10px', letterSpacing: '2px' }}>
-          version <span style={{ color: CYBER.a }}>| v0.1.0</span>
+          <span style={{ color: CYBER.textBright, textShadow: '0 1px 7px rgba(0,0,0,0.9)' }}>
+            version
+          </span>{' '}
+          <span style={{ color: CYBER.textBright, textShadow: '0 1px 7px rgba(0,0,0,0.9)' }}>| v0.1.0</span>
         </div>
         <div style={{ color: CYBER.textDim, fontSize: '10px', letterSpacing: '2px' }}>
-          github <span style={{ color: CYBER.a }}>| skytheredhead</span>
+          <span style={{ color: CYBER.textBright, textShadow: '0 1px 7px rgba(0,0,0,0.9)' }}>
+            github
+          </span>{' '}
+          <span style={{ color: CYBER.textBright, textShadow: '0 1px 7px rgba(0,0,0,0.9)' }}>| skytheredhead</span>
         </div>
       </div>
     </div>

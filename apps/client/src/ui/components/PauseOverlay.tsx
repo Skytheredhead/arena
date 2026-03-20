@@ -73,11 +73,12 @@ export function PauseOverlay({
           <div style={{ textAlign: 'center', marginBottom: '22px' }}>
             <div
               style={{
-                color: CYBER.textDim,
+                color: CYBER.textBright,
                 fontSize: '9px',
                 letterSpacing: '5px',
                 fontFamily: CYBER.font,
-                marginBottom: '10px'
+                marginBottom: '10px',
+                textShadow: '0 1px 8px rgba(0,0,0,0.9)'
               }}
             >
               {view === 'settings' ? '// SETTINGS //' : '// PAUSED //'}
@@ -220,7 +221,7 @@ export function PauseOverlay({
           )}
 
           <CyberLine margin="18px 0 14px" />
-          <div style={{ textAlign: 'center', fontFamily: CYBER.font, color: CYBER.textDim, fontSize: '9px', letterSpacing: '3px' }}>
+          <div style={{ textAlign: 'center', fontFamily: CYBER.font, color: CYBER.textBright, fontSize: '9px', letterSpacing: '3px', textShadow: '0 1px 8px rgba(0,0,0,0.9)' }}>
             {roomCode || 'ARENA'} · LAN · ESC RESUME
           </div>
         </CyberPanel>

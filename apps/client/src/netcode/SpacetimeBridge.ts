@@ -488,22 +488,26 @@ export class SpacetimeBridge {
     }
 
     const store = useGameStore.getState();
-    const currentAmmo = Math.max(0, Math.min(RIFLE_MAGAZINE, store.localPlayer.ammo));
     const tick = row.nextReadyTick;
     const previousTick = this.latestWeaponTick;
     const normalizedAmmo = Math.max(0, Math.min(RIFLE_MAGAZINE, row.ammoInMag));
     const previousAmmo = this.latestWeaponAmmo;
-    if (tick < previousTick) {
+    const isStaleTick = tick < previousTick;
+
+    if (isStaleTick && normalizedAmmo <= previousAmmo) {
       return;
     }
-    if (tick === previousTick && previousAmmo === normalizedAmmo) {
+    if (!isStaleTick && tick === previousTick && previousAmmo === normalizedAmmo) {
       return;
     }
 
-    this.latestWeaponTick = tick;
+    this.latestWeaponTick = Math.max(previousTick, tick);
     this.latestWeaponAmmo = normalizedAmmo;
+    const currentAmmo = Math.max(0, Math.min(RIFLE_MAGAZINE, store.localPlayer.ammo));
     if (normalizedAmmo !== currentAmmo) {
       store.setLocalPlayer({ ammo: normalizedAmmo });
+    }
+    if (normalizedAmmo !== previousAmmo) {
       this.callbacks.onWeaponAmmo(normalizedAmmo);
     }
   }

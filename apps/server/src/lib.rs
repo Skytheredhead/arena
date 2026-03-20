@@ -1179,7 +1179,7 @@ pub fn fire_weapon(ctx: &ReducerContext, yaw: f32, pitch: f32, scoped: bool) -> 
         y: state.y + eye_height,
         z: state.z,
     };
-    let block_hit = ray_hits_any_block(origin, direction);
+    let block_hit = ray_hits_environment(origin, direction);
 
     let mut best_hit: Option<(Identity, f32)> = None;
     for target in ctx.db.player_state().iter() {
@@ -2524,6 +2524,52 @@ fn ray_hits_any_block(origin: Vec3, direction: Vec3) -> Option<BlockHit> {
         }
     }
     best
+}
+
+fn ray_hits_floor(origin: Vec3, direction: Vec3) -> Option<BlockHit> {
+    if direction.y >= -RAY_DIRECTION_EPSILON {
+        return None;
+    }
+
+    let distance = (0.0 - origin.y) / direction.y;
+    if distance < 0.0 {
+        return None;
+    }
+
+    let impact = point_along_ray(origin, direction, distance);
+    if impact.x < ARENA_MIN_X - COLLISION_EPSILON
+        || impact.x > ARENA_MAX_X + COLLISION_EPSILON
+        || impact.z < ARENA_MIN_Z - COLLISION_EPSILON
+        || impact.z > ARENA_MAX_Z + COLLISION_EPSILON
+    {
+        return None;
+    }
+
+    Some(BlockHit {
+        distance,
+        normal: Vec3 {
+            x: 0.0,
+            y: 1.0,
+            z: 0.0,
+        },
+    })
+}
+
+fn ray_hits_environment(origin: Vec3, direction: Vec3) -> Option<BlockHit> {
+    let block_hit = ray_hits_any_block(origin, direction);
+    let floor_hit = ray_hits_floor(origin, direction);
+    match (block_hit, floor_hit) {
+        (Some(block), Some(floor)) => {
+            if block.distance <= floor.distance {
+                Some(block)
+            } else {
+                Some(floor)
+            }
+        }
+        (Some(block), None) => Some(block),
+        (None, Some(floor)) => Some(floor),
+        (None, None) => None,
+    }
 }
 
 fn update_ray_interval(

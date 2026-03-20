@@ -41,7 +41,6 @@ export class GameRuntime {
   private static readonly RELOAD_DURATION_MS = 980;
   private static readonly DRY_FIRE_COOLDOWN_MS = 180;
   private static readonly FOOTSTEP_MIN_INTERVAL_MS = 430;
-  private static readonly AMMO_STALE_BUMP_IGNORE_MS = 420;
   private static readonly PING_AVERAGE_WINDOW_MS = 5_000;
   private static readonly REMOTE_BUFFER_STALE_MS = 1_800;
   private readonly renderer: GameRenderer;
@@ -310,20 +309,7 @@ export class GameRuntime {
   private syncAuthoritativeAmmo(ammo: number): void {
     const authoritative = Math.max(0, Math.min(RIFLE_CARRY_CAPACITY, ammo));
     const previousVisualAmmo = this.totalAmmo;
-    let nextVisualAmmo = previousVisualAmmo;
-    const now = performance.now();
-
-    if (authoritative < previousVisualAmmo) {
-      // Server said we have less ammo than our instant local prediction.
-      nextVisualAmmo = authoritative;
-    } else if (authoritative > previousVisualAmmo) {
-      const gain = authoritative - previousVisualAmmo;
-      const likelyLateShotAck =
-        gain <= 1 && now - this.lastLocalShotAt <= GameRuntime.AMMO_STALE_BUMP_IGNORE_MS;
-      if (!likelyLateShotAck) {
-        nextVisualAmmo = authoritative;
-      }
-    }
+    const nextVisualAmmo = authoritative;
 
     const ammoGain = nextVisualAmmo - previousVisualAmmo;
     this.totalAmmo = nextVisualAmmo;
