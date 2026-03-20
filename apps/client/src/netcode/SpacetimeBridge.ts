@@ -400,12 +400,13 @@ export class SpacetimeBridge {
     this.updateRemotePingEstimate(identity, state.serverTimeMs, nowMs);
 
     const meta = useGameStore.getState().players[identity];
+    const remoteRoomCode = meta?.roomCode ?? row.roomCode ?? null;
     this.callbacks.onRemoteState({
       identity,
       nickname: meta?.nickname ?? 'Pilot',
       kills: meta?.kills ?? 0,
       deaths: meta?.deaths ?? 0,
-      roomCode: row.roomCode ?? null,
+      roomCode: remoteRoomCode,
       position: state.position,
       velocity: state.velocity,
       serverTick: state.serverTick,

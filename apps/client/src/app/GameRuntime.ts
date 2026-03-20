@@ -478,9 +478,6 @@ export class GameRuntime {
 
       useGameStore.getState().upsertRemotePlayer(sample);
       remotePlayers.push(sample);
-      if (!sample.roomCode) {
-        this.remoteBuffers.delete(identity);
-      }
     }
 
     const currentLocal = this.getPresentedLocalState(deltaSeconds);
