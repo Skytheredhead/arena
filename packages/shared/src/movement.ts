@@ -17,9 +17,7 @@ import type { InputCommand, LocalPlayerState, Vec3 } from './netcode';
 const clamp = (value: number, min: number, max: number): number =>
   Math.min(max, Math.max(min, value));
 const COLLISION_EPSILON = 0.0001;
-const DIAGONAL_YAW_THRESHOLD = 0.12;
-const DIAGONAL_ASPECT_THRESHOLD = 3;
-const HALF_PI = Math.PI * 0.5;
+const MOVEMENT_SUBSTEP_MAX_DISTANCE = 0.12;
 const TWO_PI = Math.PI * 2;
 
 const length2D = (x: number, z: number): number => Math.hypot(x, z);
@@ -80,33 +78,17 @@ const normalizeAngle = (value: number): number => {
   return angle;
 };
 
-const canonicalizeCollisionBlock = (
+const normalizeCollisionBlock = (
   block: (typeof ARENA_BLOCKS)[number]
 ): (typeof ARENA_BLOCKS)[number] => {
-  const normalizedYaw = normalizeAngle(block.yaw);
-  const shortest = Math.max(COLLISION_EPSILON, Math.min(block.halfX, block.halfZ));
-  const longest = Math.max(block.halfX, block.halfZ);
-  const aspectRatio = longest / shortest;
-  const nearestCardinal = Math.round(normalizedYaw / HALF_PI) * HALF_PI;
-  const cardinalDelta = Math.abs(normalizeAngle(normalizedYaw - nearestCardinal));
-  const shouldRotate =
-    aspectRatio >= DIAGONAL_ASPECT_THRESHOLD &&
-    cardinalDelta > DIAGONAL_YAW_THRESHOLD &&
-    cardinalDelta < HALF_PI - DIAGONAL_YAW_THRESHOLD;
-  if (!shouldRotate) {
-    return {
-      ...block,
-      yaw: normalizedYaw
-    };
-  }
   return {
     ...block,
-    yaw: normalizeAngle(normalizedYaw + HALF_PI)
+    yaw: normalizeAngle(block.yaw)
   };
 };
 
 const overlapsBlock = (x: number, z: number, block: (typeof ARENA_BLOCKS)[number]): boolean => {
-  const normalized = canonicalizeCollisionBlock(block);
+  const normalized = normalizeCollisionBlock(block);
   const local = toBlockLocal(x, z, normalized);
   const closestX = clamp(local.x, -normalized.halfX, normalized.halfX);
   const closestZ = clamp(local.z, -normalized.halfZ, normalized.halfZ);
@@ -153,6 +135,59 @@ const collidesAt = (x: number, y: number, z: number): boolean => {
   return false;
 };
 
+const resolveHorizontalMotion = (
+  position: Vec3,
+  velocity: Vec3,
+  feetY: number,
+  dtSeconds: number
+): {
+  position: Vec3;
+  velocity: Vec3;
+} => {
+  const deltaX = velocity.x * dtSeconds;
+  const deltaZ = velocity.z * dtSeconds;
+  const maxDelta = Math.max(Math.abs(deltaX), Math.abs(deltaZ));
+  const steps = Math.max(1, Math.ceil(maxDelta / MOVEMENT_SUBSTEP_MAX_DISTANCE));
+  const stepX = deltaX / steps;
+  const stepZ = deltaZ / steps;
+
+  const nextPosition = { ...position };
+  const nextVelocity = { ...velocity };
+  let moveXOpen = true;
+  let moveZOpen = true;
+
+  for (let index = 0; index < steps; index += 1) {
+    if (moveXOpen) {
+      const targetX = nextPosition.x + stepX;
+      if (collidesAt(targetX, feetY, nextPosition.z)) {
+        nextVelocity.x = 0;
+        moveXOpen = false;
+      } else {
+        nextPosition.x = targetX;
+      }
+    }
+
+    if (moveZOpen) {
+      const targetZ = nextPosition.z + stepZ;
+      if (collidesAt(nextPosition.x, feetY, targetZ)) {
+        nextVelocity.z = 0;
+        moveZOpen = false;
+      } else {
+        nextPosition.z = targetZ;
+      }
+    }
+
+    if (!moveXOpen && !moveZOpen) {
+      break;
+    }
+  }
+
+  return {
+    position: nextPosition,
+    velocity: nextVelocity
+  };
+};
+
 export const simulatePlayerTick = (
   state: LocalPlayerState,
   input: InputCommand,
@@ -197,23 +232,11 @@ export const simulatePlayerTick = (
     next.velocity.y -= GRAVITY * dtSeconds;
   }
 
-  const targetX = next.position.x + next.velocity.x * dtSeconds;
-  const targetZ = next.position.z + next.velocity.z * dtSeconds;
-  let resolvedX = targetX;
-  let resolvedZ = targetZ;
-
-  if (collidesAt(targetX, next.position.y, next.position.z)) {
-    resolvedX = next.position.x;
-    next.velocity.x = 0;
-  }
-
-  if (collidesAt(resolvedX, next.position.y, targetZ)) {
-    resolvedZ = next.position.z;
-    next.velocity.z = 0;
-  }
-
-  next.position.x = resolvedX;
-  next.position.z = resolvedZ;
+  const resolved = resolveHorizontalMotion(next.position, next.velocity, next.position.y, dtSeconds);
+  next.position.x = resolved.position.x;
+  next.position.z = resolved.position.z;
+  next.velocity.x = resolved.velocity.x;
+  next.velocity.z = resolved.velocity.z;
 
   const proposedY = next.position.y + next.velocity.y * dtSeconds;
   const groundHeight = groundHeightAt(next.position.x, next.position.z, next.position.y);

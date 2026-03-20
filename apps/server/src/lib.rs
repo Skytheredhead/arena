@@ -47,20 +47,20 @@ const HEALTH_REGEN_DELAY_TICKS: u32 = SERVER_TICK_RATE * 5;
 const HEALTH_REGEN_PER_TICK: f32 = 3.0 / SERVER_TICK_RATE as f32;
 const AMMO_PACK_AMOUNT: u16 = 6;
 const AMMO_PACK_RESPAWN_TICKS: u32 = SERVER_TICK_RATE * 3;
-const AMMO_PACK_RADIUS: f32 = 0.6;
-const AMMO_PACK_ACTIVE_COUNT: usize = 6;
+const AMMO_PACK_RADIUS: f32 = 0.75;
+const AMMO_PACK_ACTIVE_COUNT: usize = 12;
 const HEALTH_PACK_AMOUNT: u16 = 50;
 const HEALTH_PACK_RESPAWN_TICKS: u32 = SERVER_TICK_RATE * 10;
 const HEALTH_PACK_RADIUS: f32 = 0.5;
 const HEALTH_PACK_ACTIVE_COUNT: usize = 2;
 const PICKUP_HORIZONTAL_GRACE: f32 = 0.5;
 const PICKUP_VERTICAL_GRACE: f32 = 0.45;
-const PICKUP_SWEEP_EXTRA: f32 = 0.2;
+const PICKUP_SWEEP_EXTRA: f32 = 0.35;
 const PICKUP_HEIGHT_MAX: f32 = 1.4;
 const COLLISION_EPSILON: f32 = 0.0001;
-const DIAGONAL_YAW_THRESHOLD: f32 = 0.12;
-const DIAGONAL_ASPECT_THRESHOLD: f32 = 3.0;
-const HALF_PI: f32 = std::f32::consts::FRAC_PI_2;
+const MOVEMENT_SUBSTEP_MAX_DISTANCE: f32 = 0.12;
+const RAY_DIRECTION_EPSILON: f32 = 0.0001;
+const BULLET_RAY_INSET: f32 = 0.005;
 const TWO_PI: f32 = std::f32::consts::PI * 2.0;
 const ARENA_MIN_X: f32 = -30.0;
 const ARENA_MAX_X: f32 = 30.0;
@@ -165,7 +165,7 @@ const SPAWN_POINTS: [Vec3; 8] = [
     },
 ];
 
-const AMMO_PACK_LOCATIONS: [Vec3; 10] = [
+const AMMO_PACK_LOCATIONS: [Vec3; 20] = [
     Vec3 {
         x: -20.0,
         y: 0.0,
@@ -215,6 +215,56 @@ const AMMO_PACK_LOCATIONS: [Vec3; 10] = [
         x: 15.0,
         y: 0.0,
         z: -10.0,
+    },
+    Vec3 {
+        x: -24.0,
+        y: 0.0,
+        z: -20.0,
+    },
+    Vec3 {
+        x: 24.0,
+        y: 0.0,
+        z: -20.0,
+    },
+    Vec3 {
+        x: -20.0,
+        y: 0.0,
+        z: -24.0,
+    },
+    Vec3 {
+        x: 20.0,
+        y: 0.0,
+        z: -24.0,
+    },
+    Vec3 {
+        x: -8.0,
+        y: 0.0,
+        z: 18.0,
+    },
+    Vec3 {
+        x: 8.0,
+        y: 0.0,
+        z: 18.0,
+    },
+    Vec3 {
+        x: -8.0,
+        y: 0.0,
+        z: -22.0,
+    },
+    Vec3 {
+        x: 8.0,
+        y: 0.0,
+        z: -22.0,
+    },
+    Vec3 {
+        x: 0.0,
+        y: 0.0,
+        z: 6.0,
+    },
+    Vec3 {
+        x: 0.0,
+        y: 0.0,
+        z: -6.0,
     },
 ];
 
@@ -1595,20 +1645,7 @@ fn simulate_movement_tick(state: PlayerState, input: PlayerInput) -> PlayerState
         updated.vel_y -= GRAVITY * dt;
     }
 
-    let target_x = updated.x + updated.vel_x * dt;
-    let target_z = updated.z + updated.vel_z * dt;
-
-    if collides_at(target_x, updated.y, updated.z) {
-        updated.vel_x = 0.0;
-    } else {
-        updated.x = target_x;
-    }
-
-    if collides_at(updated.x, updated.y, target_z) {
-        updated.vel_z = 0.0;
-    } else {
-        updated.z = target_z;
-    }
+    resolve_horizontal_motion(&mut updated, updated.vel_x * dt, updated.vel_z * dt);
 
     let ground = ground_height_at(updated.x, updated.z, updated.y);
     let proposed_y = updated.y + updated.vel_y * dt;
@@ -1667,6 +1704,41 @@ fn move_horizontal_towards(state: &mut PlayerState, target_x: f32, target_z: f32
     state.vel_z += delta_z * scale;
 }
 
+fn resolve_horizontal_motion(state: &mut PlayerState, delta_x: f32, delta_z: f32) {
+    let max_delta = delta_x.abs().max(delta_z.abs());
+    let step_count = ((max_delta / MOVEMENT_SUBSTEP_MAX_DISTANCE).ceil() as u32).max(1);
+    let step_x = delta_x / step_count as f32;
+    let step_z = delta_z / step_count as f32;
+    let mut move_x_open = true;
+    let mut move_z_open = true;
+
+    for _ in 0..step_count {
+        if move_x_open {
+            let target_x = state.x + step_x;
+            if collides_at(target_x, state.y, state.z) {
+                state.vel_x = 0.0;
+                move_x_open = false;
+            } else {
+                state.x = target_x;
+            }
+        }
+
+        if move_z_open {
+            let target_z = state.z + step_z;
+            if collides_at(state.x, state.y, target_z) {
+                state.vel_z = 0.0;
+                move_z_open = false;
+            } else {
+                state.z = target_z;
+            }
+        }
+
+        if !move_x_open && !move_z_open {
+            break;
+        }
+    }
+}
+
 #[derive(Clone, Copy)]
 struct BlockHit {
     distance: f32,
@@ -1683,29 +1755,9 @@ fn normalize_angle(mut angle: f32) -> f32 {
     angle
 }
 
-fn nearest_cardinal_angle(yaw: f32) -> f32 {
-    (yaw / HALF_PI).round() * HALF_PI
-}
-
-fn canonicalize_collision_block(block: Block) -> Block {
+fn normalized_block(block: Block) -> Block {
     let mut normalized = block;
     normalized.yaw = normalize_angle(normalized.yaw);
-
-    let shortest = normalized
-        .half_x
-        .min(normalized.half_z)
-        .max(COLLISION_EPSILON);
-    let longest = normalized.half_x.max(normalized.half_z);
-    let aspect_ratio = longest / shortest;
-    let cardinal_delta =
-        (normalize_angle(normalized.yaw - nearest_cardinal_angle(normalized.yaw))).abs();
-    let should_rotate_diagonal = aspect_ratio >= DIAGONAL_ASPECT_THRESHOLD
-        && cardinal_delta > DIAGONAL_YAW_THRESHOLD
-        && cardinal_delta < (HALF_PI - DIAGONAL_YAW_THRESHOLD);
-    if should_rotate_diagonal {
-        normalized.yaw = normalize_angle(normalized.yaw + HALF_PI);
-    }
-
     normalized
 }
 
@@ -1724,7 +1776,7 @@ fn rotate_out_of_block_space(x: f32, z: f32, block: Block) -> (f32, f32) {
 }
 
 fn overlaps_block(x: f32, z: f32, block: Block) -> bool {
-    let block = canonicalize_collision_block(block);
+    let block = normalized_block(block);
     let (local_x, local_z) = rotate_into_block_space(x, z, block);
     let closest_x = local_x.clamp(-block.half_x, block.half_x);
     let closest_z = local_z.clamp(-block.half_z, block.half_z);
@@ -1734,7 +1786,7 @@ fn overlaps_block(x: f32, z: f32, block: Block) -> bool {
 }
 
 fn point_within_block_footprint(x: f32, z: f32, block: Block) -> bool {
-    let block = canonicalize_collision_block(block);
+    let block = normalized_block(block);
     let (local_x, local_z) = rotate_into_block_space(x, z, block);
     local_x.abs() <= block.half_x + COLLISION_EPSILON
         && local_z.abs() <= block.half_z + COLLISION_EPSILON
@@ -1751,6 +1803,39 @@ fn pickup_floor_height_at(x: f32, z: f32) -> f32 {
         }
     }
     ground
+}
+
+fn resolve_pickup_spawn_point(base: Vec3) -> Vec3 {
+    const OFFSETS: [(f32, f32); 9] = [
+        (0.0, 0.0),
+        (0.6, 0.0),
+        (-0.6, 0.0),
+        (0.0, 0.6),
+        (0.0, -0.6),
+        (0.42, 0.42),
+        (-0.42, 0.42),
+        (0.42, -0.42),
+        (-0.42, -0.42),
+    ];
+
+    for (offset_x, offset_z) in OFFSETS {
+        let candidate_x = base.x + offset_x;
+        let candidate_z = base.z + offset_z;
+        let candidate_y = pickup_floor_height_at(candidate_x, candidate_z);
+        if !collides_at(candidate_x, candidate_y, candidate_z) {
+            return Vec3 {
+                x: candidate_x,
+                y: candidate_y,
+                z: candidate_z,
+            };
+        }
+    }
+
+    Vec3 {
+        x: base.x,
+        y: pickup_floor_height_at(base.x, base.z),
+        z: base.z,
+    }
 }
 
 fn ground_height_at(x: f32, z: f32, current_feet_y: f32) -> f32 {
@@ -1861,103 +1946,144 @@ fn ray_hits_any_block(origin: Vec3, direction: Vec3) -> Option<BlockHit> {
     best
 }
 
+fn update_ray_interval(
+    min_bound: f32,
+    max_bound: f32,
+    origin: f32,
+    direction: f32,
+    near_normal: Vec3,
+    far_normal: Vec3,
+    t_min: &mut f32,
+    t_max: &mut f32,
+    enter_normal: &mut Vec3,
+) -> bool {
+    if direction.abs() < RAY_DIRECTION_EPSILON {
+        return origin >= min_bound - COLLISION_EPSILON && origin <= max_bound + COLLISION_EPSILON;
+    }
+
+    let inv_direction = 1.0 / direction;
+    let mut t1 = (min_bound - origin) * inv_direction;
+    let mut t2 = (max_bound - origin) * inv_direction;
+    let mut candidate_enter = near_normal;
+
+    if t1 > t2 {
+        std::mem::swap(&mut t1, &mut t2);
+        candidate_enter = far_normal;
+    }
+
+    if t1 > *t_min {
+        *t_min = t1;
+        *enter_normal = candidate_enter;
+    }
+    if t2 < *t_max {
+        *t_max = t2;
+    }
+
+    *t_max >= *t_min
+}
+
 fn ray_hits_block(origin: Vec3, direction: Vec3, block: Block) -> Option<BlockHit> {
-    let block = canonicalize_collision_block(block);
+    let block = normalized_block(block);
     let (origin_x, origin_z) = rotate_into_block_space(origin.x, origin.z, block);
     let cos = block.yaw.cos();
     let sin = block.yaw.sin();
     let direction_x = direction.x * cos + direction.z * sin;
     let direction_z = -direction.x * sin + direction.z * cos;
-    let inv_x = if direction_x.abs() < 0.0001 {
-        f32::INFINITY
-    } else {
-        1.0 / direction_x
-    };
-    let inv_y = if direction.y.abs() < 0.0001 {
-        f32::INFINITY
-    } else {
-        1.0 / direction.y
-    };
-    let inv_z = if direction_z.abs() < 0.0001 {
-        f32::INFINITY
-    } else {
-        1.0 / direction_z
+    let half_x = (block.half_x - BULLET_RAY_INSET).max(COLLISION_EPSILON);
+    let half_z = (block.half_z - BULLET_RAY_INSET).max(COLLISION_EPSILON);
+    let mut min_y = block.min_y + BULLET_RAY_INSET;
+    let mut max_y = block.max_y - BULLET_RAY_INSET;
+    if max_y <= min_y {
+        min_y = block.min_y;
+        max_y = block.max_y;
+    }
+
+    let mut t_min = f32::NEG_INFINITY;
+    let mut t_max = f32::INFINITY;
+    let mut enter_normal = Vec3 {
+        x: 0.0,
+        y: 0.0,
+        z: 0.0,
     };
 
-    let mut t1 = (-block.half_x - origin_x) * inv_x;
-    let mut t2 = (block.half_x - origin_x) * inv_x;
-    let mut t_min = t1.min(t2);
-    let mut t_max = t1.max(t2);
-    let mut enter_normal = if t1 <= t2 {
+    if !update_ray_interval(
+        -half_x,
+        half_x,
+        origin_x,
+        direction_x,
         Vec3 {
             x: -1.0,
             y: 0.0,
             z: 0.0,
-        }
-    } else {
+        },
         Vec3 {
             x: 1.0,
             y: 0.0,
             z: 0.0,
-        }
-    };
-
-    t1 = (block.min_y - origin.y) * inv_y;
-    t2 = (block.max_y - origin.y) * inv_y;
-    let y_min = t1.min(t2);
-    if y_min > t_min {
-        enter_normal = if t1 <= t2 {
-            Vec3 {
-                x: 0.0,
-                y: -1.0,
-                z: 0.0,
-            }
-        } else {
-            Vec3 {
-                x: 0.0,
-                y: 1.0,
-                z: 0.0,
-            }
-        };
+        },
+        &mut t_min,
+        &mut t_max,
+        &mut enter_normal,
+    ) {
+        return None;
     }
-    t_min = t_min.max(y_min);
-    t_max = t_max.min(t1.max(t2));
-
-    t1 = (-block.half_z - origin_z) * inv_z;
-    t2 = (block.half_z - origin_z) * inv_z;
-    let z_min = t1.min(t2);
-    if z_min > t_min {
-        enter_normal = if t1 <= t2 {
-            Vec3 {
-                x: 0.0,
-                y: 0.0,
-                z: -1.0,
-            }
-        } else {
-            Vec3 {
-                x: 0.0,
-                y: 0.0,
-                z: 1.0,
-            }
-        };
+    if !update_ray_interval(
+        min_y,
+        max_y,
+        origin.y,
+        direction.y,
+        Vec3 {
+            x: 0.0,
+            y: -1.0,
+            z: 0.0,
+        },
+        Vec3 {
+            x: 0.0,
+            y: 1.0,
+            z: 0.0,
+        },
+        &mut t_min,
+        &mut t_max,
+        &mut enter_normal,
+    ) {
+        return None;
     }
-    t_min = t_min.max(z_min);
-    t_max = t_max.min(t1.max(t2));
-
-    if t_max >= t_min.max(0.0) {
-        let distance = t_min.max(0.0);
-        let (normal_x, normal_z) = rotate_out_of_block_space(enter_normal.x, enter_normal.z, block);
-        Some(BlockHit {
-            distance,
-            normal: Vec3 {
-                x: normal_x,
-                y: enter_normal.y,
-                z: normal_z,
-            },
-        })
-    } else {
-        None
+    if !update_ray_interval(
+        -half_z,
+        half_z,
+        origin_z,
+        direction_z,
+        Vec3 {
+            x: 0.0,
+            y: 0.0,
+            z: -1.0,
+        },
+        Vec3 {
+            x: 0.0,
+            y: 0.0,
+            z: 1.0,
+        },
+        &mut t_min,
+        &mut t_max,
+        &mut enter_normal,
+    ) {
+        return None;
     }
+
+    if t_max < t_min.max(0.0) {
+        return None;
+    }
+
+    let distance = t_min.max(0.0);
+    let (normal_x, normal_z) = rotate_out_of_block_space(enter_normal.x, enter_normal.z, block);
+    Some(BlockHit {
+        distance,
+        normal: Vec3 {
+            x: normal_x,
+            y: enter_normal.y,
+            z: normal_z,
+        },
+    })
 }
 
 fn hash01(seed: f32) -> f32 {
@@ -2122,10 +2248,13 @@ fn initialize_room_ammo_packs(ctx: &ReducerContext, room_code: &str, tick: u32) 
     let room_seed = room_code.bytes().fold(0u32, |acc, byte| {
         acc.wrapping_mul(31).wrapping_add(byte as u32)
     }) as usize;
+    let location_count = AMMO_PACK_LOCATIONS.len();
+    let start_index = room_seed % location_count;
+    let location_step = co_prime_step(room_seed.wrapping_add(location_count), location_count);
+
     for slot in 0..AMMO_PACK_ACTIVE_COUNT {
-        let location_index = ((room_seed + slot * 3) % AMMO_PACK_LOCATIONS.len()) as u16;
-        let mut point = AMMO_PACK_LOCATIONS[location_index as usize];
-        point.y = pickup_floor_height_at(point.x, point.z);
+        let location_index = ((start_index + slot * location_step) % location_count) as u16;
+        let point = resolve_pickup_spawn_point(AMMO_PACK_LOCATIONS[location_index as usize]);
         ctx.db.ammo_pack().insert(AmmoPack {
             id: 0,
             room_code: room_code.to_string(),
@@ -2154,8 +2283,7 @@ fn initialize_room_health_packs(ctx: &ReducerContext, room_code: &str, tick: u32
     }) as usize;
     for slot in 0..HEALTH_PACK_ACTIVE_COUNT {
         let location_index = ((room_seed + slot * 5) % HEALTH_PACK_LOCATIONS.len()) as u16;
-        let mut point = HEALTH_PACK_LOCATIONS[location_index as usize];
-        point.y = pickup_floor_height_at(point.x, point.z);
+        let point = resolve_pickup_spawn_point(HEALTH_PACK_LOCATIONS[location_index as usize]);
         ctx.db.health_pack().insert(HealthPack {
             id: 0,
             room_code: room_code.to_string(),
@@ -2186,6 +2314,12 @@ fn segment_point_distance_sq_2d(ax: f32, az: f32, bx: f32, bz: f32, px: f32, pz:
     let closest_z = az + ab_z * clamped_t;
     let dx = px - closest_x;
     let dz = pz - closest_z;
+    dx * dx + dz * dz
+}
+
+fn point_distance_sq_2d(ax: f32, az: f32, bx: f32, bz: f32) -> f32 {
+    let dx = ax - bx;
+    let dz = az - bz;
     dx * dx + dz * dz
 }
 
@@ -2232,8 +2366,8 @@ fn process_ammo_packs(ctx: &ReducerContext, tick: u32) {
                     pack.id,
                     &pack.room_code,
                 );
-                let mut next_point = AMMO_PACK_LOCATIONS[next_location as usize];
-                next_point.y = pickup_floor_height_at(next_point.x, next_point.z);
+                let next_point =
+                    resolve_pickup_spawn_point(AMMO_PACK_LOCATIONS[next_location as usize]);
                 pack.location_index = next_location;
                 pack.x = next_point.x;
                 pack.y = next_point.y;
@@ -2244,12 +2378,12 @@ fn process_ammo_packs(ctx: &ReducerContext, tick: u32) {
             continue;
         }
 
-        let mut collected = false;
         let pickup_position = Vec3 {
             x: pack.x,
             y: pack.y,
             z: pack.z,
         };
+        let mut candidates: Vec<(Identity, f32)> = Vec::new();
         for state in &states {
             if !state.alive {
                 continue;
@@ -2260,21 +2394,39 @@ fn process_ammo_packs(ctx: &ReducerContext, tick: u32) {
             if !player_touches_pickup(state, pickup_position, AMMO_PACK_RADIUS) {
                 continue;
             }
+            let distance_sq =
+                point_distance_sq_2d(state.x, state.z, pickup_position.x, pickup_position.z);
+            candidates.push((state.identity, distance_sq));
+        }
 
-            let Some(mut weapon) = ctx.db.weapon_state().identity().find(state.identity) else {
-                continue;
-            };
-            if weapon.room_code.as_deref() != Some(pack.room_code.as_str()) {
-                // Self-heal stale room bindings so pickups don't silently fail.
-                if weapon.room_code.is_none()
-                    && state.room_code.as_deref() == Some(pack.room_code.as_str())
-                {
-                    weapon.room_code = Some(pack.room_code.clone());
-                } else {
-                    continue;
+        candidates.sort_by(|left, right| left.1.total_cmp(&right.1));
+        let mut collected = false;
+        for (identity, _) in candidates {
+            let mut weapon = match ctx.db.weapon_state().identity().find(identity) {
+                Some(weapon) => weapon,
+                None => {
+                    ctx.db.weapon_state().insert(WeaponState {
+                        identity,
+                        room_code: Some(pack.room_code.clone()),
+                        ammo_in_mag: RIFLE_MAGAZINE,
+                        next_ready_tick: tick,
+                    });
+                    match ctx.db.weapon_state().identity().find(identity) {
+                        Some(created) => created,
+                        None => continue,
+                    }
                 }
+            };
+
+            let mut dirty = false;
+            if weapon.room_code.as_deref() != Some(pack.room_code.as_str()) {
+                weapon.room_code = Some(pack.room_code.clone());
+                dirty = true;
             }
             if weapon.ammo_in_mag >= RIFLE_MAGAZINE {
+                if dirty {
+                    ctx.db.weapon_state().identity().update(weapon);
+                }
                 continue;
             }
 
@@ -2318,8 +2470,8 @@ fn process_health_packs(ctx: &ReducerContext, tick: u32) {
                     pack.id,
                     &pack.room_code,
                 );
-                let mut next_point = HEALTH_PACK_LOCATIONS[next_location as usize];
-                next_point.y = pickup_floor_height_at(next_point.x, next_point.z);
+                let next_point =
+                    resolve_pickup_spawn_point(HEALTH_PACK_LOCATIONS[next_location as usize]);
                 pack.location_index = next_location;
                 pack.x = next_point.x;
                 pack.y = next_point.y;
@@ -2390,6 +2542,27 @@ fn prune_chat_events(ctx: &ReducerContext, tick: u32) {
     for event in expired {
         ctx.db.chat_event().id().delete(event.id);
     }
+}
+
+fn gcd_usize(mut left: usize, mut right: usize) -> usize {
+    while right != 0 {
+        let remainder = left % right;
+        left = right;
+        right = remainder;
+    }
+    left.max(1)
+}
+
+fn co_prime_step(seed: usize, modulo: usize) -> usize {
+    if modulo <= 1 {
+        return 1;
+    }
+
+    let mut step = (seed % (modulo - 1)).saturating_add(1);
+    while gcd_usize(step, modulo) != 1 {
+        step = (step % (modulo - 1)).saturating_add(1);
+    }
+    step
 }
 
 fn choose_next_ammo_location(

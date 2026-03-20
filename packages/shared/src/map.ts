@@ -121,7 +121,17 @@ export const AMMO_PACK_LOCATIONS: Vec3[] = [
   { x: -1, y: 0, z: -16 },
   { x: -15, y: 0, z: -6 },
   { x: 15, y: 0, z: 4 },
-  { x: 15, y: 0, z: -10 }
+  { x: 15, y: 0, z: -10 },
+  { x: -24, y: 0, z: -20 },
+  { x: 24, y: 0, z: -20 },
+  { x: -20, y: 0, z: -24 },
+  { x: 20, y: 0, z: -24 },
+  { x: -8, y: 0, z: 18 },
+  { x: 8, y: 0, z: 18 },
+  { x: -8, y: 0, z: -22 },
+  { x: 8, y: 0, z: -22 },
+  { x: 0, y: 0, z: 6 },
+  { x: 0, y: 0, z: -6 }
 ];
 
 export const HEALTH_PACK_LOCATIONS: Vec3[] = [
