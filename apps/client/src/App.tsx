@@ -500,6 +500,16 @@ export default function App(): React.JSX.Element {
   );
   const eliminated = connected && !localPlayer.alive;
 
+  useEffect(() => {
+    if (!eliminated) {
+      return;
+    }
+    setPaused(false);
+    setPauseView('pause');
+    setChatOpen(false);
+    runtimeRef.current?.setPaused(false);
+  }, [eliminated]);
+
   const sendChat = useCallback((): void => {
     const runtime = runtimeRef.current;
     const text = chatDraft.trim();

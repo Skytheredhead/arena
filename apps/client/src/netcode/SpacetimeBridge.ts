@@ -270,6 +270,15 @@ export class SpacetimeBridge {
               );
 
               await this.bootstrap(connection, options);
+              for (const row of connection.db.player.iter() as Iterable<PlayerRow>) {
+                this.handlePlayerRow(row);
+              }
+              for (const row of connection.db.player_state.iter() as Iterable<PlayerStateRow>) {
+                this.handlePlayerStateRow(row);
+              }
+              for (const row of connection.db.weapon_state.iter() as Iterable<WeaponStateRow>) {
+                this.handleWeaponStateRow(row);
+              }
               useGameStore.getState().setConnection('connected', null);
               useGameStore.getState().setConnectedRoomCode(options.roomCode);
               succeed();
@@ -654,23 +663,29 @@ export class SpacetimeBridge {
     if (!previous) {
       return true;
     }
+    const deathTransition =
+      previous.alive &&
+      !next.alive &&
+      next.respawnTick >= previous.respawnTick;
+    if (deathTransition) {
+      return true;
+    }
+
+    const respawnTransition =
+      !previous.alive &&
+      next.alive &&
+      next.respawnTick >= previous.respawnTick &&
+      next.health >= previous.health;
+    if (respawnTransition) {
+      return true;
+    }
+
     if (next.serverTick < previous.serverTick) {
       return false;
     }
     if (next.serverTick > previous.serverTick) {
       return true;
     }
-    const deathTransition = previous.alive && !next.alive;
-    if (deathTransition) {
-      return true;
-    }
-
-    const respawnTransition =
-      !previous.alive && next.alive && next.respawnTick > previous.respawnTick;
-    if (respawnTransition) {
-      return true;
-    }
-
     if (!previous.alive && next.alive) {
       return false;
     }

@@ -474,6 +474,7 @@ export class GameRuntime {
       0,
       this.estimateServerTimeMs(now) - REMOTE_INTERPOLATION_DELAY_MS
     );
+    const connectedRoomCode = useGameStore.getState().connectedRoomCode;
     const remotePlayers: RemotePlayerState[] = [];
     for (const [identity, buffer] of this.remoteBuffers) {
       const meta = useGameStore.getState().players[identity];
@@ -484,7 +485,7 @@ export class GameRuntime {
         useGameStore.getState().setPlayerPing(identity, null);
         continue;
       }
-      if (meta && (!meta.connected || !meta.roomCode)) {
+      if (meta && !meta.connected) {
         this.remoteBuffers.delete(identity);
         useGameStore.getState().removeRemotePlayer(identity);
         useGameStore.getState().setPlayerPing(identity, null);
@@ -493,6 +494,15 @@ export class GameRuntime {
 
       const sample = buffer.sample(renderServerTimeMs);
       if (!sample) {
+        continue;
+      }
+      if (
+        connectedRoomCode &&
+        sample.roomCode &&
+        sample.roomCode !== connectedRoomCode
+      ) {
+        useGameStore.getState().removeRemotePlayer(identity);
+        useGameStore.getState().setPlayerPing(identity, null);
         continue;
       }
 
@@ -536,7 +546,6 @@ export class GameRuntime {
     const scopedSpread = frameInput.scoped ? baseSpread * 0.45 : baseSpread;
     useGameStore.getState().setCrosshairSpread(Math.max(0, scopedSpread + this.crosshairKick));
 
-    const connectedRoomCode = useGameStore.getState().connectedRoomCode;
     const ammoPacks: AmmoPackView[] = Object.values(useGameStore.getState().ammoPacks).filter(
       pack => !connectedRoomCode || pack.roomCode === connectedRoomCode
     );

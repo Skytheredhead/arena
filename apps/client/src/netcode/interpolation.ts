@@ -1,4 +1,5 @@
 import {
+  MAX_HEALTH,
   MAX_REMOTE_EXTRAPOLATION_MS,
   MAX_REMOTE_BUFFER_MS,
   type RemotePlayerState
@@ -38,7 +39,14 @@ export class SnapshotBuffer {
     }
     if (last && state.serverTimeMs === last.state.serverTimeMs) {
       if (!last.state.alive && state.alive) {
-        return;
+        const speedSq =
+          state.velocity.x * state.velocity.x +
+          state.velocity.y * state.velocity.y +
+          state.velocity.z * state.velocity.z;
+        const likelyRespawn = state.health >= MAX_HEALTH && speedSq <= 0.04;
+        if (!likelyRespawn) {
+          return;
+        }
       }
       this.samples[this.samples.length - 1] = { state };
       return;
