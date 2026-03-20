@@ -44,6 +44,7 @@ const JUMP_SPEED: f32 = 8.4;
 const MAX_PITCH: f32 = std::f32::consts::PI * 0.49;
 
 const MAX_HEALTH: u16 = 100;
+const KILL_HEAL_AMOUNT: u16 = 50;
 const RIFLE_DAMAGE: u16 = 10;
 const RIFLE_FIRE_INTERVAL_TICKS: u32 = 7;
 const RIFLE_RANGE: f32 = 80.0;
@@ -2814,6 +2815,7 @@ fn apply_damage(
 ) -> Result<(), String> {
     let attacker = require_player(ctx, attacker_identity)?;
     let victim = require_player(ctx, victim_identity)?;
+    let mut attacker_state = require_player_state(ctx, attacker_identity)?;
     let mut victim_state = require_player_state(ctx, victim_identity)?;
     let attacker_nickname = attacker.nickname.clone();
     let victim_nickname = victim.nickname.clone();
@@ -2842,6 +2844,17 @@ fn apply_damage(
     });
 
     if lethal {
+        let healed_health = attacker_state
+            .health
+            .saturating_add(KILL_HEAL_AMOUNT)
+            .min(MAX_HEALTH);
+        if healed_health != attacker_state.health {
+            attacker_state.health = healed_health;
+            attacker_state.server_tick = tick;
+            attacker_state.regen_progress = 0.0;
+            ctx.db.player_state().identity().update(attacker_state);
+        }
+
         victim_state.alive = false;
         victim_state.respawn_tick = tick;
         victim_state.vel_x = 0.0;

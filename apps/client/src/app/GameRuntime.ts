@@ -41,6 +41,8 @@ export class GameRuntime {
   private static readonly RELOAD_DURATION_MS = 980;
   private static readonly DRY_FIRE_COOLDOWN_MS = 180;
   private static readonly FOOTSTEP_MIN_INTERVAL_MS = 430;
+  private static readonly REMOTE_FOOTSTEP_MIN_INTERVAL_MS = 300;
+  private static readonly REMOTE_FOOTSTEP_MAX_DISTANCE = 24;
   private static readonly PING_AVERAGE_WINDOW_MS = 5_000;
   private static readonly REMOTE_BUFFER_STALE_MS = 1_800;
   private readonly renderer: GameRenderer;
@@ -55,6 +57,10 @@ export class GameRuntime {
     createdAt: number;
     expiresAt: number;
   }> = [];
+  private readonly remoteFootsteps = new Map<
+    string,
+    { lastPosition: Vec3; strideDistance: number; lastStepAt: number }
+  >();
   private prediction: PredictionController | null = null;
   private bridge: SpacetimeBridge | null = null;
   private frameHandle = 0;
@@ -215,6 +221,7 @@ export class GameRuntime {
     this.bridge?.disconnect();
     this.bridge = null;
     this.remoteBuffers.clear();
+    this.remoteFootsteps.clear();
     this.impactMarks.clear();
     this.bloodBursts.length = 0;
     this.prediction = null;
@@ -571,6 +578,8 @@ export class GameRuntime {
       this.walkPhase += deltaSeconds * 1.6;
     }
 
+    this.updateRemoteFootsteps(remotePlayers, currentLocal, deltaSeconds, now);
+
     const baseSpread = Math.min(20, speed * 2.4);
     const scopedSpread = frameInput.scoped ? baseSpread * 0.45 : baseSpread;
     useGameStore.getState().setCrosshairSpread(Math.max(0, scopedSpread + this.crosshairKick));
@@ -610,6 +619,91 @@ export class GameRuntime {
 
     this.frameHandle = requestAnimationFrame(this.frame);
   };
+
+  private updateRemoteFootsteps(
+    remotePlayers: RemotePlayerState[],
+    localPlayer: LocalPlayerState,
+    deltaSeconds: number,
+    now: number
+  ): void {
+    const activeIds = new Set(remotePlayers.map(player => player.identity));
+    for (const identity of Array.from(this.remoteFootsteps.keys())) {
+      if (!activeIds.has(identity)) {
+        this.remoteFootsteps.delete(identity);
+      }
+    }
+
+    for (const remote of remotePlayers) {
+      let footprint = this.remoteFootsteps.get(remote.identity);
+      if (!footprint) {
+        footprint = {
+          lastPosition: { ...remote.position },
+          strideDistance: 0,
+          lastStepAt: Number.NEGATIVE_INFINITY
+        };
+      }
+
+      if (!remote.alive) {
+        footprint.lastPosition = { ...remote.position };
+        footprint.strideDistance = 0;
+        this.remoteFootsteps.set(remote.identity, footprint);
+        continue;
+      }
+
+      const dx = remote.position.x - footprint.lastPosition.x;
+      const dz = remote.position.z - footprint.lastPosition.z;
+      const movedDistance = Math.hypot(dx, dz);
+      footprint.lastPosition = { ...remote.position };
+
+      const horizontalSpeed = Math.hypot(remote.velocity.x, remote.velocity.z);
+      const inferredSpeed = movedDistance > 0
+        ? movedDistance / Math.max(0.001, deltaSeconds)
+        : horizontalSpeed;
+      const roughlyGrounded = Math.abs(remote.velocity.y) < 1.6;
+      const movingOnGround = inferredSpeed > 1.2 && roughlyGrounded;
+      if (!movingOnGround) {
+        footprint.strideDistance = 0;
+        this.remoteFootsteps.set(remote.identity, footprint);
+        continue;
+      }
+
+      const stride = Math.max(0.33, 0.56 - Math.min(1, inferredSpeed / Math.max(0.01, WALK_SPEED)) * 0.1);
+      footprint.strideDistance += movedDistance > 0 ? movedDistance : inferredSpeed * deltaSeconds;
+      const readyByStride = footprint.strideDistance >= stride;
+      const readyByTime = now - footprint.lastStepAt >= GameRuntime.REMOTE_FOOTSTEP_MIN_INTERVAL_MS;
+      if (readyByStride && readyByTime) {
+        const distanceToLocal = Math.hypot(
+          remote.position.x - localPlayer.position.x,
+          remote.position.z - localPlayer.position.z
+        );
+        if (distanceToLocal <= GameRuntime.REMOTE_FOOTSTEP_MAX_DISTANCE) {
+          this.audio.playFootstepSpatial({
+            sourcePosition: {
+              x: remote.position.x,
+              y: remote.position.y + 0.1,
+              z: remote.position.z
+            },
+            listenerPosition: {
+              x: localPlayer.position.x,
+              y: localPlayer.position.y + 1.58,
+              z: localPlayer.position.z
+            },
+            listenerYaw: localPlayer.yaw,
+            volume: Math.max(0.12, 0.5 * (1 - distanceToLocal / GameRuntime.REMOTE_FOOTSTEP_MAX_DISTANCE)),
+            playbackRateMin: 0.92,
+            playbackRateMax: 1.08
+          });
+        }
+
+        footprint.lastStepAt = now;
+        footprint.strideDistance -= stride;
+      } else if (footprint.strideDistance > stride * 2.6) {
+        footprint.strideDistance = stride * 1.2;
+      }
+
+      this.remoteFootsteps.set(remote.identity, footprint);
+    }
+  }
 
   private getPresentedLocalState(deltaSeconds: number): LocalPlayerState {
     const predicted = this.prediction?.getState();

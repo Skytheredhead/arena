@@ -293,7 +293,22 @@ export default function App(): React.JSX.Element {
     if (touchControls) return;
     const handleKeyDown = (event: KeyboardEvent): void => {
       if (event.code !== 'Escape') return;
-      if (chatOpen) { event.preventDefault(); setChatOpen(false); return; }
+      const target = event.target;
+      const typingIntoField =
+        target instanceof HTMLInputElement ||
+        target instanceof HTMLTextAreaElement ||
+        (target instanceof HTMLElement && target.isContentEditable);
+      if (chatOpen || typingIntoField) {
+        event.preventDefault();
+        setChatOpen(false);
+        runtimeRef.current?.setPaused(false);
+        const active = document.activeElement;
+        if (active instanceof HTMLElement) active.blur();
+        if (!touchControls) {
+          resumeOnEscapeKeyupRef.current = true;
+        }
+        return;
+      }
       if (event.repeat) return;
       event.preventDefault();
       if (pausedRef.current) { resumeFromPause(true); return; }
@@ -338,9 +353,20 @@ export default function App(): React.JSX.Element {
       const runtime = runtimeRef.current;
       const wasPointerLocked = pointerLockedRef.current;
       const hasPointerLock = runtime?.isPointerLocked() ?? false;
+      const active = document.activeElement;
+      const typingIntoField =
+        active instanceof HTMLInputElement ||
+        active instanceof HTMLTextAreaElement ||
+        (active instanceof HTMLElement && active.isContentEditable);
       pointerLockedRef.current = hasPointerLock;
       if (hasPointerLock) { hadPointerLockRef.current = true; return; }
-      if (wasPointerLocked && hadPointerLockRef.current && !pausedRef.current && !chatOpen) {
+      if (
+        wasPointerLocked &&
+        hadPointerLockRef.current &&
+        !pausedRef.current &&
+        !chatOpen &&
+        !typingIntoField
+      ) {
         setPaused(true);
         runtime?.setPaused(true);
       }
@@ -400,12 +426,18 @@ export default function App(): React.JSX.Element {
     const text = chatDraft.trim();
     if (!runtime || text.length === 0 || chatBusy) return;
     setChatBusy(true);
+    setChatOpen(false);
+    const active = document.activeElement;
+    if (active instanceof HTMLElement) active.blur();
+    if (!touchControls && connected && localPlayer.alive && !pausedRef.current) {
+      runtime.requestPointerLock();
+    }
     void runtime
       .sendChatMessage(text)
-      .then(() => { setChatDraft(''); setChatOpen(false); })
+      .then(() => { setChatDraft(''); })
       .catch(() => undefined)
       .finally(() => { setChatBusy(false); });
-  }, [chatBusy, chatDraft]);
+  }, [chatBusy, chatDraft, connected, localPlayer.alive, touchControls]);
 
   const hudProps = useMemo(
     () => ({
