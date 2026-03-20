@@ -74,7 +74,7 @@ export function MenuOverlay({
   onCreateRoom,
   onJoinRoom,
   onJoinOpenRoom
-}: MenuOverlayProps): React.JSX.Element {
+}: MenuOverlayProps): React.JSX.Element | null {
   const [authPanel, setAuthPanel] = useState<'none' | 'login' | 'register' | 'stats'>('none');
   const [loginIdentifier, setLoginIdentifier] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
@@ -89,63 +89,7 @@ export function MenuOverlay({
   }, [authLoggedIn, authPanel]);
 
   if (connected && !connectionError) {
-    return (
-      <div className="pointer-events-none fixed inset-x-0 top-0 z-30">
-        <div
-          className="pointer-events-auto cyber-fade-up"
-          style={{
-            borderBottom: `1px solid ${CYBER.border}`,
-            background: 'rgba(2,11,20,0.95)',
-            backdropFilter: 'blur(12px)',
-            padding: '8px 20px',
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            gap: '16px'
-          }}
-        >
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-            <div
-              style={{
-                fontFamily: "'Orbitron',var(--font)",
-                color: backendConnected ? CYBER.ok : CYBER.danger,
-                fontSize: '10px',
-                fontWeight: 700,
-                letterSpacing: '2px'
-              }}
-            >
-              {backendConnected ? 'CONNECTED' : 'DISCONNECTED'}
-            </div>
-            <PingLabel ping={backendPingMs} jitter={backendPingJitterMs} />
-          </div>
-          <div style={{ display: 'flex', gap: '16px', alignItems: 'center' }}>
-            <div
-              style={{
-                fontFamily: CYBER.font,
-                color: CYBER.textDim,
-                fontSize: '8px',
-                letterSpacing: '2px'
-              }}
-            >
-              ROOM CODE
-            </div>
-            <CyberPanel
-              style={{
-                padding: '5px 14px',
-                fontFamily: "'Orbitron',var(--font)",
-                color: CYBER.textBright,
-                fontSize: '16px',
-                fontWeight: 700,
-                letterSpacing: '5px',
-                animation: 'cyberBorderGlow 3s ease-in-out infinite'
-              }}
-            >
-              <span style={{ textShadow: `0 0 16px ${CYBER.a}` }}>{roomCode}</span>
-            </CyberPanel>
-          </div>
-        </div>
-      </div>
-    );
+    return null;
   }
 
   return (
@@ -195,17 +139,25 @@ export function MenuOverlay({
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
           {authLoggedIn ? (
-            <CyberButton
-              primary
-              small
-              onClick={() => {
-                setAuthPanel('stats');
-                onRefreshStats();
-              }}
-              disabled={authBusy}
-            >
-              {authUsername ?? 'Account'}
-            </CyberButton>
+            <>
+              <CyberPanel style={{ padding: '7px 10px', fontFamily: CYBER.font, fontSize: '11px', color: CYBER.textBright }}>
+                {authUsername ?? 'Account'}
+              </CyberPanel>
+              <CyberButton
+                small
+                primary
+                onClick={() => {
+                  const next = authPanel === 'stats' ? 'none' : 'stats';
+                  setAuthPanel(next);
+                  if (next === 'stats') {
+                    onRefreshStats();
+                  }
+                }}
+                disabled={authBusy}
+              >
+                Stats
+              </CyberButton>
+            </>
           ) : (
             <>
               <CyberButton
@@ -365,35 +317,12 @@ export function MenuOverlay({
                 )}
                 <CyberLine margin="8px 0" />
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
-                  <CyberButton onClick={onRefreshStats} disabled={authBusy}>Refresh</CyberButton>
+                  <CyberButton onClick={onRefreshStats} disabled={authBusy}>Stats</CyberButton>
                   <CyberButton danger onClick={() => { void onLogout(); }} disabled={authBusy}>Logout</CyberButton>
                 </div>
               </div>
             ) : null}
           </CyberPanel>
-        </div>
-      ) : null}
-
-      {authLoggedIn ? (
-        <div
-          className="pointer-events-auto cyber-fade-up"
-          style={{
-            position: 'absolute',
-            right: '18px',
-            bottom: '18px',
-            zIndex: 14
-          }}
-        >
-          <CyberButton
-            small
-            primary
-            onClick={() => {
-              setAuthPanel(authPanel === 'stats' ? 'none' : 'stats');
-              onRefreshStats();
-            }}
-          >
-            ▂▅▇
-          </CyberButton>
         </div>
       ) : null}
 
@@ -446,9 +375,15 @@ export function MenuOverlay({
               className="cyber-input"
               value={nickname}
               maxLength={16}
+              disabled={authLoggedIn}
               onChange={event => onNicknameChange(event.target.value.slice(0, 16))}
-              placeholder="CALLSIGN"
+              placeholder={authLoggedIn ? 'ACCOUNT USERNAME' : 'CALLSIGN'}
             />
+            {authLoggedIn ? (
+              <div style={{ color: CYBER.textDim, fontFamily: CYBER.font, fontSize: '9px', letterSpacing: '1px' }}>
+                Callsign is synced to your signed-in username.
+              </div>
+            ) : null}
             <div className="cyber-label">room access code</div>
             <input
               className="cyber-input"

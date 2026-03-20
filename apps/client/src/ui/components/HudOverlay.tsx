@@ -75,7 +75,6 @@ export function HudOverlay({
     };
   }, []);
 
-  const localKdr = localDeaths === 0 ? localKills : localKills / localDeaths;
   const visibleFeed = killFeed.filter(entry => nowMs - entry.tick < 10_000);
   const chatInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -155,16 +154,16 @@ export function HudOverlay({
           <div style={{ textAlign: 'center' }}>
             <div
               style={{
-                color: CYBER.a,
+                color: CYBER.danger,
                 fontFamily: "'Orbitron',var(--font)",
                 fontSize: '20px',
                 fontWeight: 700,
-                textShadow: `0 0 12px ${CYBER.a}`
+                textShadow: `0 0 12px ${CYBER.danger}`
               }}
             >
-              {localKdr.toFixed(2)}
+              {localDeaths}
             </div>
-            <div style={{ color: CYBER.textDim, fontSize: '8px', letterSpacing: '3px', fontFamily: CYBER.font }}>KDR</div>
+            <div style={{ color: CYBER.textDim, fontSize: '8px', letterSpacing: '3px', fontFamily: CYBER.font }}>DEATHS</div>
           </div>
         </CyberPanel>
       </div>
@@ -173,7 +172,7 @@ export function HudOverlay({
         className="cyber-slide-right"
         style={{
           position: 'absolute',
-          top: '86px',
+          top: '14px',
           right: '14px',
           zIndex: 10,
           width: 'min(340px, 45vw)',
@@ -311,11 +310,10 @@ export function HudOverlay({
         <div style={{ display: 'flex', gap: '24px' }}>
           <span style={{ color: CYBER.ok }}>{connected ? 'US-WEST' : 'OFFLINE'}</span>
           <span><PingLabel ping={pingMs} jitter={pingJitterMs} /></span>
-          <span>{match?.roomCode ?? 'NO ROOM'}</span>
           <span>{scoreboard.length} PILOTS</span>
           <span>RIFLE ONLY</span>
         </div>
-        <span className="cyber-blink">█</span>
+        <span style={{ color: CYBER.textBright }}>{match?.roomCode ?? 'NO ROOM'}</span>
       </div>
 
       {scoreboardOpen ? (

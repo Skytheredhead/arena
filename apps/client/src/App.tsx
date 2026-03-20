@@ -189,6 +189,14 @@ export default function App(): React.JSX.Element {
   const authLoggedIn = authSnapshot?.loggedIn ?? false;
   const authUsername = authSnapshot?.username ?? null;
   const authStats: AccountStatsView | null = authSnapshot?.stats ?? null;
+  const authCallsign = useMemo(() => {
+    const trimmed = authUsername?.trim();
+    if (!trimmed) {
+      return null;
+    }
+    return trimmed.slice(0, 16);
+  }, [authUsername]);
+  const effectiveNickname = authLoggedIn && authCallsign ? authCallsign : nickname;
 
   const refreshAuthSnapshot = useCallback(async (): Promise<void> => {
     try {
@@ -303,6 +311,10 @@ export default function App(): React.JSX.Element {
     runtime.setMusicVolume(musicVolume);
     runtime.setTouchControlsActive(touchControls);
   }, [fov, graphicsQuality, lookSensitivity, musicVolume, sfxVolume, touchControls]);
+
+  useEffect(() => {
+    runtimeRef.current?.setPointerLockEnabled(connected && !touchControls);
+  }, [connected, touchControls]);
 
   useEffect(() => {
     runtimeRef.current?.setLobbyMusicActive(!connected);
@@ -583,12 +595,13 @@ export default function App(): React.JSX.Element {
 
     void runtime
       .connect({
-        nickname,
+        nickname: effectiveNickname,
         roomCode: targetRoomCode,
         createRoom
       })
       .then(() => {
         if (useGameStore.getState().connectionStatus === 'connected' && !touchControls) {
+          runtime.setPointerLockEnabled(true);
           runtime.requestPointerLock();
         }
       })
@@ -654,7 +667,7 @@ export default function App(): React.JSX.Element {
       <MenuOverlay
         connected={connected}
         busy={connecting}
-        nickname={nickname}
+        nickname={effectiveNickname}
         roomCode={roomCode}
         backendConnected={backendConnected}
         backendPingMs={backendPingMs}
@@ -672,7 +685,12 @@ export default function App(): React.JSX.Element {
         onRefreshStats={() => {
           void refreshAuthSnapshot();
         }}
-        onNicknameChange={setNickname}
+        onNicknameChange={value => {
+          if (authLoggedIn) {
+            return;
+          }
+          setNickname(value);
+        }}
         onRoomCodeChange={value => setRoomCode(normalizeRoomCode(value))}
         onCreateRoom={() => connectToRoom(true)}
         onJoinRoom={() => connectToRoom(false)}

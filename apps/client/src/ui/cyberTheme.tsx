@@ -373,10 +373,10 @@ export function CyberBar({
 
 const pingColor = (ping: number | null, jitter: number | null): string => {
   if (jitter != null) {
-    if (jitter > 24) {
+    if (jitter > 40) {
       return CYBER.danger;
     }
-    if (jitter > 12) {
+    if (jitter > 24) {
       return CYBER.warn;
     }
     return CYBER.ok;
@@ -384,10 +384,10 @@ const pingColor = (ping: number | null, jitter: number | null): string => {
   if (ping == null) {
     return CYBER.textDim;
   }
-  if (ping < 50) {
+  if (ping < 70) {
     return CYBER.ok;
   }
-  if (ping < 100) {
+  if (ping < 140) {
     return CYBER.warn;
   }
   return CYBER.danger;

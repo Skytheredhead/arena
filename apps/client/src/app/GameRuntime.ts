@@ -142,6 +142,10 @@ export class GameRuntime {
     this.input.setTextInputActive(active);
   }
 
+  setPointerLockEnabled(enabled: boolean): void {
+    this.input.setPointerLockEnabled(enabled);
+  }
+
   setPaused(paused: boolean): void {
     this.paused = paused;
     this.input.clearPressed();

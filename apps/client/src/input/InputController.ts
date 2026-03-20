@@ -28,6 +28,7 @@ export class InputController {
   private virtualFireHeld = false;
   private rightMouseScoped = false;
   private reloadQueued = false;
+  private pointerLockEnabled = false;
 
   constructor(private readonly element: HTMLElement) {
     this.attach();
@@ -45,7 +46,7 @@ export class InputController {
   }
 
   requestPointerLock(): void {
-    if (this.touchControlsActive) {
+    if (this.touchControlsActive || !this.pointerLockEnabled) {
       return;
     }
     this.element.focus();
@@ -90,6 +91,13 @@ export class InputController {
     }
   }
 
+  setPointerLockEnabled(enabled: boolean): void {
+    this.pointerLockEnabled = enabled;
+    if (!enabled && document.pointerLockElement === this.element) {
+      void document.exitPointerLock();
+    }
+  }
+
   setVirtualMove(moveX: number, moveZ: number): void {
     this.virtualMove = {
       x: Math.max(-1, Math.min(1, moveX)),
@@ -128,7 +136,7 @@ export class InputController {
   };
 
   private readonly handleClick = (): void => {
-    if (this.touchControlsActive) {
+    if (this.touchControlsActive || !this.pointerLockEnabled) {
       return;
     }
     if (document.pointerLockElement !== this.element) {

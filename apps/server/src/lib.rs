@@ -54,8 +54,10 @@ const HEALTH_REGEN_PER_TICK: f32 = 3.0 / SERVER_TICK_RATE as f32;
 const AMMO_PACK_AMOUNT: u16 = 6;
 const AMMO_PACK_TOP_OFF_THRESHOLD: u16 = 34;
 const AMMO_PACK_RESPAWN_TICKS: u32 = SERVER_TICK_RATE * 3;
-const AMMO_PACK_RADIUS: f32 = 0.95;
-const AMMO_PACK_ACTIVE_COUNT: usize = 12;
+const AMMO_PACK_RADIUS: f32 = 1.2;
+const AMMO_PICKUP_HORIZONTAL_GRACE: f32 = 1.05;
+const AMMO_PICKUP_VERTICAL_GRACE: f32 = 0.9;
+const AMMO_PACK_ACTIVE_COUNT: usize = 18;
 const HEALTH_PACK_AMOUNT: u16 = 50;
 const HEALTH_PACK_RESPAWN_TICKS: u32 = SERVER_TICK_RATE * 10;
 const HEALTH_PACK_RADIUS: f32 = 0.5;
@@ -2916,22 +2918,31 @@ fn point_distance_sq_2d(ax: f32, az: f32, bx: f32, bz: f32) -> f32 {
     dx * dx + dz * dz
 }
 
-fn player_touches_pickup(state: &PlayerState, pickup: Vec3, pickup_radius: f32) -> bool {
-    let previous_x = state.x - state.vel_x / SERVER_TICK_RATE as f32;
-    let previous_z = state.z - state.vel_z / SERVER_TICK_RATE as f32;
+fn player_touches_pickup(
+    state: &PlayerState,
+    pickup: Vec3,
+    pickup_radius: f32,
+    horizontal_grace: f32,
+    vertical_grace: f32,
+) -> bool {
+    let max_delta = 1.2;
+    let previous_x = state.x - (state.vel_x / SERVER_TICK_RATE as f32).clamp(-max_delta, max_delta);
+    let previous_z = state.z - (state.vel_z / SERVER_TICK_RATE as f32).clamp(-max_delta, max_delta);
     let max_horizontal =
-        PLAYER_RADIUS + pickup_radius + PICKUP_HORIZONTAL_GRACE + PICKUP_SWEEP_EXTRA;
-    let distance_sq =
+        PLAYER_RADIUS + pickup_radius + horizontal_grace + PICKUP_SWEEP_EXTRA;
+    let swept_distance_sq =
         segment_point_distance_sq_2d(previous_x, previous_z, state.x, state.z, pickup.x, pickup.z);
+    let direct_distance_sq = point_distance_sq_2d(state.x, state.z, pickup.x, pickup.z);
+    let distance_sq = swept_distance_sq.min(direct_distance_sq);
     if distance_sq > max_horizontal * max_horizontal {
         return false;
     }
 
-    let previous_y = state.y - state.vel_y / SERVER_TICK_RATE as f32;
-    let feet_min = previous_y.min(state.y) - PICKUP_VERTICAL_GRACE;
-    let feet_max = previous_y.max(state.y) + PLAYER_HEIGHT + PICKUP_VERTICAL_GRACE;
-    let pickup_min_y = pickup.y - pickup_radius - PICKUP_VERTICAL_GRACE;
-    let pickup_max_y = pickup.y + pickup_radius + PICKUP_VERTICAL_GRACE;
+    let previous_y = state.y - (state.vel_y / SERVER_TICK_RATE as f32).clamp(-max_delta, max_delta);
+    let feet_min = previous_y.min(state.y) - vertical_grace;
+    let feet_max = previous_y.max(state.y) + PLAYER_HEIGHT + vertical_grace;
+    let pickup_min_y = pickup.y - pickup_radius - vertical_grace;
+    let pickup_max_y = pickup.y + pickup_radius + vertical_grace;
 
     pickup_max_y >= feet_min && pickup_min_y <= feet_max
 }
@@ -2971,6 +2982,32 @@ fn process_ammo_packs(ctx: &ReducerContext, tick: u32) {
             continue;
         }
 
+        if collides_at(pack.x, pack.y, pack.z) {
+            let occupied_locations: Vec<u16> = ctx
+                .db
+                .ammo_pack()
+                .iter()
+                .filter(|other| {
+                    other.room_code == pack.room_code && other.active && other.id != pack.id
+                })
+                .map(|other| other.location_index)
+                .collect();
+            let next_location = choose_next_ammo_location(
+                pack.location_index,
+                &occupied_locations,
+                tick,
+                pack.id,
+                &pack.room_code,
+            );
+            let next_point = resolve_pickup_spawn_point(AMMO_PACK_LOCATIONS[next_location as usize]);
+            pack.location_index = next_location;
+            pack.x = next_point.x;
+            pack.y = next_point.y;
+            pack.z = next_point.z;
+            ctx.db.ammo_pack().id().update(pack);
+            continue;
+        }
+
         let pickup_position = Vec3 {
             x: pack.x,
             y: pack.y,
@@ -2984,7 +3021,13 @@ fn process_ammo_packs(ctx: &ReducerContext, tick: u32) {
             if state.room_code.as_deref() != Some(pack.room_code.as_str()) {
                 continue;
             }
-            if !player_touches_pickup(state, pickup_position, AMMO_PACK_RADIUS) {
+            if !player_touches_pickup(
+                state,
+                pickup_position,
+                AMMO_PACK_RADIUS,
+                AMMO_PICKUP_HORIZONTAL_GRACE,
+                AMMO_PICKUP_VERTICAL_GRACE,
+            ) {
                 continue;
             }
             let distance_sq =
@@ -3103,7 +3146,13 @@ fn process_health_packs(ctx: &ReducerContext, tick: u32) {
             if state.health >= MAX_HEALTH {
                 continue;
             }
-            if !player_touches_pickup(state, pickup_position, HEALTH_PACK_RADIUS) {
+            if !player_touches_pickup(
+                state,
+                pickup_position,
+                HEALTH_PACK_RADIUS,
+                PICKUP_HORIZONTAL_GRACE,
+                PICKUP_VERTICAL_GRACE,
+            ) {
                 continue;
             }
 
