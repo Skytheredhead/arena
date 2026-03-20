@@ -9,19 +9,6 @@ import {
   PingLabel
 } from '../cyberTheme';
 
-const formatTimer = (match: MatchView | null): string => {
-  if (!match) {
-    return '--:--';
-  }
-
-  const totalSeconds = Math.max(0, Math.floor(match.remainingMs / 1000));
-  const minutes = Math.floor(totalSeconds / 60)
-    .toString()
-    .padStart(2, '0');
-  const seconds = (totalSeconds % 60).toString().padStart(2, '0');
-  return `${minutes}:${seconds}`;
-};
-
 interface HudOverlayProps {
   localIdentity: string | null;
   health: number;
@@ -146,7 +133,7 @@ export function HudOverlay({
           style={{
             padding: '8px 28px',
             display: 'flex',
-            gap: '28px',
+            gap: '34px',
             alignItems: 'center',
             backdropFilter: 'blur(12px)'
           }}
@@ -164,18 +151,6 @@ export function HudOverlay({
               {localKills}
             </div>
             <div style={{ color: CYBER.textDim, fontSize: '8px', letterSpacing: '3px', fontFamily: CYBER.font }}>KILLS</div>
-          </div>
-          <div
-            style={{
-              fontFamily: "'Orbitron',var(--font)",
-              fontSize: '28px',
-              fontWeight: 700,
-              color: CYBER.a,
-              letterSpacing: '4px',
-              textShadow: `0 0 20px ${CYBER.a}, 0 0 40px ${CYBER.a}44`
-            }}
-          >
-            {formatTimer(match)}
           </div>
           <div style={{ textAlign: 'center' }}>
             <div
@@ -380,7 +355,7 @@ export function HudOverlay({
                     <div style={{ color: CYBER.a, fontSize: '28px', fontFamily: "'Orbitron',var(--font)", fontWeight: 700 }}>{localDeaths}</div>
                     <div style={{ color: CYBER.textDim, fontSize: '8px', letterSpacing: '4px', fontFamily: CYBER.font }}>DEATHS</div>
                   </div>
-                  <div style={{ color: CYBER.textDim, fontSize: '12px', fontFamily: CYBER.font, marginLeft: '12px', letterSpacing: '2px' }}>{formatTimer(match)} LEFT</div>
+                  <div style={{ color: CYBER.textDim, fontSize: '12px', fontFamily: CYBER.font, marginLeft: '12px', letterSpacing: '2px' }}>LIVE</div>
                 </div>
                 <CyberButton small>BACK TO GAME</CyberButton>
               </div>

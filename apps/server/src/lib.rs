@@ -7,7 +7,6 @@ use generated_collision::ARENA_BLOCKS;
 const SERVER_TICK_RATE: u32 = 40;
 const SERVER_TICK_MS: u32 = 1000 / SERVER_TICK_RATE;
 const SERVER_TICK_INTERVAL_US: i64 = (SERVER_TICK_MS as i64) * 1000;
-const MATCH_DURATION_TICKS: u32 = SERVER_TICK_RATE * 180;
 const INPUT_STALE_TICKS: u32 = 4;
 const SIM_TICK_SCHEDULE_ID: u64 = 1;
 const MAX_OPEN_ROOMS: usize = 5;
@@ -919,8 +918,8 @@ pub fn create_room(ctx: &ReducerContext, room_code: String) -> Result<(), String
         room_code: room_code.clone(),
         active: false,
         tick,
-        end_tick: tick + MATCH_DURATION_TICKS,
-        remaining_ms: MATCH_DURATION_TICKS * SERVER_TICK_MS,
+        end_tick: tick,
+        remaining_ms: 0,
         round: 0,
     });
     initialize_room_ammo_packs(ctx, &room_code, tick);
@@ -1071,8 +1070,8 @@ pub fn start_match(ctx: &ReducerContext, room_code: String) -> Result<(), String
     ctx.db.match_state().room_code().update(MatchState {
         active: true,
         tick,
-        end_tick: tick + MATCH_DURATION_TICKS,
-        remaining_ms: MATCH_DURATION_TICKS * SERVER_TICK_MS,
+        end_tick: tick,
+        remaining_ms: 0,
         round: match_state.round.saturating_add(1),
         ..match_state
     });
@@ -1283,13 +1282,11 @@ pub fn sim_tick(ctx: &ReducerContext, _schedule: SimTickSchedule) -> Result<(), 
             ..match_state
         };
         if updated.active {
-            if tick >= updated.end_tick {
-                updated.end_tick = tick + MATCH_DURATION_TICKS;
-                updated.round = updated.round.saturating_add(1);
-            }
-            updated.remaining_ms = updated.end_tick.saturating_sub(tick) * SERVER_TICK_MS;
+            updated.end_tick = tick;
+            updated.remaining_ms = 0;
         } else {
-            updated.remaining_ms = MATCH_DURATION_TICKS * SERVER_TICK_MS;
+            updated.end_tick = tick;
+            updated.remaining_ms = 0;
         }
         ctx.db.match_state().room_code().update(updated);
 
