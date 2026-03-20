@@ -1,4 +1,5 @@
 import {
+  MAX_HEALTH,
   RIFLE_FIRE_INTERVAL_TICKS,
   RIFLE_MAGAZINE,
   SERVER_TICK_MS,
@@ -681,8 +682,10 @@ export class SpacetimeBridge {
     if (!previous.alive) {
       const respawnTransition =
         next.alive &&
-        next.respawnTick > previous.respawnTick &&
-        next.health >= previous.health;
+        ((next.respawnTick > previous.respawnTick && next.health >= previous.health) ||
+          (next.respawnTick === previous.respawnTick &&
+            next.serverTick > previous.serverTick &&
+            next.health >= MAX_HEALTH));
       if (respawnTransition) {
         return true;
       }

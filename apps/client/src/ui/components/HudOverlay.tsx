@@ -159,10 +159,10 @@ export function HudOverlay({
 
       <CyberCrosshair hitmarkerVisible={hitmarkerVisible} spread={crosshairSpread} scoped={scoped} />
 
-      {/* ── TOP CENTER: kills / deaths ── */}
+      {/* ── TOP LEFT: kills / deaths ── */}
       <div
         className="cyber-fade-up"
-        style={{ position: 'absolute', top: '14px', left: '50%', transform: 'translateX(-50%)', zIndex: 10 }}
+        style={{ position: 'absolute', top: '14px', left: '14px', zIndex: 10 }}
       >
         <CyberPanel style={{
           padding: '8px 24px',
@@ -171,25 +171,25 @@ export function HudOverlay({
         }}>
           <div style={{ textAlign: 'center', width: '72px' }}>
             <div style={{
-              fontFamily: "'Orbitron',var(--font)", color: CYBER.ok,
+              fontFamily: "'Orbitron',var(--font)", color: CYBER.textBright,
               fontSize: '20px', fontWeight: 700,
-              textShadow: `0 0 10px ${CYBER.ok}88`,
+              textShadow: `0 0 10px ${CYBER.textBright}66`,
               animation: 'cyberNumberTick .15s ease both',
             }}>
               {localKills}
             </div>
-            <div style={{ color: CYBER.textDim, fontSize: '8px', letterSpacing: '3px', fontFamily: CYBER.font }}>KILLS</div>
+            <div style={{ color: CYBER.textBright, fontSize: '8px', letterSpacing: '3px', fontFamily: CYBER.font }}>KILLS</div>
           </div>
           <div style={{ width: '1px', height: '28px', background: CYBER.border }} />
           <div style={{ textAlign: 'center', width: '72px' }}>
             <div style={{
-              fontFamily: "'Orbitron',var(--font)", color: CYBER.danger,
+              fontFamily: "'Orbitron',var(--font)", color: CYBER.textBright,
               fontSize: '20px', fontWeight: 700,
-              textShadow: `0 0 10px ${CYBER.danger}66`,
+              textShadow: `0 0 10px ${CYBER.textBright}66`,
             }}>
               {localDeaths}
             </div>
-            <div style={{ color: CYBER.textDim, fontSize: '8px', letterSpacing: '3px', fontFamily: CYBER.font }}>DEATHS</div>
+            <div style={{ color: CYBER.textBright, fontSize: '8px', letterSpacing: '3px', fontFamily: CYBER.font }}>DEATHS</div>
           </div>
         </CyberPanel>
       </div>
@@ -204,11 +204,11 @@ export function HudOverlay({
       >
         <CyberPanel style={{ padding: '8px', background: 'rgba(0,10,20,0.85)', backdropFilter: 'blur(10px)' }}>
           <div style={{
-            color: CYBER.a, fontFamily: CYBER.font, fontSize: '9px',
+            color: CYBER.textBright, fontFamily: CYBER.font, fontSize: '9px',
             letterSpacing: '3px', marginBottom: '6px', textTransform: 'uppercase',
-            textShadow: `0 0 6px ${CYBER.a}66`,
+            textShadow: `0 0 6px ${CYBER.textBright}44`,
           }}>
-            Chat / Feed
+            Chat
           </div>
           <div style={{ maxHeight: '170px', overflow: 'hidden', display: 'flex', flexDirection: 'column', gap: '4px' }}>
             {visibleFeed.map((entry, i) => (
@@ -271,7 +271,7 @@ export function HudOverlay({
       >
         <CyberPanel style={{ padding: '16px 20px', backdropFilter: 'blur(12px)' }}>
           <div style={{
-            color: CYBER.textDim, fontSize: '9px', letterSpacing: '3px',
+            color: CYBER.textBright, fontSize: '9px', letterSpacing: '3px',
             fontFamily: CYBER.font, marginBottom: '6px', textAlign: 'right',
           }}>
             PULSE RIFLE
@@ -291,7 +291,7 @@ export function HudOverlay({
             >
               {ammo}
             </div>
-            <div style={{ fontFamily: CYBER.font, color: CYBER.textDim, fontSize: '22px', lineHeight: 1 }}>
+            <div style={{ fontFamily: CYBER.font, color: CYBER.textBright, fontSize: '22px', lineHeight: 1 }}>
               /{RIFLE_MAGAZINE}
             </div>
           </div>
@@ -330,8 +330,7 @@ export function HudOverlay({
         <div style={{ display: 'flex', gap: '24px' }}>
           <span style={{ color: CYBER.ok }}>{connected ? 'US-WEST' : 'OFFLINE'}</span>
           <PingLabel ping={pingMs} jitter={pingJitterMs} />
-          <span style={{ color: CYBER.textDim }}>{pilotCount} PILOTS</span>
-          <span style={{ color: CYBER.textDim }}>RIFLE ONLY</span>
+          <span style={{ color: CYBER.textBright }}>{pilotCount} PILOTS</span>
         </div>
         <span style={{ color: CYBER.a, textShadow: `0 0 6px ${CYBER.a}88` }}>
           {match?.roomCode ?? 'NO ROOM'}

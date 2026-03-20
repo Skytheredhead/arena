@@ -260,7 +260,7 @@ export function MenuOverlay({
                       ['Respawns',         String(authStats.respawns)],
                     ].map(([label, val]) => (
                       <>
-                        <div style={{ color: CYBER.textDim }}>{label}</div>
+                        <div style={{ color: CYBER.textBright }}>{label}</div>
                         <div style={{ color: CYBER.textBright, textAlign: 'right', fontFamily: "'Orbitron',var(--font)", fontSize: '11px' }}>{val}</div>
                       </>
                     ))}
@@ -308,7 +308,7 @@ export function MenuOverlay({
         >
           <CyberPanel style={{ padding: '22px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
             {/* Callsign */}
-            <div className="cyber-label" style={{ animation: 'cyberSlideLeft .35s .3s both' }}>operator callsign</div>
+            <div className="cyber-label" style={{ animation: 'cyberSlideLeft .35s .3s both', color: CYBER.textBright }}>operator callsign</div>
             <input
               className="cyber-input"
               value={nickname}
@@ -320,7 +320,7 @@ export function MenuOverlay({
             />
 
             {/* Room code */}
-            <div className="cyber-label" style={{ animation: 'cyberSlideLeft .35s .4s both' }}>room access code</div>
+            <div className="cyber-label" style={{ animation: 'cyberSlideLeft .35s .4s both', color: CYBER.textBright }}>room access code</div>
             <input
               className="cyber-input"
               value={roomCode}
@@ -360,16 +360,16 @@ export function MenuOverlay({
 
             {/* Open rooms */}
             <div style={{ animation: 'cyberFadeUp .4s .55s ease both' }}>
-              <div className="cyber-label" style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
+              <div className="cyber-label" style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px', color: CYBER.textBright }}>
                 <span>Open Rooms</span>
                 {openRooms.length > 0 && (
-                  <span style={{ color: CYBER.ok }}>{openRooms.length} available</span>
+                  <span style={{ color: CYBER.textBright }}>{openRooms.length} available</span>
                 )}
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
                 {openRooms.length === 0 ? (
                   <div style={{
-                    color: CYBER.textDim, fontFamily: CYBER.font, fontSize: '11px',
+                    color: CYBER.textBright, fontFamily: CYBER.font, fontSize: '11px',
                     letterSpacing: '2px', padding: '8px 0',
                   }}>
                     <span className="cyber-blink">█ </span>
@@ -393,7 +393,7 @@ export function MenuOverlay({
                     >
                       <span>{room.code}</span>
                       <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <span style={{ fontSize: '9px', letterSpacing: '1px', color: CYBER.textDim }}>
+                        <span style={{ fontSize: '9px', letterSpacing: '1px', color: CYBER.textBright }}>
                           {room.playerCount}/5 pilots
                         </span>
                         <span style={{

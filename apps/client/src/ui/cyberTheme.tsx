@@ -302,11 +302,11 @@ export function CyberGlobalStyles(): React.JSX.Element {
   return <style>{CSS}</style>;
 }
 
-export function CyberScanFx(): React.JSX.Element {
+export function CyberScanFx({ showSweep = true }: { showSweep?: boolean }): React.JSX.Element {
   return (
     <>
       <div className="cyber-scanlines" />
-      <div className="cyber-scan-sweep" />
+      {showSweep ? <div className="cyber-scan-sweep" /> : null}
     </>
   );
 }

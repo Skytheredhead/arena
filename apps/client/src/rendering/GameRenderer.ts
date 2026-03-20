@@ -45,6 +45,14 @@ interface RemoteAvatar {
   rightArm: THREE.Group;
   leftLeg: THREE.Group;
   rightLeg: THREE.Group;
+  materials: THREE.MeshStandardMaterial[];
+  baseColors: number[];
+}
+
+interface RemoteDeathFxState {
+  startedAt: number;
+  position: THREE.Vector3;
+  yaw: number;
 }
 
 export class GameRenderer {
@@ -53,7 +61,11 @@ export class GameRenderer {
   private readonly camera: THREE.PerspectiveCamera;
   private static readonly IMPACT_MARK_LIFETIME_MS = 20_000;
   private static readonly IMPACT_MARK_FADE_WINDOW_MS = 2_000;
+  private static readonly REMOTE_DEATH_DURATION_MS = 3_000;
+  private static readonly REMOTE_DEATH_FALL_MS = 750;
+  private static readonly REMOTE_DEATH_FADE_START_MS = 1_050;
   private readonly remotePlayers = new Map<string, RemoteAvatar>();
+  private readonly remoteDeathFx = new Map<string, RemoteDeathFxState>();
   private readonly ammoPackMeshes = new Map<number, THREE.Group>();
   private readonly ammoPackActiveState = new Map<number, boolean>();
   private readonly ammoPackActivatedAt = new Map<number, number>();
@@ -67,6 +79,8 @@ export class GameRenderer {
   private readonly smoothedCameraPosition = new THREE.Vector3();
   private readonly targetCameraPosition = new THREE.Vector3();
   private readonly decalUp = new THREE.Vector3(0, 0, 1);
+  private readonly deathTintColor = new THREE.Color('#ff2e3f');
+  private readonly scratchColor = new THREE.Color();
   private graphicsQuality: GraphicsQuality = 'high';
   private baseFov = 80;
   private cameraPositionInitialized = false;
@@ -340,6 +354,22 @@ export class GameRenderer {
     rightLegPivot.add(rightLeg, rightBoot);
     root.add(rightLegPivot);
 
+    const materials: THREE.MeshStandardMaterial[] = [];
+    const baseColors: number[] = [];
+    root.traverse(object => {
+      if (!(object instanceof THREE.Mesh)) {
+        return;
+      }
+      if (!(object.material instanceof THREE.MeshStandardMaterial)) {
+        return;
+      }
+      object.material.transparent = false;
+      object.material.opacity = 1;
+      object.material.emissive.setRGB(0, 0, 0);
+      materials.push(object.material);
+      baseColors.push(object.material.color.getHex());
+    });
+
     return {
       root,
       head: headPivot,
@@ -347,8 +377,40 @@ export class GameRenderer {
       leftArm: leftArmPivot,
       rightArm: rightArmPivot,
       leftLeg: leftLegPivot,
-      rightLeg: rightLegPivot
+      rightLeg: rightLegPivot,
+      materials,
+      baseColors
     };
+  }
+
+  private resetRemoteAvatarAppearance(avatar: RemoteAvatar): void {
+    for (let index = 0; index < avatar.materials.length; index += 1) {
+      const material = avatar.materials[index]!;
+      material.color.setHex(avatar.baseColors[index] ?? 0xffffff);
+      material.emissive.setRGB(0, 0, 0);
+      material.opacity = 1;
+      material.transparent = false;
+      material.needsUpdate = true;
+    }
+  }
+
+  private applyRemoteDeathAppearance(
+    avatar: RemoteAvatar,
+    tintProgress: number,
+    alpha: number
+  ): void {
+    const safeTint = Math.max(0, Math.min(1, tintProgress));
+    const safeAlpha = Math.max(0, Math.min(1, alpha));
+    for (let index = 0; index < avatar.materials.length; index += 1) {
+      const material = avatar.materials[index]!;
+      const baseHex = avatar.baseColors[index] ?? 0xffffff;
+      this.scratchColor.setHex(baseHex).lerp(this.deathTintColor, safeTint);
+      material.color.copy(this.scratchColor);
+      material.emissive.setRGB(0.3 * safeTint, 0, 0);
+      material.opacity = safeAlpha;
+      material.transparent = safeAlpha < 0.999;
+      material.needsUpdate = true;
+    }
   }
 
   private createAmmoPackModel(): THREE.Group {
@@ -565,22 +627,80 @@ export class GameRenderer {
       const stridePhase = now * 0.008 + player.identity.length * 0.47;
       const strideSwing = player.alive ? Math.sin(stridePhase) * 0.78 * moveRatio : 0;
       const armSwing = player.alive ? Math.sin(stridePhase + Math.PI) * 0.56 * moveRatio : 0;
-      mesh.visible = player.alive;
-      mesh.position.set(player.position.x, player.position.y, player.position.z);
-      mesh.rotation.y = player.yaw;
-      avatar.head.rotation.x = player.pitch * 0.35;
-      avatar.leftLeg.rotation.x = strideSwing;
-      avatar.rightLeg.rotation.x = -strideSwing;
-      avatar.leftArm.rotation.x = armSwing * 0.45 - 0.22;
-      avatar.leftArm.rotation.y = 0.12;
-      avatar.leftArm.rotation.z = -0.06;
-      avatar.rightArm.rotation.x = -0.86 - armSwing * 0.26;
-      avatar.rightArm.rotation.y = -0.16;
-      avatar.rightArm.rotation.z = 0.1;
+
+      if (player.alive) {
+        if (this.remoteDeathFx.has(player.identity)) {
+          this.remoteDeathFx.delete(player.identity);
+        }
+        this.resetRemoteAvatarAppearance(avatar);
+        mesh.visible = true;
+        mesh.position.set(player.position.x, player.position.y, player.position.z);
+        mesh.rotation.set(0, player.yaw, 0);
+        avatar.head.rotation.x = player.pitch * 0.35;
+        avatar.leftLeg.rotation.x = strideSwing;
+        avatar.rightLeg.rotation.x = -strideSwing;
+        avatar.leftArm.rotation.x = armSwing * 0.45 - 0.22;
+        avatar.leftArm.rotation.y = 0.12;
+        avatar.leftArm.rotation.z = -0.06;
+        avatar.rightArm.rotation.x = -0.86 - armSwing * 0.26;
+        avatar.rightArm.rotation.y = -0.16;
+        avatar.rightArm.rotation.z = 0.1;
+        continue;
+      }
+
+      let deathFx = this.remoteDeathFx.get(player.identity);
+      if (!deathFx) {
+        deathFx = {
+          startedAt: now,
+          position: new THREE.Vector3(player.position.x, player.position.y, player.position.z),
+          yaw: player.yaw
+        };
+        this.remoteDeathFx.set(player.identity, deathFx);
+      }
+
+      const deathAgeMs = now - deathFx.startedAt;
+      if (deathAgeMs >= GameRenderer.REMOTE_DEATH_DURATION_MS) {
+        mesh.visible = false;
+        continue;
+      }
+
+      const fallProgress = Math.max(
+        0,
+        Math.min(1, deathAgeMs / GameRenderer.REMOTE_DEATH_FALL_MS)
+      );
+      const easedFall = 1 - Math.pow(1 - fallProgress, 3);
+      const tintProgress = Math.max(0, Math.min(1, deathAgeMs / 180));
+      const alpha =
+        deathAgeMs <= GameRenderer.REMOTE_DEATH_FADE_START_MS
+          ? 1
+          : Math.max(
+              0,
+              1 -
+                (deathAgeMs - GameRenderer.REMOTE_DEATH_FADE_START_MS) /
+                  (GameRenderer.REMOTE_DEATH_DURATION_MS -
+                    GameRenderer.REMOTE_DEATH_FADE_START_MS)
+            );
+      this.applyRemoteDeathAppearance(avatar, tintProgress, alpha);
+
+      mesh.visible = true;
+      mesh.position.copy(deathFx.position);
+      mesh.position.y = deathFx.position.y - easedFall * 0.48;
+      mesh.rotation.set(0, deathFx.yaw, -easedFall * 1.28);
+      avatar.head.rotation.x = 0;
+      avatar.leftLeg.rotation.x = 0.14 + easedFall * 0.22;
+      avatar.rightLeg.rotation.x = -0.04 + easedFall * 0.2;
+      avatar.leftArm.rotation.x = -0.48;
+      avatar.leftArm.rotation.y = 0.08;
+      avatar.leftArm.rotation.z = -0.28;
+      avatar.rightArm.rotation.x = -1.15;
+      avatar.rightArm.rotation.y = -0.12;
+      avatar.rightArm.rotation.z = 0.02;
     }
 
     for (const [identity, avatar] of this.remotePlayers) {
       if (!activeIds.has(identity)) {
+        this.remoteDeathFx.delete(identity);
+        this.resetRemoteAvatarAppearance(avatar);
         avatar.root.visible = false;
       }
     }

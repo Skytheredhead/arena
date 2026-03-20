@@ -288,6 +288,13 @@ export class GameRuntime {
         velocity: { x: 0, y: 0, z: 0 }
       };
     } else if (!before.alive && reconciled.alive) {
+      // On respawn, clear stale pre-death prediction/input history so movement resumes immediately.
+      this.prediction.hydrate(reconciled);
+      this.pendingInputSentAt.clear();
+      this.sequence = reconciled.lastProcessedInput;
+      this.localCorrectionOffset = { x: 0, y: 0, z: 0 };
+      this.walkStrideDistance = 0;
+      this.input.clearPressed();
       this.deathViewState = null;
     }
 

@@ -361,7 +361,7 @@ export default function App(): React.JSX.Element {
   const openRooms = useMemo(
     () =>
       Object.values(rooms)
-        .filter(r => r.active && r.playerCount > 0 && r.playerCount < 5)
+        .filter(r => r.playerCount > 0 && r.playerCount < 5)
         .sort((a, b) => b.playerCount - a.playerCount || a.code.localeCompare(b.code))
         .slice(0, 6),
     [rooms]
@@ -431,26 +431,51 @@ export default function App(): React.JSX.Element {
     if (connectInFlightRef.current || useGameStore.getState().connectionStatus === 'connecting') return;
     const runtime = ensureRuntime();
     if (!runtime) return;
-    runtime.unlockAudio();
     const targetRoomCode = normalizeRoomCode(explicitRoomCode ?? roomCode);
     if (targetRoomCode !== roomCode) setRoomCode(targetRoomCode);
-    setPaused(false);
-    runtime.setPaused(false);
-    lockLandscape();
     connectInFlightRef.current = true;
-    void runtime
-      .connect({ nickname: effectiveNickname, roomCode: targetRoomCode, createRoom })
-      .then(() => {
+    void (async () => {
+      runtime.unlockAudio();
+      try {
+        if (createRoom) {
+          try {
+            const snapshot = await fetchOpenRoomsSnapshot();
+            setRoomDirectory(snapshot);
+            if (snapshot.some(room => normalizeRoomCode(room.code) === targetRoomCode)) {
+              useGameStore
+                .getState()
+                .setConnection('error', 'Room already exists, hit "Join".');
+              return;
+            }
+          } catch {
+            if (rooms[targetRoomCode]) {
+              useGameStore
+                .getState()
+                .setConnection('error', 'Room already exists, hit "Join".');
+              return;
+            }
+          }
+        }
+
+        setPaused(false);
+        runtime.setPaused(false);
+        lockLandscape();
+        await runtime.connect({ nickname: effectiveNickname, roomCode: targetRoomCode, createRoom });
         if (useGameStore.getState().connectionStatus === 'connected' && !touchControls) {
           runtime.setPointerLockEnabled(true);
           runtime.requestPointerLock();
         }
-      })
-      .catch(error => {
-        const message = error instanceof Error ? error.message : 'Connection failed';
+      } catch (error) {
+        const rawMessage = error instanceof Error ? error.message : 'Connection failed';
+        const message =
+          /already exists/i.test(rawMessage)
+            ? 'Room already exists, hit "Join".'
+            : rawMessage;
         useGameStore.getState().setConnection('error', message);
-      })
-      .finally(() => { connectInFlightRef.current = false; });
+      } finally {
+        connectInFlightRef.current = false;
+      }
+    })();
   };
 
   const handleLogin = useCallback(async (identifier: string, password: string): Promise<void> => {
@@ -486,7 +511,7 @@ export default function App(): React.JSX.Element {
   return (
     <div className="cyber-root relative h-full w-full overflow-hidden bg-[#020b14]">
       <CyberGlobalStyles />
-      <CyberScanFx />
+      <CyberScanFx showSweep={!connected} />
       <div ref={mountRef} className="absolute inset-0 z-0" />
       <HudOverlay {...hudProps} />
       <MenuOverlay

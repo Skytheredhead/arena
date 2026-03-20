@@ -6,6 +6,7 @@ use generated_collision::ARENA_BLOCKS;
 
 const SERVER_TICK_RATE: u32 = 40;
 const SERVER_TICK_MS: u32 = 1000 / SERVER_TICK_RATE;
+const REMOTE_INTERPOLATION_DELAY_MS: u32 = 100;
 const SERVER_TICK_INTERVAL_US: i64 = (SERVER_TICK_MS as i64) * 1000;
 const INPUT_STALE_TICKS: u32 = 4;
 const SIM_TICK_SCHEDULE_ID: u64 = 1;
@@ -71,6 +72,9 @@ const MOVEMENT_SUBSTEP_MAX_DISTANCE: f32 = 0.12;
 const RAY_DIRECTION_EPSILON: f32 = 0.0001;
 const BULLET_RAY_INSET: f32 = 0.005;
 const TWO_PI: f32 = std::f32::consts::PI * 2.0;
+const MAX_HIT_REWIND_TICKS: u32 = 14;
+const HIT_REWIND_FUDGE_TICKS: u32 = 1;
+const MAX_HIT_REWIND_SECONDS: f32 = 0.4;
 const ARENA_MIN_X: f32 = -30.0;
 const ARENA_MAX_X: f32 = 30.0;
 const ARENA_MIN_Z: f32 = -31.0;
@@ -1118,6 +1122,7 @@ pub fn fire_weapon(ctx: &ReducerContext, yaw: f32, pitch: f32, scoped: bool) -> 
     let tick = current_tick(ctx);
     let player = require_player(ctx, ctx.sender())?;
     let state = require_player_state(ctx, ctx.sender())?;
+    let shooter_input = require_input_state(ctx, ctx.sender())?;
     let weapon = require_weapon_state(ctx, ctx.sender())?;
     let room_code = require_room_membership(ctx, ctx.sender())?;
 
@@ -1162,13 +1167,8 @@ pub fn fire_weapon(ctx: &ReducerContext, yaw: f32, pitch: f32, scoped: bool) -> 
     let aim_yaw = yaw + yaw_offset;
     let aim_pitch = (pitch + pitch_offset).clamp(-MAX_PITCH, MAX_PITCH);
     let direction = direction_from_yaw_pitch(aim_yaw, aim_pitch);
-    let shooter_crouching = ctx
-        .db
-        .player_input()
-        .identity()
-        .find(ctx.sender())
-        .map(|input| input.sprinting)
-        .unwrap_or(false);
+    let shooter_crouching = shooter_input.sprinting;
+    let rewind_ticks = estimate_hit_rewind_ticks(&shooter_input, tick);
     let eye_height = if shooter_crouching {
         CROUCH_EYE_HEIGHT
     } else {
@@ -1190,11 +1190,7 @@ pub fn fire_weapon(ctx: &ReducerContext, yaw: f32, pitch: f32, scoped: bool) -> 
             continue;
         }
 
-        let position = Vec3 {
-            x: target.x,
-            y: target.y,
-            z: target.z,
-        };
+        let position = rewind_player_for_hit(&target, rewind_ticks);
         let crouching = ctx
             .db
             .player_input()
@@ -2092,7 +2088,15 @@ fn prune_empty_rooms(ctx: &ReducerContext) {
 }
 
 fn choose_spawn(seed: usize) -> Vec3 {
-    SPAWN_POINTS[seed % SPAWN_POINTS.len()]
+    let spawn_count = SPAWN_POINTS.len();
+    for offset in 0..spawn_count {
+        let index = (seed + offset) % spawn_count;
+        let candidate = resolve_player_spawn_point(SPAWN_POINTS[index]);
+        if !collides_at_with_height(candidate.x, candidate.y, candidate.z, PLAYER_HEIGHT) {
+            return candidate;
+        }
+    }
+    resolve_player_spawn_point(SPAWN_POINTS[seed % spawn_count])
 }
 
 fn yaw_towards_arena_center(position: Vec3) -> f32 {
@@ -2400,6 +2404,44 @@ fn resolve_pickup_spawn_point(base: Vec3) -> Vec3 {
     Vec3 {
         x: base.x,
         y: pickup_floor_height_at(base.x, base.z),
+        z: base.z,
+    }
+}
+
+fn resolve_player_spawn_point(base: Vec3) -> Vec3 {
+    const OFFSETS: [(f32, f32); 13] = [
+        (0.0, 0.0),
+        (0.75, 0.0),
+        (-0.75, 0.0),
+        (0.0, 0.75),
+        (0.0, -0.75),
+        (1.05, 0.0),
+        (-1.05, 0.0),
+        (0.0, 1.05),
+        (0.0, -1.05),
+        (0.62, 0.62),
+        (-0.62, 0.62),
+        (0.62, -0.62),
+        (-0.62, -0.62),
+    ];
+
+    for (offset_x, offset_z) in OFFSETS {
+        let candidate_x = base.x + offset_x;
+        let candidate_z = base.z + offset_z;
+        let floor_y = ground_height_at(candidate_x, candidate_z, base.y + PLAYER_HEIGHT);
+
+        if !collides_at_with_height(candidate_x, floor_y, candidate_z, PLAYER_HEIGHT) {
+            return Vec3 {
+                x: candidate_x,
+                y: floor_y,
+                z: candidate_z,
+            };
+        }
+    }
+
+    Vec3 {
+        x: base.x,
+        y: ground_height_at(base.x, base.z, base.y + PLAYER_HEIGHT),
         z: base.z,
     }
 }
@@ -2964,6 +3006,42 @@ fn point_distance_sq_2d(ax: f32, az: f32, bx: f32, bz: f32) -> f32 {
     dx * dx + dz * dz
 }
 
+fn estimate_hit_rewind_ticks(shooter_input: &PlayerInput, tick: u32) -> u32 {
+    let interpolation_ticks =
+        ((REMOTE_INTERPOLATION_DELAY_MS + SERVER_TICK_MS - 1) / SERVER_TICK_MS).max(1);
+    let network_ticks = tick.saturating_sub(shooter_input.last_received_tick);
+    interpolation_ticks
+        .saturating_add(network_ticks)
+        .saturating_add(HIT_REWIND_FUDGE_TICKS)
+        .min(MAX_HIT_REWIND_TICKS)
+}
+
+fn rewind_player_for_hit(state: &PlayerState, rewind_ticks: u32) -> Vec3 {
+    if rewind_ticks == 0 {
+        return Vec3 {
+            x: state.x,
+            y: state.y,
+            z: state.z,
+        };
+    }
+
+    let rewind_seconds =
+        (rewind_ticks as f32 / SERVER_TICK_RATE as f32).min(MAX_HIT_REWIND_SECONDS);
+    let rewound_x = (state.x - state.vel_x * rewind_seconds)
+        .clamp(ARENA_MIN_X + PLAYER_RADIUS, ARENA_MAX_X - PLAYER_RADIUS);
+    let rewound_z = (state.z - state.vel_z * rewind_seconds)
+        .clamp(ARENA_MIN_Z + PLAYER_RADIUS, ARENA_MAX_Z - PLAYER_RADIUS);
+    let rewound_y = state.y - state.vel_y * rewind_seconds;
+    let floor_y = ground_height_at(rewound_x, rewound_z, rewound_y + PLAYER_HEIGHT);
+    let resolved_y = rewound_y.max(floor_y);
+
+    Vec3 {
+        x: rewound_x,
+        y: resolved_y,
+        z: rewound_z,
+    }
+}
+
 fn player_touches_pickup(
     state: &PlayerState,
     pickup: Vec3,
@@ -2974,8 +3052,7 @@ fn player_touches_pickup(
     let max_delta = 1.2;
     let previous_x = state.x - (state.vel_x / SERVER_TICK_RATE as f32).clamp(-max_delta, max_delta);
     let previous_z = state.z - (state.vel_z / SERVER_TICK_RATE as f32).clamp(-max_delta, max_delta);
-    let max_horizontal =
-        PLAYER_RADIUS + pickup_radius + horizontal_grace + PICKUP_SWEEP_EXTRA;
+    let max_horizontal = PLAYER_RADIUS + pickup_radius + horizontal_grace + PICKUP_SWEEP_EXTRA;
     let swept_distance_sq =
         segment_point_distance_sq_2d(previous_x, previous_z, state.x, state.z, pickup.x, pickup.z);
     let direct_distance_sq = point_distance_sq_2d(state.x, state.z, pickup.x, pickup.z);
@@ -3045,7 +3122,8 @@ fn process_ammo_packs(ctx: &ReducerContext, tick: u32) {
                 pack.id,
                 &pack.room_code,
             );
-            let next_point = resolve_pickup_spawn_point(AMMO_PACK_LOCATIONS[next_location as usize]);
+            let next_point =
+                resolve_pickup_spawn_point(AMMO_PACK_LOCATIONS[next_location as usize]);
             pack.location_index = next_location;
             pack.x = next_point.x;
             pack.y = next_point.y;
