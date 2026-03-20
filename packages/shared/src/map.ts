@@ -24,8 +24,8 @@ export interface ArenaBlock {
 export const ARENA_HALF_SIZE = 30;
 export const ARENA_MIN_X = -30;
 export const ARENA_MAX_X = 30;
-export const ARENA_MIN_Z = -31.20470965;
-export const ARENA_MAX_Z = 28.79529035;
+export const ARENA_MIN_Z = -31;
+export const ARENA_MAX_Z = 29;
 
 export const ARENA_BLOCKS: ArenaBlock[] = GENERATED_ARENA_BLOCKS;
 

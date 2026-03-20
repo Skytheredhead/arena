@@ -40,6 +40,7 @@ export class GameRuntime {
   private static readonly MOBILE_LOOK_SPEED = 2.8;
   private static readonly RELOAD_DURATION_MS = 980;
   private static readonly DRY_FIRE_COOLDOWN_MS = 180;
+  private static readonly FOOTSTEP_MIN_INTERVAL_MS = 150;
   private readonly renderer: GameRenderer;
   private readonly input: InputController;
   private readonly rifle = new RifleController();
@@ -72,6 +73,7 @@ export class GameRuntime {
   private walkPhase = 0;
   private walkIntensity = 0;
   private walkStrideDistance = 0;
+  private lastFootstepAt = 0;
   private lastLocalShotAt = -1000;
 
   constructor(mount: HTMLElement) {
@@ -221,6 +223,7 @@ export class GameRuntime {
     this.walkPhase = 0;
     this.walkIntensity = 0;
     this.walkStrideDistance = 0;
+    this.lastFootstepAt = 0;
     this.applyDisplayedAmmo();
   }
 
@@ -465,13 +468,19 @@ export class GameRuntime {
       this.walkPhase += deltaSeconds * (7.3 + this.walkIntensity * 4.2);
       const stride = Math.max(0.35, 0.58 - this.walkIntensity * 0.12);
       this.walkStrideDistance += speed * deltaSeconds;
-      while (this.walkStrideDistance >= stride) {
+      const enoughStride = this.walkStrideDistance >= stride;
+      const footstepReady = now - this.lastFootstepAt >= GameRuntime.FOOTSTEP_MIN_INTERVAL_MS;
+      if (enoughStride && footstepReady) {
         this.walkStrideDistance -= stride;
+        this.lastFootstepAt = now;
         this.audio.play('footstep', {
           volume: 0.32 + this.walkIntensity * 0.16,
           playbackRateMin: 0.9,
           playbackRateMax: 1.1
         });
+      } else if (this.walkStrideDistance > stride * 2.4) {
+        // Prevent huge backlog bursts after long frames/background tab throttling.
+        this.walkStrideDistance = stride * 1.1;
       }
     } else {
       this.walkStrideDistance = 0;

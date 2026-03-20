@@ -37,8 +37,6 @@ export default function App(): React.JSX.Element {
   const crosshairSpread = useGameStore(state => state.crosshairSpread);
   const scoped = useGameStore(state => state.scoped);
   const localPlayer = useGameStore(state => state.localPlayer);
-  const magAmmo = useGameStore(state => state.magAmmo);
-  const reserveAmmo = useGameStore(state => state.reserveAmmo);
   const localIdentity = useGameStore(state => state.localIdentity);
   const players = useGameStore(state => state.players);
   const rooms = useGameStore(state => state.rooms);
@@ -367,8 +365,7 @@ export default function App(): React.JSX.Element {
     () => ({
       localIdentity,
       health: localPlayer.health,
-      ammo: magAmmo,
-      reserveAmmo,
+      ammo: localPlayer.ammo,
       localKills: localMeta?.kills ?? 0,
       localDeaths: localMeta?.deaths ?? 0,
       match,
@@ -398,9 +395,8 @@ export default function App(): React.JSX.Element {
       hitmarkerVisible,
       killFeed,
       localIdentity,
-      magAmmo,
-      reserveAmmo,
       localPlayer.health,
+      localPlayer.ammo,
       localMeta?.deaths,
       localMeta?.kills,
       match,

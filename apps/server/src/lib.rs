@@ -64,8 +64,8 @@ const BULLET_RAY_INSET: f32 = 0.005;
 const TWO_PI: f32 = std::f32::consts::PI * 2.0;
 const ARENA_MIN_X: f32 = -30.0;
 const ARENA_MAX_X: f32 = 30.0;
-const ARENA_MIN_Z: f32 = -31.204_71;
-const ARENA_MAX_Z: f32 = 28.795_29;
+const ARENA_MIN_Z: f32 = -31.0;
+const ARENA_MAX_Z: f32 = 29.0;
 
 const BLOCKED_TERMS: [&str; 34] = [
     "fuck",
