@@ -1645,7 +1645,9 @@ fn simulate_movement_tick(state: PlayerState, input: PlayerInput) -> PlayerState
         updated.vel_y -= GRAVITY * dt;
     }
 
-    resolve_horizontal_motion(&mut updated, updated.vel_x * dt, updated.vel_z * dt);
+    let horizontal_delta_x = updated.vel_x * dt;
+    let horizontal_delta_z = updated.vel_z * dt;
+    resolve_horizontal_motion(&mut updated, horizontal_delta_x, horizontal_delta_z);
 
     let ground = ground_height_at(updated.x, updated.z, updated.y);
     let proposed_y = updated.y + updated.vel_y * dt;
