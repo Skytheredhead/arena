@@ -1,5 +1,7 @@
 import {
   AIR_ACCELERATION,
+  CROUCH_HEIGHT,
+  CROUCH_SPEED,
   GROUND_ACCELERATION,
   GROUND_FRICTION,
   GRAVITY,
@@ -8,7 +10,6 @@ import {
   PLAYER_RADIUS,
   PLAYER_STEP_HEIGHT,
   SERVER_TICK_SECONDS,
-  SPRINT_SPEED,
   WALK_SPEED
 } from './gameplay';
 import { ARENA_BLOCKS, ARENA_MAX_X, ARENA_MAX_Z, ARENA_MIN_X, ARENA_MIN_Z } from './map';
@@ -115,7 +116,7 @@ const groundHeightAt = (x: number, z: number, currentFeetY: number): number => {
   return ground;
 };
 
-const collidesAt = (x: number, y: number, z: number): boolean => {
+const collidesAt = (x: number, y: number, z: number, playerHeight: number): boolean => {
   if (
     x - PLAYER_RADIUS < ARENA_MIN_X ||
     x + PLAYER_RADIUS > ARENA_MAX_X ||
@@ -125,7 +126,7 @@ const collidesAt = (x: number, y: number, z: number): boolean => {
     return true;
   }
 
-  const headY = y + PLAYER_HEIGHT;
+  const headY = y + playerHeight;
   for (const block of ARENA_BLOCKS) {
     if (overlapsBlock(x, z, block) && y < block.maxY && headY > block.minY) {
       return true;
@@ -139,6 +140,7 @@ const resolveHorizontalMotion = (
   position: Vec3,
   velocity: Vec3,
   feetY: number,
+  playerHeight: number,
   dtSeconds: number
 ): {
   position: Vec3;
@@ -159,7 +161,7 @@ const resolveHorizontalMotion = (
   for (let index = 0; index < steps; index += 1) {
     if (moveXOpen) {
       const targetX = nextPosition.x + stepX;
-      if (collidesAt(targetX, feetY, nextPosition.z)) {
+      if (collidesAt(targetX, feetY, nextPosition.z, playerHeight)) {
         nextVelocity.x = 0;
         moveXOpen = false;
       } else {
@@ -169,7 +171,7 @@ const resolveHorizontalMotion = (
 
     if (moveZOpen) {
       const targetZ = nextPosition.z + stepZ;
-      if (collidesAt(nextPosition.x, feetY, targetZ)) {
+      if (collidesAt(nextPosition.x, feetY, targetZ, playerHeight)) {
         nextVelocity.z = 0;
         moveZOpen = false;
       } else {
@@ -212,7 +214,7 @@ export const simulatePlayerTick = (
     z: right.z * move.x + forward.z * move.z
   };
   const wishDir = normalize2D(wish.x, wish.z);
-  const wishSpeed = (input.sprinting ? SPRINT_SPEED : WALK_SPEED) * moveMagnitude;
+  const wishSpeed = (input.sprinting ? CROUCH_SPEED : WALK_SPEED) * moveMagnitude;
   const desiredVelocity = {
     x: wishDir.x * wishSpeed,
     z: wishDir.z * wishSpeed
@@ -232,19 +234,36 @@ export const simulatePlayerTick = (
     next.velocity.y -= GRAVITY * dtSeconds;
   }
 
-  const resolved = resolveHorizontalMotion(next.position, next.velocity, next.position.y, dtSeconds);
+  let collisionHeight = input.sprinting ? CROUCH_HEIGHT : PLAYER_HEIGHT;
+  if (
+    !input.sprinting &&
+    collidesAt(next.position.x, next.position.y, next.position.z, PLAYER_HEIGHT)
+  ) {
+    collisionHeight = CROUCH_HEIGHT;
+  }
+
+  const resolved = resolveHorizontalMotion(
+    next.position,
+    next.velocity,
+    next.position.y,
+    collisionHeight,
+    dtSeconds
+  );
   next.position.x = resolved.position.x;
   next.position.z = resolved.position.z;
   next.velocity.x = resolved.velocity.x;
   next.velocity.z = resolved.velocity.z;
 
   let proposedY = next.position.y + next.velocity.y * dtSeconds;
-  if (next.velocity.y > 0 && collidesAt(next.position.x, proposedY, next.position.z)) {
+  if (
+    next.velocity.y > 0 &&
+    collidesAt(next.position.x, proposedY, next.position.z, collisionHeight)
+  ) {
     let low = next.position.y;
     let high = proposedY;
     for (let index = 0; index < 8; index += 1) {
       const midpoint = (low + high) * 0.5;
-      if (collidesAt(next.position.x, midpoint, next.position.z)) {
+      if (collidesAt(next.position.x, midpoint, next.position.z, collisionHeight)) {
         high = midpoint;
       } else {
         low = midpoint;

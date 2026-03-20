@@ -3,8 +3,8 @@ import {
   REMOTE_INTERPOLATION_DELAY_MS,
   RIFLE_CLIP_SIZE,
   RIFLE_CARRY_CAPACITY,
-  SPRINT_SPEED,
   SERVER_TICK_MS,
+  WALK_SPEED,
   simulatePlayerTick,
   type AmmoPackView,
   type DamageEvent,
@@ -40,7 +40,7 @@ export class GameRuntime {
   private static readonly MOBILE_LOOK_SPEED = 2.8;
   private static readonly RELOAD_DURATION_MS = 980;
   private static readonly DRY_FIRE_COOLDOWN_MS = 180;
-  private static readonly FOOTSTEP_MIN_INTERVAL_MS = 150;
+  private static readonly FOOTSTEP_MIN_INTERVAL_MS = 430;
   private readonly renderer: GameRenderer;
   private readonly input: InputController;
   private readonly rifle = new RifleController();
@@ -70,9 +70,12 @@ export class GameRuntime {
   private reloadStartedAt = -1;
   private reloadCompletesAt = -1;
   private nextDryFireAt = 0;
+  private smoothedPingMs = 48;
+  private readonly pendingInputSentAt = new Map<number, number>();
   private walkPhase = 0;
   private walkIntensity = 0;
   private walkStrideDistance = 0;
+  private crouchAmount = 0;
   private lastFootstepAt = 0;
   private lastLocalShotAt = -1000;
 
@@ -219,16 +222,20 @@ export class GameRuntime {
     this.totalAmmo = RIFLE_CARRY_CAPACITY;
     this.magAmmo = RIFLE_CLIP_SIZE;
     this.reserveAmmo = RIFLE_CARRY_CAPACITY - RIFLE_CLIP_SIZE;
+    this.pendingInputSentAt.clear();
+    this.smoothedPingMs = 48;
     this.cancelReload();
     this.walkPhase = 0;
     this.walkIntensity = 0;
     this.walkStrideDistance = 0;
+    this.crouchAmount = 0;
     this.lastFootstepAt = 0;
     this.applyDisplayedAmmo();
   }
 
   private handleAuthoritativeLocalState(state: LocalPlayerState): void {
     this.observeServerTime(state.serverTimeMs);
+    this.updateMeasuredPing(state.lastProcessedInput);
     this.sequence = Math.max(this.sequence, state.lastProcessedInput);
     if (!this.prediction) {
       this.prediction = new PredictionController(state);
@@ -286,17 +293,16 @@ export class GameRuntime {
       store.consumeNearestAmmoPack(store.connectedRoomCode, store.localPlayer.position, 2.4);
     }
 
-    if (this.magAmmo > clamped) {
-      this.magAmmo = clamped;
-      this.reloadStartedAt = -1;
-      this.reloadCompletesAt = -1;
-    }
+    this.magAmmo = Math.min(RIFLE_CLIP_SIZE, clamped);
+    this.reloadStartedAt = -1;
+    this.reloadCompletesAt = -1;
     this.applyDisplayedAmmo();
   }
 
   private setLocalAmmo(ammo: number): void {
     const clamped = Math.max(0, Math.min(RIFLE_CARRY_CAPACITY, ammo));
     this.totalAmmo = clamped;
+    this.magAmmo = Math.min(RIFLE_CLIP_SIZE, clamped);
     if (this.prediction) {
       this.prediction.setAmmo(clamped);
     }
@@ -460,8 +466,10 @@ export class GameRuntime {
     const currentLocal = this.getPresentedLocalState(deltaSeconds);
     const speed = Math.hypot(currentLocal.velocity.x, currentLocal.velocity.z);
     const movingOnGround = currentLocal.onGround && currentLocal.alive && speed > 1.25;
+    const crouchTarget = frameInput.sprinting ? 1 : 0;
+    this.crouchAmount += (crouchTarget - this.crouchAmount) * Math.min(1, deltaSeconds * 12);
     const targetWalkIntensity = movingOnGround
-      ? Math.max(0.15, Math.min(1, speed / Math.max(0.01, SPRINT_SPEED)))
+      ? Math.max(0.12, Math.min(1, speed / Math.max(0.01, WALK_SPEED)))
       : 0;
     this.walkIntensity += (targetWalkIntensity - this.walkIntensity) * Math.min(1, deltaSeconds * 9);
     if (movingOnGround) {
@@ -504,6 +512,7 @@ export class GameRuntime {
       this.bloodBursts.push(...bloodBursts);
     }
     this.publishDebug(now);
+    const estimatedServerTimeMs = this.estimateServerTimeMs(now);
     this.renderer.render({
       localPlayer: currentLocal,
       remotePlayers,
@@ -519,7 +528,9 @@ export class GameRuntime {
       muzzleFlashVisible: useGameStore.getState().muzzleFlashUntil > now,
       walkPhase: this.walkPhase,
       walkIntensity: this.walkIntensity,
-      reloadProgress: this.getReloadProgress(now)
+      crouchAmount: this.crouchAmount,
+      reloadProgress: this.getReloadProgress(now),
+      estimatedServerTimeMs
     });
 
     this.frameHandle = requestAnimationFrame(this.frame);
@@ -573,6 +584,15 @@ export class GameRuntime {
     const frameInput = this.input.getFrameInput();
     const predicted = this.prediction.getState();
     const command = this.input.buildInputCommand(++this.sequence, predicted.yaw, predicted.pitch);
+    this.pendingInputSentAt.set(command.sequence, now);
+    if (this.pendingInputSentAt.size > 256) {
+      const staleSequences = Array.from(this.pendingInputSentAt.keys())
+        .sort((left, right) => left - right)
+        .slice(0, this.pendingInputSentAt.size - 256);
+      for (const sequence of staleSequences) {
+        this.pendingInputSentAt.delete(sequence);
+      }
+    }
     const localState = this.prediction.queueInput(command);
     useGameStore.getState().setLocalPlayer(localState);
     useGameStore.getState().setPredictionDebug(this.prediction.getDebugState());
@@ -583,10 +603,7 @@ export class GameRuntime {
     }
 
     if (frameInput.wantsFire) {
-      if (this.reloadCompletesAt >= now) {
-        return;
-      }
-      if (this.magAmmo <= 0 || this.totalAmmo <= 0) {
+      if (this.totalAmmo <= 0) {
         if (now >= this.nextDryFireAt) {
           this.audio.play('magEmpty', { volume: 0.6, playbackRateMin: 0.96, playbackRateMax: 1.05 });
           this.nextDryFireAt = now + GameRuntime.DRY_FIRE_COOLDOWN_MS;
@@ -596,8 +613,6 @@ export class GameRuntime {
 
       if (this.rifle.tryFire(now, this.bridge.getFireIntervalTicks())) {
         this.cancelReload();
-        this.magAmmo = Math.max(0, this.magAmmo - 1);
-        this.setLocalAmmo(this.totalAmmo - 1);
         this.audio.play('shot', { volume: 0.75, playbackRateMin: 0.95, playbackRateMax: 1.05 });
         this.lastLocalShotAt = now;
         useGameStore.getState().triggerMuzzleFlash(this.rifle.getMuzzleFlashUntil(now));
@@ -626,6 +641,30 @@ export class GameRuntime {
     }
 
     return this.latestServerTimeMs + (now - this.latestServerObservedAt);
+  }
+
+  private updateMeasuredPing(lastProcessedInput: number): void {
+    if (lastProcessedInput <= 0) {
+      return;
+    }
+    const sentAt = this.pendingInputSentAt.get(lastProcessedInput);
+    for (const sequence of Array.from(this.pendingInputSentAt.keys())) {
+      if (sequence <= lastProcessedInput) {
+        this.pendingInputSentAt.delete(sequence);
+      }
+    }
+    if (sentAt === undefined) {
+      return;
+    }
+
+    const measuredRttMs = Math.max(1, Math.min(999, performance.now() - sentAt));
+    this.smoothedPingMs = this.smoothedPingMs * 0.8 + measuredRttMs * 0.2;
+    const roundedPingMs = Math.max(1, Math.round(this.smoothedPingMs));
+    const store = useGameStore.getState();
+    store.setLocalPing(roundedPingMs);
+    if (store.localIdentity) {
+      store.setPlayerPing(store.localIdentity, roundedPingMs);
+    }
   }
 
   private publishDebug(now: number): void {

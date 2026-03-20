@@ -5,6 +5,8 @@ import {
   type InputCommand
 } from '@arena/shared';
 
+const SCOPED_MOVE_FACTOR = 0.62;
+
 interface FrameInput {
   moveX: number;
   moveZ: number;
@@ -25,6 +27,7 @@ export class InputController {
   private virtualMove = { x: 0, z: 0 };
   private virtualLook = { x: 0, y: 0 };
   private virtualFireHeld = false;
+  private rightMouseScoped = false;
   private reloadQueued = false;
 
   constructor(private readonly element: HTMLElement) {
@@ -37,6 +40,7 @@ export class InputController {
     window.removeEventListener('mouseup', this.handleMouseUp);
     document.removeEventListener('pointerlockchange', this.handlePointerLockChange);
     this.element.removeEventListener('click', this.handleClick);
+    this.element.removeEventListener('contextmenu', this.handleContextMenu);
     this.element.removeEventListener('mousedown', this.handleMouseDown);
     this.element.removeEventListener('mousemove', this.handleMouseMove);
   }
@@ -62,6 +66,7 @@ export class InputController {
     this.virtualMove = { x: 0, z: 0 };
     this.virtualLook = { x: 0, y: 0 };
     this.virtualFireHeld = false;
+    this.rightMouseScoped = false;
     this.reloadQueued = false;
   }
 
@@ -114,9 +119,14 @@ export class InputController {
     window.addEventListener('mouseup', this.handleMouseUp);
     document.addEventListener('pointerlockchange', this.handlePointerLockChange);
     this.element.addEventListener('click', this.handleClick);
+    this.element.addEventListener('contextmenu', this.handleContextMenu);
     this.element.addEventListener('mousedown', this.handleMouseDown);
     this.element.addEventListener('mousemove', this.handleMouseMove);
   }
+
+  private readonly handleContextMenu = (event: MouseEvent): void => {
+    event.preventDefault();
+  };
 
   private readonly handleClick = (): void => {
     if (this.touchControlsActive) {
@@ -130,12 +140,21 @@ export class InputController {
   private readonly handleMouseDown = (event: MouseEvent): void => {
     if (event.button === 0) {
       this.fireHeld = true;
+      return;
+    }
+    if (event.button === 2) {
+      this.rightMouseScoped = true;
+      event.preventDefault();
     }
   };
 
   private readonly handleMouseUp = (event: MouseEvent): void => {
     if (event.button === 0) {
       this.fireHeld = false;
+      return;
+    }
+    if (event.button === 2) {
+      this.rightMouseScoped = false;
     }
   };
 
@@ -151,6 +170,7 @@ export class InputController {
   private readonly handlePointerLockChange = (): void => {
     if (document.pointerLockElement !== this.element) {
       this.fireHeld = false;
+      this.rightMouseScoped = false;
     }
   };
 
@@ -205,16 +225,12 @@ export class InputController {
       (this.pressed.has('KeyW') ? 1 : 0) - (this.pressed.has('KeyS') ? 1 : 0);
     const moveX = Math.max(-1, Math.min(1, keyboardMoveX + this.virtualMove.x));
     const moveZ = Math.max(-1, Math.min(1, keyboardMoveZ + this.virtualMove.z));
-    const touchSprinting =
-      this.touchControlsActive && Math.hypot(this.virtualMove.x, this.virtualMove.z) > 0.92;
-
     return {
       moveX,
       moveZ,
       jumping: this.pressed.has('Space'),
-      sprinting:
-        this.pressed.has('ShiftLeft') || this.pressed.has('ShiftRight') || touchSprinting,
-      scoped: this.pressed.has('KeyF'),
+      sprinting: this.pressed.has('ShiftLeft') || this.pressed.has('ShiftRight'),
+      scoped: this.pressed.has('KeyF') || this.rightMouseScoped,
       scoreboardHeld: this.pressed.has(SCOREBOARD_KEY),
       wantsFire:
         this.virtualFireHeld ||
@@ -238,10 +254,11 @@ export class InputController {
     pitch: number
   ): InputCommand {
     const frame = this.getFrameInput();
+    const scopedMoveScale = frame.scoped ? SCOPED_MOVE_FACTOR : 1;
     return {
       sequence,
-      moveX: frame.moveX,
-      moveZ: frame.moveZ,
+      moveX: frame.moveX * scopedMoveScale,
+      moveZ: frame.moveZ * scopedMoveScale,
       yaw,
       pitch: Math.max(-MAX_PITCH, Math.min(MAX_PITCH, pitch)),
       jumping: frame.jumping,

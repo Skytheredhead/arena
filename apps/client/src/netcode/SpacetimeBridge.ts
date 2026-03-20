@@ -1,5 +1,6 @@
 import {
   RIFLE_FIRE_INTERVAL_TICKS,
+  RIFLE_MAGAZINE,
   SERVER_TICK_MS,
   type AmmoPackView,
   type DamageEvent,
@@ -70,6 +71,9 @@ export class SpacetimeBridge {
   private latestWeaponAmmo = -1;
   private latestLocalState: LocalPlayerState | null = null;
   private suppressDisconnectEvents = false;
+  private localArrivalOffsetMs = 0;
+  private localArrivalOffsetInitialized = false;
+  private readonly remoteArrivalOffsetMs = new Map<string, number>();
 
   constructor(private readonly callbacks: BridgeCallbacks) {}
 
@@ -105,6 +109,9 @@ export class SpacetimeBridge {
     this.latestWeaponTick = -1;
     this.latestWeaponAmmo = -1;
     this.latestLocalState = null;
+    this.localArrivalOffsetMs = 0;
+    this.localArrivalOffsetInitialized = false;
+    this.remoteArrivalOffsetMs.clear();
   }
 
   async submitInput(command: InputCommand): Promise<void> {
@@ -148,39 +155,17 @@ export class SpacetimeBridge {
   }
 
   private readStoredToken(): string | undefined {
-    if (typeof window === 'undefined') {
-      return undefined;
-    }
-
-    try {
-      return window.localStorage.getItem(TOKEN_STORAGE_KEY) ?? undefined;
-    } catch {
-      return undefined;
-    }
+    // Intentionally disabled so each tab/session gets an independent identity.
+    // This avoids multi-tab identity collisions from shared persisted tokens.
+    return undefined;
   }
 
   private setStoredToken(token: string): void {
-    if (typeof window === 'undefined') {
-      return;
-    }
-
-    try {
-      window.localStorage.setItem(TOKEN_STORAGE_KEY, token);
-    } catch {
-      // Ignore storage write failures; session can continue with in-memory auth.
-    }
+    void token;
   }
 
   private clearStoredToken(): void {
-    if (typeof window === 'undefined') {
-      return;
-    }
-
-    try {
-      window.localStorage.removeItem(TOKEN_STORAGE_KEY);
-    } catch {
-      // Ignore storage write failures; retry still proceeds without explicit token.
-    }
+    void TOKEN_STORAGE_KEY;
   }
 
   private resetActiveConnection(): void {
@@ -192,6 +177,9 @@ export class SpacetimeBridge {
     this.connection = null;
     this.localIdentity = '';
     this.latestLocalState = null;
+    this.localArrivalOffsetMs = 0;
+    this.localArrivalOffsetInitialized = false;
+    this.remoteArrivalOffsetMs.clear();
   }
 
   private async connectWithUri(uri: string, options: ConnectOptions): Promise<void> {
@@ -374,12 +362,15 @@ export class SpacetimeBridge {
 
     if (identity !== this.localIdentity && (!row.connected || !row.roomCode)) {
       store.removeRemotePlayer(identity);
+      store.setPlayerPing(identity, null);
+      this.remoteArrivalOffsetMs.delete(identity);
     }
   }
 
   private handlePlayerStateRow(row: PlayerStateRow): void {
     const identity = identityToString(row.identity);
-    const currentAmmo = useGameStore.getState().localPlayer.ammo;
+    const currentAmmo = Math.max(0, Math.min(RIFLE_MAGAZINE, useGameStore.getState().localPlayer.ammo));
+    const nowMs = performance.now();
     const state = {
       identity,
       position: { x: row.x, y: row.y, z: row.z },
@@ -397,6 +388,7 @@ export class SpacetimeBridge {
     } satisfies LocalPlayerState;
 
     if (identity === this.localIdentity) {
+      this.updateLocalArrivalOffset(state.serverTimeMs, nowMs);
       if (!this.shouldAcceptLocalState(state)) {
         return;
       }
@@ -404,6 +396,8 @@ export class SpacetimeBridge {
       this.callbacks.onLocalState(state);
       return;
     }
+
+    this.updateRemotePingEstimate(identity, state.serverTimeMs, nowMs);
 
     const meta = useGameStore.getState().players[identity];
     this.callbacks.onRemoteState({
@@ -423,31 +417,61 @@ export class SpacetimeBridge {
     });
   }
 
+  private updateLocalArrivalOffset(serverTimeMs: number, nowMs: number): void {
+    const sample = nowMs - serverTimeMs;
+    if (!Number.isFinite(sample)) {
+      return;
+    }
+    if (!this.localArrivalOffsetInitialized) {
+      this.localArrivalOffsetMs = sample;
+      this.localArrivalOffsetInitialized = true;
+      return;
+    }
+    this.localArrivalOffsetMs = this.localArrivalOffsetMs * 0.88 + sample * 0.12;
+  }
+
+  private updateRemotePingEstimate(identity: string, serverTimeMs: number, nowMs: number): void {
+    const sample = nowMs - serverTimeMs;
+    if (!Number.isFinite(sample)) {
+      return;
+    }
+    const previous = this.remoteArrivalOffsetMs.get(identity);
+    const smoothed = previous == null ? sample : previous * 0.88 + sample * 0.12;
+    this.remoteArrivalOffsetMs.set(identity, smoothed);
+
+    if (!this.localArrivalOffsetInitialized) {
+      return;
+    }
+    const store = useGameStore.getState();
+    const localPing = store.localPingMs ?? 48;
+    const relativeDelta = smoothed - this.localArrivalOffsetMs;
+    const estimatedPing = Math.round(Math.max(8, Math.min(380, localPing + relativeDelta)));
+    store.setPlayerPing(identity, estimatedPing);
+  }
+
   private handleWeaponStateRow(row: WeaponStateRow): void {
     if (identityToString(row.identity) !== this.localIdentity) {
       return;
     }
 
     const store = useGameStore.getState();
-    const currentAmmo = store.localPlayer.ammo;
+    const currentAmmo = Math.max(0, Math.min(RIFLE_MAGAZINE, store.localPlayer.ammo));
     const tick = row.nextReadyTick;
     const previousTick = this.latestWeaponTick;
+    const normalizedAmmo = Math.max(0, Math.min(RIFLE_MAGAZINE, row.ammoInMag));
     const previousAmmo = this.latestWeaponAmmo;
     if (tick < previousTick) {
       return;
     }
-    if (tick === previousTick && previousAmmo >= 0 && row.ammoInMag < previousAmmo) {
-      // Ignore stale same-tick decrements unless they are correcting our local ammo.
-      if (row.ammoInMag <= currentAmmo) {
-        return;
-      }
+    if (tick === previousTick && previousAmmo === normalizedAmmo) {
+      return;
     }
 
     this.latestWeaponTick = tick;
-    this.latestWeaponAmmo = row.ammoInMag;
-    if (row.ammoInMag !== currentAmmo) {
-      store.setLocalPlayer({ ammo: row.ammoInMag });
-      this.callbacks.onWeaponAmmo(row.ammoInMag);
+    this.latestWeaponAmmo = normalizedAmmo;
+    if (normalizedAmmo !== currentAmmo) {
+      store.setLocalPlayer({ ammo: normalizedAmmo });
+      this.callbacks.onWeaponAmmo(normalizedAmmo);
     }
   }
 

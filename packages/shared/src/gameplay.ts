@@ -8,9 +8,14 @@ export const PLAYER_HEIGHT = 1.8;
 export const PLAYER_RADIUS = 0.4;
 export const PLAYER_EYE_HEIGHT = 1.58;
 export const PLAYER_STEP_HEIGHT = 0.65;
+export const CROUCH_HEIGHT = 1.35;
+export const CROUCH_EYE_HEIGHT = 1.2;
+export const CROUCH_HITBOX_HALF = 0.36;
 
 export const WALK_SPEED = 6.4;
 export const SPRINT_SPEED = 8.4;
+export const CROUCH_SPEED = 3.4;
+export const SCOPED_MOVE_SCALE = 0.62;
 export const GROUND_ACCELERATION = 30;
 export const AIR_ACCELERATION = 5;
 export const GROUND_FRICTION = 22;

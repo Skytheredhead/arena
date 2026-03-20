@@ -63,6 +63,8 @@ interface SessionState {
   fov: number;
   sfxVolume: number;
   musicVolume: number;
+  localPingMs: number | null;
+  playerPings: Record<string, number | null>;
   scoreboardOpen: boolean;
   crosshairSpread: number;
   scoped: boolean;
@@ -81,6 +83,7 @@ interface SessionState {
   upsertRemotePlayer: (player: RemotePlayerState) => void;
   removeRemotePlayer: (identity: string) => void;
   upsertRoom: (room: RoomView) => void;
+  setRoomDirectory: (rooms: RoomView[]) => void;
   removeRoom: (code: string) => void;
   upsertAmmoPack: (pack: AmmoPackView) => void;
   removeAmmoPack: (id: number) => void;
@@ -98,6 +101,8 @@ interface SessionState {
   setFov: (value: number) => void;
   setSfxVolume: (value: number) => void;
   setMusicVolume: (value: number) => void;
+  setLocalPing: (pingMs: number | null) => void;
+  setPlayerPing: (identity: string, pingMs: number | null) => void;
   consumeNearestAmmoPack: (
     roomCode: string | null,
     position: { x: number; y: number; z: number },
@@ -145,6 +150,8 @@ export const useGameStore = create<SessionState>(set => ({
   fov: DEFAULT_FOV,
   sfxVolume: 0.85,
   musicVolume: 0.35,
+  localPingMs: null,
+  playerPings: {},
   scoreboardOpen: false,
   crosshairSpread: 0,
   scoped: false,
@@ -158,14 +165,21 @@ export const useGameStore = create<SessionState>(set => ({
   setConnectedRoomCode: connectedRoomCode => set({ connectedRoomCode }),
   setLocalIdentity: localIdentity => set({ localIdentity }),
   setLocalPlayer: player =>
-    set(state => ({
-      localPlayer: {
-        ...state.localPlayer,
-        ...player,
-        position: player.position ?? state.localPlayer.position,
-        velocity: player.velocity ?? state.localPlayer.velocity
-      }
-    })),
+    set(state => {
+      const nextAmmo =
+        player.ammo === undefined
+          ? state.localPlayer.ammo
+          : Math.max(0, Math.min(RIFLE_MAGAZINE, Math.round(player.ammo)));
+      return {
+        localPlayer: {
+          ...state.localPlayer,
+          ...player,
+          ammo: nextAmmo,
+          position: player.position ?? state.localPlayer.position,
+          velocity: player.velocity ?? state.localPlayer.velocity
+        }
+      };
+    }),
   setDisplayedAmmo: (magAmmo, reserveAmmo) =>
     set(state => {
       const safeMag = Math.max(0, Math.min(RIFLE_CLIP_SIZE, Math.round(magAmmo)));
@@ -196,10 +210,13 @@ export const useGameStore = create<SessionState>(set => ({
       ammoPacks: {},
       healthPacks: {},
       players: {},
+      rooms: {},
       match: null,
       killFeed: [],
       predictionDebug: initialPredictionDebug,
       rejectedShots: 0,
+      localPingMs: null,
+      playerPings: {},
       scoreboardOpen: false,
       crosshairSpread: 0,
       scoped: false,
@@ -225,7 +242,9 @@ export const useGameStore = create<SessionState>(set => ({
     set(state => {
       const remotePlayers = { ...state.remotePlayers };
       delete remotePlayers[identity];
-      return { remotePlayers };
+      const playerPings = { ...state.playerPings };
+      delete playerPings[identity];
+      return { remotePlayers, playerPings };
     }),
   upsertRoom: room =>
     set(state => ({
@@ -234,6 +253,14 @@ export const useGameStore = create<SessionState>(set => ({
         [room.code]: room
       }
     })),
+  setRoomDirectory: rooms =>
+    set(() => {
+      const nextRooms: Record<string, RoomView> = {};
+      for (const room of rooms) {
+        nextRooms[room.code] = room;
+      }
+      return { rooms: nextRooms };
+    }),
   removeRoom: code =>
     set(state => {
       const rooms = { ...state.rooms };
@@ -339,6 +366,25 @@ export const useGameStore = create<SessionState>(set => ({
     set(state => {
       const clamped = Math.max(0, Math.min(1, musicVolume));
       return state.musicVolume === clamped ? state : { musicVolume: clamped };
+    }),
+  setLocalPing: localPingMs =>
+    set(state => {
+      if (state.localPingMs === localPingMs) {
+        return state;
+      }
+      return { localPingMs };
+    }),
+  setPlayerPing: (identity, pingMs) =>
+    set(state => {
+      if (state.playerPings[identity] === pingMs) {
+        return state;
+      }
+      return {
+        playerPings: {
+          ...state.playerPings,
+          [identity]: pingMs
+        }
+      };
     }),
   consumeNearestAmmoPack: (roomCode, position, radius) =>
     set(state => {

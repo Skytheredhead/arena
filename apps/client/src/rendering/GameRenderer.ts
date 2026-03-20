@@ -1,6 +1,8 @@
 import * as THREE from 'three';
 import {
   PLAYER_EYE_HEIGHT,
+  SERVER_TICK_MS,
+  WALK_SPEED,
   type AmmoPackView,
   type HealthPackView,
   type ImpactMarkView,
@@ -29,16 +31,29 @@ interface RenderFrameState {
   muzzleFlashVisible: boolean;
   walkPhase: number;
   walkIntensity: number;
+  crouchAmount: number;
   reloadProgress: number;
+  estimatedServerTimeMs: number;
   deltaSeconds: number;
+}
+
+interface RemoteAvatar {
+  root: THREE.Group;
+  head: THREE.Group;
+  torso: THREE.Mesh;
+  leftArm: THREE.Group;
+  rightArm: THREE.Group;
+  leftLeg: THREE.Group;
+  rightLeg: THREE.Group;
 }
 
 export class GameRenderer {
   private readonly renderer: THREE.WebGLRenderer;
   private readonly scene: THREE.Scene;
   private readonly camera: THREE.PerspectiveCamera;
-  private readonly remotePlayers = new Map<string, THREE.Group>();
-  private readonly remoteAliveState = new Map<string, boolean>();
+  private static readonly IMPACT_MARK_LIFETIME_MS = 20_000;
+  private static readonly IMPACT_MARK_FADE_WINDOW_MS = 2_000;
+  private readonly remotePlayers = new Map<string, RemoteAvatar>();
   private readonly ammoPackMeshes = new Map<number, THREE.Group>();
   private readonly ammoPackActiveState = new Map<number, boolean>();
   private readonly ammoPackActivatedAt = new Map<number, number>();
@@ -151,69 +166,189 @@ export class GameRenderer {
 
   private createWeaponModel(): THREE.Group {
     const group = new THREE.Group();
-    group.position.set(0.28, -0.28, -0.55);
+    group.position.set(0.26, -0.27, -0.58);
 
     const material = new THREE.MeshStandardMaterial({
-      color: '#1c2d3d',
-      roughness: 0.55,
-      metalness: 0.38,
-      emissive: '#00f5ff',
-      emissiveIntensity: 0.08
+      color: '#202730',
+      roughness: 0.48,
+      metalness: 0.42
+    });
+    const matte = new THREE.MeshStandardMaterial({
+      color: '#12171d',
+      roughness: 0.72,
+      metalness: 0.18
     });
     const accent = new THREE.MeshStandardMaterial({
-      color: '#00f5ff',
-      roughness: 0.2,
-      metalness: 0.7,
-      emissive: '#00f5ff',
-      emissiveIntensity: 0.35
+      color: '#7f8ea4',
+      roughness: 0.35,
+      metalness: 0.52
     });
 
-    const body = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.14, 0.74), material);
+    const body = new THREE.Mesh(new THREE.BoxGeometry(0.11, 0.1, 0.58), material);
+    body.position.set(0, 0.015, -0.08);
     body.castShadow = true;
     group.add(body);
 
-    const barrel = new THREE.Mesh(new THREE.BoxGeometry(0.055, 0.055, 0.68), material);
-    barrel.position.set(0, 0.015, -0.6);
+    const upper = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.08, 0.54), matte);
+    upper.position.set(0, 0.065, -0.1);
+    group.add(upper);
+
+    const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.016, 0.016, 0.5, 10), matte);
+    barrel.rotation.x = Math.PI / 2;
+    barrel.position.set(0, 0.055, -0.54);
     group.add(barrel);
 
-    const stock = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.1, 0.22), material);
-    stock.position.set(-0.058, -0.02, 0.37);
-    stock.rotation.y = 0.18;
+    const muzzle = new THREE.Mesh(new THREE.CylinderGeometry(0.019, 0.019, 0.05, 10), accent);
+    muzzle.rotation.x = Math.PI / 2;
+    muzzle.position.set(0, 0.055, -0.8);
+    group.add(muzzle);
+
+    const stock = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.11, 0.2), material);
+    stock.position.set(-0.02, 0.005, 0.23);
+    stock.rotation.y = 0.12;
     group.add(stock);
 
-    const sight = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.045, 0.12), accent);
-    sight.position.set(0, 0.1, -0.08);
+    const sight = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.03, 0.09), accent);
+    sight.position.set(0, 0.115, -0.18);
     group.add(sight);
 
-    const grip = new THREE.Mesh(new THREE.BoxGeometry(0.055, 0.18, 0.085), material);
-    grip.position.set(0.014, -0.16, -0.04);
-    grip.rotation.z = 0.16;
+    const rearSight = new THREE.Mesh(new THREE.BoxGeometry(0.028, 0.024, 0.042), accent);
+    rearSight.position.set(0, 0.108, 0.04);
+    group.add(rearSight);
+
+    const magazine = new THREE.Mesh(new THREE.BoxGeometry(0.052, 0.17, 0.074), matte);
+    magazine.position.set(0.0, -0.13, -0.02);
+    magazine.rotation.z = 0.08;
+    group.add(magazine);
+
+    const grip = new THREE.Mesh(new THREE.BoxGeometry(0.048, 0.15, 0.07), material);
+    grip.position.set(0.012, -0.13, 0.09);
+    grip.rotation.z = 0.24;
     group.add(grip);
 
-    const glow = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.03, 0.16), accent);
-    glow.position.set(0.08, 0.03, -0.1);
-    group.add(glow);
+    const rail = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.014, 0.42), accent);
+    rail.position.set(0, 0.108, -0.26);
+    group.add(rail);
 
     return group;
   }
 
-  private createRemotePlayerModel(): THREE.Group {
-    const group = new THREE.Group();
-    const material = new THREE.MeshStandardMaterial({
-      color: '#ef4444',
-      roughness: 0.5,
-      metalness: 0.08,
-      emissive: '#3f0a0a',
-      emissiveIntensity: 0.16
+  private createRemoteGunModel(): THREE.Group {
+    const gun = new THREE.Group();
+    const bodyMaterial = new THREE.MeshStandardMaterial({
+      color: '#272f38',
+      roughness: 0.56,
+      metalness: 0.35
+    });
+    const darkMaterial = new THREE.MeshStandardMaterial({
+      color: '#12151b',
+      roughness: 0.72,
+      metalness: 0.16
+    });
+    const barrel = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.04, 0.38), darkMaterial);
+    barrel.position.set(0, 0.015, -0.21);
+    const body = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.06, 0.24), bodyMaterial);
+    body.position.set(0, 0, 0.02);
+    const stock = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.07, 0.12), bodyMaterial);
+    stock.position.set(-0.012, -0.004, 0.15);
+    const mag = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.08, 0.04), darkMaterial);
+    mag.position.set(0.0, -0.07, 0.03);
+    gun.add(barrel, body, stock, mag);
+    return gun;
+  }
+
+  private createRemotePlayerModel(): RemoteAvatar {
+    const root = new THREE.Group();
+
+    const shirt = new THREE.MeshStandardMaterial({
+      color: '#3f7fa3',
+      roughness: 0.68,
+      metalness: 0.08
+    });
+    const skin = new THREE.MeshStandardMaterial({
+      color: '#d1ad86',
+      roughness: 0.82,
+      metalness: 0.02
+    });
+    const pants = new THREE.MeshStandardMaterial({
+      color: '#324462',
+      roughness: 0.74,
+      metalness: 0.04
+    });
+    const boots = new THREE.MeshStandardMaterial({
+      color: '#2a313b',
+      roughness: 0.8,
+      metalness: 0.05
     });
 
-    const body = new THREE.Mesh(new THREE.BoxGeometry(0.9, 1.8, 0.9), material);
-    body.position.y = 0.9;
-    body.castShadow = true;
-    body.receiveShadow = true;
-    group.add(body);
+    const torso = new THREE.Mesh(new THREE.BoxGeometry(0.56, 0.74, 0.3), shirt);
+    torso.position.set(0, 1.18, 0);
+    torso.castShadow = true;
+    torso.receiveShadow = true;
+    root.add(torso);
 
-    return group;
+    const headPivot = new THREE.Group();
+    headPivot.position.set(0, 1.55, 0);
+    const head = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.38, 0.38), skin);
+    head.position.set(0, 0.19, 0);
+    head.castShadow = true;
+    head.receiveShadow = true;
+    headPivot.add(head);
+    root.add(headPivot);
+
+    const leftArmPivot = new THREE.Group();
+    leftArmPivot.position.set(-0.39, 1.44, 0);
+    const leftArm = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.62, 0.18), skin);
+    leftArm.position.set(0, -0.31, 0);
+    leftArm.castShadow = true;
+    leftArm.receiveShadow = true;
+    leftArmPivot.add(leftArm);
+    root.add(leftArmPivot);
+
+    const rightArmPivot = new THREE.Group();
+    rightArmPivot.position.set(0.39, 1.44, 0);
+    const rightArm = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.62, 0.18), skin);
+    rightArm.position.set(0, -0.31, 0);
+    rightArm.castShadow = true;
+    rightArm.receiveShadow = true;
+    rightArmPivot.add(rightArm);
+    const heldGun = this.createRemoteGunModel();
+    heldGun.position.set(-0.04, -0.34, -0.2);
+    heldGun.rotation.set(-0.12, -0.06, 0.06);
+    rightArmPivot.add(heldGun);
+    root.add(rightArmPivot);
+
+    const leftLegPivot = new THREE.Group();
+    leftLegPivot.position.set(-0.16, 0.8, 0);
+    const leftLeg = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.78, 0.22), pants);
+    leftLeg.position.set(0, -0.39, 0);
+    leftLeg.castShadow = true;
+    leftLeg.receiveShadow = true;
+    const leftBoot = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.14, 0.26), boots);
+    leftBoot.position.set(0, -0.78, 0.02);
+    leftLegPivot.add(leftLeg, leftBoot);
+    root.add(leftLegPivot);
+
+    const rightLegPivot = new THREE.Group();
+    rightLegPivot.position.set(0.16, 0.8, 0);
+    const rightLeg = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.78, 0.22), pants);
+    rightLeg.position.set(0, -0.39, 0);
+    rightLeg.castShadow = true;
+    rightLeg.receiveShadow = true;
+    const rightBoot = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.14, 0.26), boots);
+    rightBoot.position.set(0, -0.78, 0.02);
+    rightLegPivot.add(rightLeg, rightBoot);
+    root.add(rightLegPivot);
+
+    return {
+      root,
+      head: headPivot,
+      torso,
+      leftArm: leftArmPivot,
+      rightArm: rightArmPivot,
+      leftLeg: leftLegPivot,
+      rightLeg: rightLegPivot
+    };
   }
 
   private createAmmoPackModel(): THREE.Group {
@@ -267,16 +402,16 @@ export class GameRenderer {
     return group;
   }
 
-  private ensureRemoteMesh(identity: string): THREE.Group {
-    let mesh = this.remotePlayers.get(identity);
-    if (mesh) {
-      return mesh;
+  private ensureRemoteMesh(identity: string): RemoteAvatar {
+    let avatar = this.remotePlayers.get(identity);
+    if (avatar) {
+      return avatar;
     }
 
-    mesh = this.createRemotePlayerModel();
-    this.scene.add(mesh);
-    this.remotePlayers.set(identity, mesh);
-    return mesh;
+    avatar = this.createRemotePlayerModel();
+    this.scene.add(avatar.root);
+    this.remotePlayers.set(identity, avatar);
+    return avatar;
   }
 
   private ensureAmmoPackMesh(id: number): THREE.Group {
@@ -376,7 +511,7 @@ export class GameRenderer {
     const bobLateral = Math.cos(frame.walkPhase * 0.5) * frame.walkIntensity * 0.02;
     this.targetCameraPosition.set(
       frame.localPlayer.position.x,
-      frame.localPlayer.position.y + PLAYER_EYE_HEIGHT + bobVertical,
+      frame.localPlayer.position.y + PLAYER_EYE_HEIGHT + bobVertical - frame.crouchAmount * 0.36,
       frame.localPlayer.position.z
     );
     if (!this.cameraPositionInitialized) {
@@ -413,34 +548,36 @@ export class GameRenderer {
     this.weaponModel.rotation.z = reloadTilt;
     this.weaponModel.position.x = (frame.scoped ? 0.02 : 0.28) + idleSway + walkSwayX;
     this.weaponModel.position.y =
-      (frame.scoped ? -0.18 : -0.28) + frame.recoil * 0.08 + bobVertical * 0.45 - reloadDrop;
+      (frame.scoped ? -0.18 : -0.28) +
+      frame.recoil * 0.08 +
+      bobVertical * 0.45 -
+      reloadDrop -
+      frame.crouchAmount * 0.08;
     this.weaponModel.position.z = frame.scoped ? -0.45 : -0.55;
 
     const activeIds = new Set(frame.remotePlayers.map(player => player.identity));
 
     for (const player of frame.remotePlayers) {
-      const mesh = this.ensureRemoteMesh(player.identity);
+      const avatar = this.ensureRemoteMesh(player.identity);
+      const mesh = avatar.root;
+      const speed = Math.hypot(player.velocity.x, player.velocity.z);
+      const moveRatio = Math.max(0, Math.min(1, speed / WALK_SPEED));
+      const stridePhase = now * 0.008 + player.identity.length * 0.47;
+      const strideSwing = player.alive ? Math.sin(stridePhase) * 0.78 * moveRatio : 0;
+      const armSwing = player.alive ? Math.sin(stridePhase + Math.PI) * 0.56 * moveRatio : 0;
       mesh.visible = player.alive;
       mesh.position.set(player.position.x, player.position.y, player.position.z);
       mesh.rotation.y = player.yaw;
-      const previousAlive = this.remoteAliveState.get(player.identity);
-      if (previousAlive !== player.alive) {
-        const tint = player.alive ? '#ef4444' : '#334155';
-        mesh.traverse(object => {
-          if (object instanceof THREE.Mesh) {
-            const material = object.material as THREE.MeshStandardMaterial;
-            material.color.set(tint);
-            material.emissive?.set(player.alive ? '#3f0a0a' : '#000000');
-            material.emissiveIntensity = player.alive ? 0.16 : 0;
-          }
-        });
-        this.remoteAliveState.set(player.identity, player.alive);
-      }
+      avatar.head.rotation.x = player.pitch * 0.35;
+      avatar.leftLeg.rotation.x = strideSwing;
+      avatar.rightLeg.rotation.x = -strideSwing;
+      avatar.leftArm.rotation.x = armSwing;
+      avatar.rightArm.rotation.x = -armSwing * 0.55 - 0.52;
     }
 
-    for (const [identity, mesh] of this.remotePlayers) {
+    for (const [identity, avatar] of this.remotePlayers) {
       if (!activeIds.has(identity)) {
-        mesh.visible = false;
+        avatar.root.visible = false;
       }
     }
 
@@ -504,8 +641,12 @@ export class GameRenderer {
       }
     }
 
-    const activeImpactIds = new Set(frame.impactMarks.map(mark => mark.id));
+    const activeImpactIds = new Set<number>();
     for (const mark of frame.impactMarks) {
+      const markAgeMs = Math.max(0, frame.estimatedServerTimeMs - mark.tick * SERVER_TICK_MS);
+      if (markAgeMs >= GameRenderer.IMPACT_MARK_LIFETIME_MS) {
+        continue;
+      }
       const mesh = this.ensureImpactMarkMesh(mark.id);
       mesh.visible = true;
       mesh.position.set(
@@ -516,6 +657,17 @@ export class GameRenderer {
       const normal = new THREE.Vector3(mark.normal.x, mark.normal.y, mark.normal.z).normalize();
       mesh.quaternion.setFromUnitVectors(this.decalUp, normal);
       mesh.rotateZ(mark.id * 0.371);
+      const markMaterial = mesh.material as THREE.MeshBasicMaterial;
+      const fadeStart = GameRenderer.IMPACT_MARK_LIFETIME_MS - GameRenderer.IMPACT_MARK_FADE_WINDOW_MS;
+      const fadeAlpha =
+        markAgeMs <= fadeStart
+          ? 1
+          : Math.max(
+              0,
+              1 - (markAgeMs - fadeStart) / GameRenderer.IMPACT_MARK_FADE_WINDOW_MS
+            );
+      markMaterial.opacity = 0.92 * fadeAlpha;
+      activeImpactIds.add(mark.id);
     }
     for (const [id, mesh] of this.impactMarkMeshes) {
       if (!activeImpactIds.has(id)) {

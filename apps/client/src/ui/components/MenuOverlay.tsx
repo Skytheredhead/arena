@@ -14,7 +14,6 @@ interface MenuOverlayProps {
   busy: boolean;
   nickname: string;
   roomCode: string;
-  connectionStatus: string;
   backendConnected: boolean;
   backendPingMs: number | null;
   openRooms: RoomView[];
@@ -31,7 +30,6 @@ export function MenuOverlay({
   busy,
   nickname,
   roomCode,
-  connectionStatus,
   backendConnected,
   backendPingMs,
   openRooms,
@@ -51,60 +49,51 @@ export function MenuOverlay({
             borderBottom: `1px solid ${CYBER.border}`,
             background: 'rgba(2,11,20,0.95)',
             backdropFilter: 'blur(12px)',
-            padding: '12px 28px',
+            padding: '8px 20px',
             display: 'flex',
             justifyContent: 'space-between',
             alignItems: 'center',
-            gap: '20px'
+            gap: '16px'
           }}
         >
-          <div
-            style={{
-              fontFamily: "'Orbitron',var(--font)",
-              color: backendConnected ? CYBER.ok : CYBER.danger,
-              fontSize: '11px',
-              fontWeight: 700,
-              letterSpacing: '3px'
-            }}
-          >
-            {backendConnected ? 'CONNECTED' : 'DISCONNECTED'}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <div
+              style={{
+                fontFamily: "'Orbitron',var(--font)",
+                color: backendConnected ? CYBER.ok : CYBER.danger,
+                fontSize: '10px',
+                fontWeight: 700,
+                letterSpacing: '2px'
+              }}
+            >
+              {backendConnected ? 'CONNECTED' : 'DISCONNECTED'}
+            </div>
+            <PingLabel ping={backendPingMs} />
           </div>
           <div style={{ display: 'flex', gap: '16px', alignItems: 'center' }}>
-            <PingLabel ping={backendPingMs} />
             <div
               style={{
                 fontFamily: CYBER.font,
                 color: CYBER.textDim,
-                fontSize: '9px',
-                letterSpacing: '3px'
+                fontSize: '8px',
+                letterSpacing: '2px'
               }}
             >
               ROOM CODE
             </div>
             <CyberPanel
               style={{
-                padding: '8px 24px',
+                padding: '5px 14px',
                 fontFamily: "'Orbitron',var(--font)",
                 color: CYBER.textBright,
-                fontSize: '22px',
+                fontSize: '16px',
                 fontWeight: 700,
-                letterSpacing: '8px',
+                letterSpacing: '5px',
                 animation: 'cyberBorderGlow 3s ease-in-out infinite'
               }}
             >
               <span style={{ textShadow: `0 0 16px ${CYBER.a}` }}>{roomCode}</span>
             </CyberPanel>
-            <div
-              style={{
-                color: CYBER.textDim,
-                fontSize: '10px',
-                letterSpacing: '3px',
-                fontFamily: CYBER.font,
-                textTransform: 'uppercase'
-              }}
-            >
-              {connectionStatus}
-            </div>
           </div>
         </div>
       </div>

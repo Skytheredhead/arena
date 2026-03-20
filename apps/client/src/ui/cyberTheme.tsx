@@ -373,7 +373,7 @@ export function CyberBar({
 
 export function PingLabel({ ping }: { ping: number | null }): React.JSX.Element {
   const color = ping == null ? CYBER.textDim : ping < 50 ? CYBER.ok : ping < 100 ? CYBER.warn : CYBER.danger;
-  return <span style={{ color, fontSize: '11px', fontFamily: CYBER.font }}>{ping == null ? '--' : `${ping}ms`}</span>;
+  return <span style={{ color, fontSize: '11px', fontFamily: CYBER.font }}>{ping == null ? 'N/A' : `${ping}ms`}</span>;
 }
 
 export function CyberCrosshair({

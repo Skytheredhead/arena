@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from 'react';
 import { RIFLE_MAGAZINE, type KillFeedEntry, type MatchView, type ScoreRow } from '@arena/shared';
 import {
   CYBER,
@@ -29,9 +30,15 @@ interface HudOverlayProps {
   localDeaths: number;
   match: MatchView | null;
   killFeed: KillFeedEntry[];
-  scoreboard: ScoreRow[];
+  scoreboard: Array<
+    ScoreRow & {
+      kdr: number;
+      pingMs: number | null;
+    }
+  >;
   scoreboardOpen: boolean;
   connected: boolean;
+  pingMs: number | null;
   hitmarkerVisible: boolean;
   damageFlashToken: number;
   crosshairSpread: number;
@@ -56,6 +63,7 @@ export function HudOverlay({
   scoreboard,
   scoreboardOpen,
   connected,
+  pingMs,
   hitmarkerVisible,
   damageFlashToken,
   crosshairSpread,
@@ -68,7 +76,31 @@ export function HudOverlay({
   onChatDraftChange,
   onChatSend
 }: HudOverlayProps): React.JSX.Element {
+  const [nowMs, setNowMs] = useState(() => performance.now());
+  useEffect(() => {
+    const timerId = window.setInterval(() => {
+      setNowMs(performance.now());
+    }, 250);
+    return () => {
+      window.clearInterval(timerId);
+    };
+  }, []);
+
   const localKdr = localDeaths === 0 ? localKills : localKills / localDeaths;
+  const visibleFeed = killFeed.filter(entry => nowMs - entry.tick < 10_000);
+  const chatInputRef = useRef<HTMLInputElement | null>(null);
+
+  useEffect(() => {
+    if (!chatOpen) {
+      return;
+    }
+    const input = chatInputRef.current;
+    if (!input) {
+      return;
+    }
+    input.focus();
+    input.select();
+  }, [chatOpen]);
 
   return (
     <div className="pointer-events-none fixed inset-0 z-20">
@@ -164,7 +196,7 @@ export function HudOverlay({
         className="cyber-slide-right"
         style={{
           position: 'absolute',
-          top: '14px',
+          top: '86px',
           right: '14px',
           zIndex: 10,
           width: 'min(340px, 45vw)',
@@ -185,7 +217,7 @@ export function HudOverlay({
             Chat
           </div>
           <div style={{ maxHeight: '170px', overflow: 'hidden', display: 'flex', flexDirection: 'column', gap: '4px' }}>
-            {killFeed.map((entry, index) => (
+            {visibleFeed.map((entry, index) => (
               <div
                 key={entry.id}
                 style={{
@@ -214,12 +246,13 @@ export function HudOverlay({
             style={{ marginTop: '8px', display: 'flex', gap: '6px' }}
           >
             <input
+              ref={chatInputRef}
               className="cyber-input"
               value={chatDraft}
               onFocus={onChatOpen}
               onBlur={onChatClose}
               onChange={event => onChatDraftChange(event.target.value.slice(0, 160))}
-              placeholder={chatOpen ? 'Type message and press Enter' : 'Press Enter to chat'}
+              placeholder={chatOpen ? 'Type message and press Enter' : 'Press / to chat'}
               style={{ flex: 1, padding: '6px 10px', fontSize: '11px', minHeight: '30px' }}
             />
             <CyberButton small primary onClick={onChatSend} disabled={chatBusy || chatDraft.trim().length === 0}>
@@ -299,9 +332,9 @@ export function HudOverlay({
       >
         <span>{connected ? 'IN MATCH' : 'OFFLINE'}</span>
         <div style={{ display: 'flex', gap: '24px' }}>
-          <span style={{ color: CYBER.ok }}>{connected ? 'LAN' : '--'}</span>
+          <span style={{ color: CYBER.ok }}>{connected ? 'US-WEST' : 'OFFLINE'}</span>
+          <span><PingLabel ping={pingMs} /></span>
           <span>{match?.roomCode ?? 'NO ROOM'}</span>
-          <span>{formatTimer(match)}</span>
           <span>{scoreboard.length} PILOTS</span>
           <span>RIFLE ONLY</span>
         </div>
@@ -356,7 +389,7 @@ export function HudOverlay({
                   { flex: 1, label: 'PLAYER' },
                   { width: 64, label: 'K' },
                   { width: 64, label: 'D' },
-                  { width: 88, label: 'SCORE' },
+                  { width: 88, label: 'KDR' },
                   { width: 64, label: 'PING' }
                 ].map(column => (
                   <div
@@ -406,9 +439,9 @@ export function HudOverlay({
                     </div>
                     <div style={{ width: '64px', textAlign: 'center', padding: '13px 8px', fontFamily: "'Orbitron',var(--font)", color: CYBER.ok, fontWeight: 700, fontSize: '15px' }}>{player.kills}</div>
                     <div style={{ width: '64px', textAlign: 'center', padding: '13px 8px', fontFamily: "'Orbitron',var(--font)", color: CYBER.danger, fontWeight: 700, fontSize: '15px' }}>{player.deaths}</div>
-                    <div style={{ width: '88px', textAlign: 'center', padding: '13px 8px', fontFamily: "'Orbitron',var(--font)", color: CYBER.a, fontWeight: 700, fontSize: '15px' }}>{player.kills * 100}</div>
+                    <div style={{ width: '88px', textAlign: 'center', padding: '13px 8px', fontFamily: "'Orbitron',var(--font)", color: CYBER.a, fontWeight: 700, fontSize: '15px' }}>{player.kdr.toFixed(2)}</div>
                     <div style={{ width: '64px', textAlign: 'center', padding: '13px 8px' }}>
-                      <PingLabel ping={null} />
+                      <PingLabel ping={player.pingMs} />
                     </div>
                   </div>
                 ))}

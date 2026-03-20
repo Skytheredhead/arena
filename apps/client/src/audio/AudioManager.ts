@@ -69,12 +69,24 @@ const SFX_PATHS: Record<SfxKey, string[]> = {
 const clamp01 = (value: number): number => Math.max(0, Math.min(1, value));
 
 export class AudioManager {
+  private static readonly LOBBY_START_OFFSET_SECONDS = 15;
+  private static readonly LOBBY_FADE_IN_MS = 1600;
+  private static readonly LOBBY_FADE_OUT_MS = 5000;
+  private static readonly LOBBY_FADE_OUT_TRIGGER_SECONDS = 15;
   private readonly pickers: Record<SfxKey, RotationPicker>;
+  private readonly minReplayGapMs: Partial<Record<SfxKey, number>> = {
+    footstep: 380
+  };
+  private readonly lastPlayedAt: Partial<Record<SfxKey, number>> = {};
   private readonly lobbyMusic = new Audio('/music/lobby_theme.wav');
   private sfxVolume = 0.85;
   private musicVolume = 0.35;
   private lobbyActive = false;
   private audioContext: AudioContext | null = null;
+  private lobbyMonitorId: number | null = null;
+  private lobbyFadeInEndsAt = 0;
+  private lobbyFadeOutEndsAt = 0;
+  private lobbyRestartAt = 0;
 
   constructor() {
     this.pickers = {
@@ -88,12 +100,13 @@ export class AudioManager {
       magEmpty: new RotationPicker(SFX_PATHS.magEmpty)
     };
 
-    this.lobbyMusic.loop = true;
+    this.lobbyMusic.loop = false;
     this.lobbyMusic.preload = 'auto';
-    this.applyMusicVolume();
+    this.applyMusicVolume(performance.now());
   }
 
   dispose(): void {
+    this.clearLobbyMonitor();
     this.lobbyMusic.pause();
   }
 
@@ -103,7 +116,7 @@ export class AudioManager {
 
   setMusicVolume(value: number): void {
     this.musicVolume = clamp01(value);
-    this.applyMusicVolume();
+    this.applyMusicVolume(performance.now());
   }
 
   setLobbyActive(active: boolean): void {
@@ -112,11 +125,16 @@ export class AudioManager {
     }
     this.lobbyActive = active;
     if (this.lobbyActive) {
-      void this.lobbyMusic.play().catch(() => undefined);
+      this.startLobbyCycle();
       return;
     }
+    this.clearLobbyMonitor();
     this.lobbyMusic.pause();
     this.lobbyMusic.currentTime = 0;
+    this.lobbyFadeInEndsAt = 0;
+    this.lobbyFadeOutEndsAt = 0;
+    this.lobbyRestartAt = 0;
+    this.applyMusicVolume(performance.now());
   }
 
   unlock(): void {
@@ -130,11 +148,19 @@ export class AudioManager {
       void this.audioContext.resume().catch(() => undefined);
     }
     if (this.lobbyActive) {
-      void this.lobbyMusic.play().catch(() => undefined);
+      this.startLobbyCycle();
     }
   }
 
   play(key: SfxKey, options?: PlayOptions): void {
+    const now = performance.now();
+    const minGap = this.minReplayGapMs[key] ?? 0;
+    const previousPlayAt = this.lastPlayedAt[key] ?? Number.NEGATIVE_INFINITY;
+    if (now - previousPlayAt < minGap) {
+      return;
+    }
+    this.lastPlayedAt[key] = now;
+
     const path = this.pickers[key].next();
     if (!path) {
       if (key === 'magEmpty') {
@@ -158,8 +184,98 @@ export class AudioManager {
     void audio.play().catch(() => undefined);
   }
 
-  private applyMusicVolume(): void {
-    this.lobbyMusic.volume = clamp01(this.musicVolume);
+  private applyMusicVolume(now: number): void {
+    let envelope = 1;
+    if (this.lobbyFadeOutEndsAt > now) {
+      envelope = Math.max(0, (this.lobbyFadeOutEndsAt - now) / AudioManager.LOBBY_FADE_OUT_MS);
+    } else if (this.lobbyRestartAt > 0 && now < this.lobbyRestartAt) {
+      envelope = 0;
+    }
+
+    if (this.lobbyFadeInEndsAt > now) {
+      const fadeInProgress = 1 - (this.lobbyFadeInEndsAt - now) / AudioManager.LOBBY_FADE_IN_MS;
+      envelope = Math.min(envelope, clamp01(fadeInProgress));
+    }
+    this.lobbyMusic.volume = clamp01(this.musicVolume * envelope);
+  }
+
+  private getLobbyStartTime(): number {
+    const duration = this.lobbyMusic.duration;
+    if (!Number.isFinite(duration) || duration <= AudioManager.LOBBY_START_OFFSET_SECONDS + 2) {
+      return 0;
+    }
+    return AudioManager.LOBBY_START_OFFSET_SECONDS;
+  }
+
+  private restartLobbyFromCue(now: number): void {
+    this.lobbyFadeOutEndsAt = 0;
+    this.lobbyRestartAt = 0;
+    this.lobbyFadeInEndsAt = now + AudioManager.LOBBY_FADE_IN_MS;
+    const startTime = this.getLobbyStartTime();
+    if (this.lobbyMusic.currentTime !== startTime) {
+      this.lobbyMusic.currentTime = startTime;
+    }
+    this.applyMusicVolume(now);
+    void this.lobbyMusic.play().catch(() => undefined);
+  }
+
+  private startLobbyCycle(): void {
+    if (!this.lobbyActive) {
+      return;
+    }
+    const now = performance.now();
+    this.ensureLobbyMonitor();
+    if (this.lobbyMusic.paused) {
+      this.restartLobbyFromCue(now);
+      return;
+    }
+    this.applyMusicVolume(now);
+  }
+
+  private ensureLobbyMonitor(): void {
+    if (this.lobbyMonitorId !== null) {
+      return;
+    }
+    this.lobbyMusic.loop = false;
+    this.lobbyMonitorId = window.setInterval(() => {
+      if (!this.lobbyActive) {
+        return;
+      }
+      const now = performance.now();
+      const duration = this.lobbyMusic.duration;
+      if (
+        Number.isFinite(duration) &&
+        duration > AudioManager.LOBBY_FADE_OUT_TRIGGER_SECONDS + 2
+      ) {
+        const remaining = duration - this.lobbyMusic.currentTime;
+        if (this.lobbyFadeOutEndsAt === 0 && this.lobbyRestartAt === 0 && remaining <= AudioManager.LOBBY_FADE_OUT_TRIGGER_SECONDS) {
+          this.lobbyFadeOutEndsAt = now + AudioManager.LOBBY_FADE_OUT_MS;
+          this.lobbyFadeInEndsAt = 0;
+          this.lobbyRestartAt = now + AudioManager.LOBBY_FADE_OUT_MS;
+        }
+      }
+
+      if (this.lobbyRestartAt > 0 && now >= this.lobbyRestartAt) {
+        this.restartLobbyFromCue(now);
+        return;
+      }
+      if (this.lobbyMusic.ended) {
+        this.restartLobbyFromCue(now);
+        return;
+      }
+      if (this.lobbyMusic.paused) {
+        void this.lobbyMusic.play().catch(() => undefined);
+      }
+      this.applyMusicVolume(now);
+    }, 120);
+  }
+
+  private clearLobbyMonitor(): void {
+    if (this.lobbyMonitorId === null) {
+      return;
+    }
+    window.clearInterval(this.lobbyMonitorId);
+    this.lobbyMonitorId = null;
   }
 
   private playSyntheticClick(frequency: number, durationSeconds: number, gain: number): void {

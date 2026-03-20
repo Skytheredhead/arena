@@ -8,6 +8,7 @@ import { useGameStore } from './state/gameStore';
 import { GameRuntime } from './app/GameRuntime';
 import { normalizeRoomCode } from './utils/roomCode';
 import { CyberGlobalStyles } from './ui/cyberTheme';
+import { fetchOpenRoomsSnapshot } from './netcode/roomDirectory';
 
 export default function App(): React.JSX.Element {
   const mountRef = useRef<HTMLDivElement | null>(null);
@@ -46,6 +47,8 @@ export default function App(): React.JSX.Element {
   const fov = useGameStore(state => state.fov);
   const sfxVolume = useGameStore(state => state.sfxVolume);
   const musicVolume = useGameStore(state => state.musicVolume);
+  const localPingMs = useGameStore(state => state.localPingMs);
+  const playerPings = useGameStore(state => state.playerPings);
   const setNickname = useGameStore(state => state.setNickname);
   const setRoomCode = useGameStore(state => state.setRoomCode);
   const setGraphicsQuality = useGameStore(state => state.setGraphicsQuality);
@@ -53,6 +56,8 @@ export default function App(): React.JSX.Element {
   const setFov = useGameStore(state => state.setFov);
   const setSfxVolume = useGameStore(state => state.setSfxVolume);
   const setMusicVolume = useGameStore(state => state.setMusicVolume);
+  const setRoomDirectory = useGameStore(state => state.setRoomDirectory);
+  const lastRoomListActivityRef = useRef(performance.now());
 
   const syncViewportMode = useCallback((): void => {
     const coarsePointer =
@@ -143,6 +148,85 @@ export default function App(): React.JSX.Element {
   }, [syncViewportMode]);
 
   useEffect(() => {
+    const markActive = (): void => {
+      lastRoomListActivityRef.current = performance.now();
+    };
+    window.addEventListener('pointerdown', markActive);
+    window.addEventListener('keydown', markActive);
+    window.addEventListener('mousemove', markActive);
+    window.addEventListener('touchstart', markActive);
+    window.addEventListener('wheel', markActive);
+    document.addEventListener('visibilitychange', markActive);
+    return () => {
+      window.removeEventListener('pointerdown', markActive);
+      window.removeEventListener('keydown', markActive);
+      window.removeEventListener('mousemove', markActive);
+      window.removeEventListener('touchstart', markActive);
+      window.removeEventListener('wheel', markActive);
+      document.removeEventListener('visibilitychange', markActive);
+    };
+  }, []);
+
+  const connected = connectionStatus === 'connected';
+  const connecting = connectionStatus === 'connecting';
+  const backendConnected = connected;
+  const backendPingMs = localPingMs;
+
+  useEffect(() => {
+    if (connected) {
+      return;
+    }
+
+    let cancelled = false;
+    let timeoutId: number | null = null;
+    let inFlight = false;
+
+    const computeDelayMs = (): number => {
+      const focused = document.visibilityState === 'visible' && document.hasFocus();
+      if (!focused) {
+        return 60_000;
+      }
+      const idleForMs = performance.now() - lastRoomListActivityRef.current;
+      return idleForMs >= 10_000 ? 15_000 : 1_000;
+    };
+
+    const scheduleNext = (delayMs: number): void => {
+      if (cancelled) {
+        return;
+      }
+      timeoutId = window.setTimeout(() => {
+        void refreshRooms();
+      }, delayMs);
+    };
+
+    const refreshRooms = async (): Promise<void> => {
+      if (cancelled || inFlight) {
+        return;
+      }
+      inFlight = true;
+      try {
+        const snapshot = await fetchOpenRoomsSnapshot();
+        if (!cancelled) {
+          setRoomDirectory(snapshot);
+        }
+      } catch {
+        // Keep stale list until next successful poll.
+      } finally {
+        inFlight = false;
+        scheduleNext(computeDelayMs());
+      }
+    };
+
+    void refreshRooms();
+    return () => {
+      cancelled = true;
+      if (timeoutId !== null) {
+        window.clearTimeout(timeoutId);
+      }
+    };
+  }, [connected, setRoomDirectory]);
+
+  useEffect(() => {
     const runtime = runtimeRef.current;
     if (!runtime) {
       return;
@@ -154,11 +238,6 @@ export default function App(): React.JSX.Element {
     runtime.setMusicVolume(musicVolume);
     runtime.setTouchControlsActive(touchControls);
   }, [fov, graphicsQuality, lookSensitivity, musicVolume, sfxVolume, touchControls]);
-
-  const connected = connectionStatus === 'connected';
-  const connecting = connectionStatus === 'connecting';
-  const backendConnected = connected;
-  const backendPingMs = null;
 
   useEffect(() => {
     runtimeRef.current?.setLobbyMusicActive(!connected);
@@ -264,7 +343,7 @@ export default function App(): React.JSX.Element {
     }
 
     const handleKeyDown = (event: KeyboardEvent): void => {
-      if (event.code !== 'Enter') {
+      if (event.code !== 'Slash') {
         return;
       }
       if (event.repeat) {
@@ -321,14 +400,19 @@ export default function App(): React.JSX.Element {
   const scoreboard = useMemo(
     () =>
       Object.values(players)
-        .filter(player => player.roomCode === connectedRoomCode)
-        .sort((left, right) => right.kills - left.kills || left.deaths - right.deaths),
-    [connectedRoomCode, players]
+        .filter(player => player.connected && player.roomCode === connectedRoomCode)
+        .sort((left, right) => right.kills - left.kills || left.deaths - right.deaths)
+        .map(player => ({
+          ...player,
+          kdr: player.deaths === 0 ? player.kills : player.kills / player.deaths,
+          pingMs: playerPings[player.identity] ?? null
+        })),
+    [connectedRoomCode, playerPings, players]
   );
   const openRooms = useMemo(
     () =>
       Object.values(rooms)
-        .filter(room => room.playerCount > 0)
+        .filter(room => room.active && room.playerCount > 0 && room.playerCount < 5)
         .sort((left, right) => right.playerCount - left.playerCount || left.code.localeCompare(right.code))
         .slice(0, 6),
     [rooms]
@@ -373,6 +457,7 @@ export default function App(): React.JSX.Element {
       scoreboard,
       scoreboardOpen,
       connected,
+      pingMs: localPingMs,
       hitmarkerVisible,
       damageFlashToken,
       crosshairSpread,
@@ -399,6 +484,7 @@ export default function App(): React.JSX.Element {
       localPlayer.ammo,
       localMeta?.deaths,
       localMeta?.kills,
+      localPingMs,
       match,
       sendChat,
       scoped,
@@ -458,7 +544,6 @@ export default function App(): React.JSX.Element {
         busy={connecting}
         nickname={nickname}
         roomCode={roomCode}
-        connectionStatus={connectionStatus}
         backendConnected={backendConnected}
         backendPingMs={backendPingMs}
         openRooms={openRooms}

@@ -26,9 +26,12 @@ const PLAYER_RADIUS: f32 = 0.4;
 const PLAYER_HITBOX_HALF: f32 = 0.45;
 const PLAYER_STEP_HEIGHT: f32 = 0.65;
 const PLAYER_EYE_HEIGHT: f32 = 1.58;
+const CROUCH_HEIGHT: f32 = 1.35;
+const CROUCH_HITBOX_HALF: f32 = 0.36;
+const CROUCH_EYE_HEIGHT: f32 = 1.2;
 
 const WALK_SPEED: f32 = 6.4;
-const SPRINT_SPEED: f32 = 8.4;
+const CROUCH_SPEED: f32 = 3.4;
 const GROUND_ACCELERATION: f32 = 30.0;
 const AIR_ACCELERATION: f32 = 5.0;
 const GROUND_FRICTION: f32 = 22.0;
@@ -47,14 +50,14 @@ const HEALTH_REGEN_DELAY_TICKS: u32 = SERVER_TICK_RATE * 5;
 const HEALTH_REGEN_PER_TICK: f32 = 3.0 / SERVER_TICK_RATE as f32;
 const AMMO_PACK_AMOUNT: u16 = 6;
 const AMMO_PACK_RESPAWN_TICKS: u32 = SERVER_TICK_RATE * 3;
-const AMMO_PACK_RADIUS: f32 = 0.75;
+const AMMO_PACK_RADIUS: f32 = 0.95;
 const AMMO_PACK_ACTIVE_COUNT: usize = 12;
 const HEALTH_PACK_AMOUNT: u16 = 50;
 const HEALTH_PACK_RESPAWN_TICKS: u32 = SERVER_TICK_RATE * 10;
 const HEALTH_PACK_RADIUS: f32 = 0.5;
 const HEALTH_PACK_ACTIVE_COUNT: usize = 2;
-const PICKUP_HORIZONTAL_GRACE: f32 = 0.5;
-const PICKUP_VERTICAL_GRACE: f32 = 0.45;
+const PICKUP_HORIZONTAL_GRACE: f32 = 0.7;
+const PICKUP_VERTICAL_GRACE: f32 = 0.6;
 const PICKUP_SWEEP_EXTRA: f32 = 0.35;
 const PICKUP_HEIGHT_MAX: f32 = 1.4;
 const COLLISION_EPSILON: f32 = 0.0001;
@@ -907,7 +910,7 @@ pub fn fire_weapon(ctx: &ReducerContext, yaw: f32, pitch: f32, scoped: bool) -> 
     }
 
     let movement_speed = (state.vel_x * state.vel_x + state.vel_z * state.vel_z).sqrt();
-    let movement_ratio = (movement_speed / SPRINT_SPEED).clamp(0.0, 1.0);
+    let movement_ratio = (movement_speed / WALK_SPEED).clamp(0.0, 1.0);
     let scoped_factor = if scoped { 0.45 } else { 1.0 };
     let spread = (BASE_WEAPON_SPREAD + movement_ratio * MOVEMENT_SPREAD) * scoped_factor;
     let base_seed = tick as f32 * 0.197 + state.x * 1.31 + state.z * 2.17 + state.yaw * 0.97;
@@ -917,9 +920,21 @@ pub fn fire_weapon(ctx: &ReducerContext, yaw: f32, pitch: f32, scoped: bool) -> 
     let aim_yaw = yaw + yaw_offset;
     let aim_pitch = (pitch + pitch_offset).clamp(-MAX_PITCH, MAX_PITCH);
     let direction = direction_from_yaw_pitch(aim_yaw, aim_pitch);
+    let shooter_crouching = ctx
+        .db
+        .player_input()
+        .identity()
+        .find(ctx.sender())
+        .map(|input| input.sprinting)
+        .unwrap_or(false);
+    let eye_height = if shooter_crouching {
+        CROUCH_EYE_HEIGHT
+    } else {
+        PLAYER_EYE_HEIGHT
+    };
     let origin = Vec3 {
         x: state.x,
-        y: state.y + PLAYER_EYE_HEIGHT,
+        y: state.y + eye_height,
         z: state.z,
     };
     let block_hit = ray_hits_any_block(origin, direction);
@@ -938,7 +953,14 @@ pub fn fire_weapon(ctx: &ReducerContext, yaw: f32, pitch: f32, scoped: bool) -> 
             y: target.y,
             z: target.z,
         };
-        if let Some(distance) = ray_hits_player(origin, direction, position) {
+        let crouching = ctx
+            .db
+            .player_input()
+            .identity()
+            .find(target.identity)
+            .map(|input| input.sprinting)
+            .unwrap_or(false);
+        if let Some(distance) = ray_hits_player(origin, direction, position, crouching) {
             if distance <= RIFLE_RANGE {
                 match best_hit {
                     Some((_, best_distance)) if best_distance <= distance => {}
@@ -1610,7 +1632,7 @@ fn simulate_movement_tick(state: PlayerState, input: PlayerInput) -> PlayerState
     }
 
     let desired_speed = if input.sprinting {
-        SPRINT_SPEED
+        CROUCH_SPEED
     } else {
         WALK_SPEED
     } * move_len;
@@ -1645,18 +1667,34 @@ fn simulate_movement_tick(state: PlayerState, input: PlayerInput) -> PlayerState
         updated.vel_y -= GRAVITY * dt;
     }
 
+    let mut collision_height = if input.sprinting {
+        CROUCH_HEIGHT
+    } else {
+        PLAYER_HEIGHT
+    };
+    if !input.sprinting && collides_at_with_height(updated.x, updated.y, updated.z, PLAYER_HEIGHT) {
+        collision_height = CROUCH_HEIGHT;
+    }
+
     let horizontal_delta_x = updated.vel_x * dt;
     let horizontal_delta_z = updated.vel_z * dt;
-    resolve_horizontal_motion(&mut updated, horizontal_delta_x, horizontal_delta_z);
+    resolve_horizontal_motion(
+        &mut updated,
+        horizontal_delta_x,
+        horizontal_delta_z,
+        collision_height,
+    );
 
     let ground = ground_height_at(updated.x, updated.z, updated.y);
     let mut proposed_y = updated.y + updated.vel_y * dt;
-    if updated.vel_y > 0.0 && collides_at(updated.x, proposed_y, updated.z) {
+    if updated.vel_y > 0.0
+        && collides_at_with_height(updated.x, proposed_y, updated.z, collision_height)
+    {
         let mut low = updated.y;
         let mut high = proposed_y;
         for _ in 0..8 {
             let midpoint = (low + high) * 0.5;
-            if collides_at(updated.x, midpoint, updated.z) {
+            if collides_at_with_height(updated.x, midpoint, updated.z, collision_height) {
                 high = midpoint;
             } else {
                 low = midpoint;
@@ -1720,7 +1758,12 @@ fn move_horizontal_towards(state: &mut PlayerState, target_x: f32, target_z: f32
     state.vel_z += delta_z * scale;
 }
 
-fn resolve_horizontal_motion(state: &mut PlayerState, delta_x: f32, delta_z: f32) {
+fn resolve_horizontal_motion(
+    state: &mut PlayerState,
+    delta_x: f32,
+    delta_z: f32,
+    player_height: f32,
+) {
     let max_delta = delta_x.abs().max(delta_z.abs());
     let step_count = ((max_delta / MOVEMENT_SUBSTEP_MAX_DISTANCE).ceil() as u32).max(1);
     let step_x = delta_x / step_count as f32;
@@ -1731,7 +1774,7 @@ fn resolve_horizontal_motion(state: &mut PlayerState, delta_x: f32, delta_z: f32
     for _ in 0..step_count {
         if move_x_open {
             let target_x = state.x + step_x;
-            if collides_at(target_x, state.y, state.z) {
+            if collides_at_with_height(target_x, state.y, state.z, player_height) {
                 state.vel_x = 0.0;
                 move_x_open = false;
             } else {
@@ -1741,7 +1784,7 @@ fn resolve_horizontal_motion(state: &mut PlayerState, delta_x: f32, delta_z: f32
 
         if move_z_open {
             let target_z = state.z + step_z;
-            if collides_at(state.x, state.y, target_z) {
+            if collides_at_with_height(state.x, state.y, target_z, player_height) {
                 state.vel_z = 0.0;
                 move_z_open = false;
             } else {
@@ -1868,6 +1911,10 @@ fn ground_height_at(x: f32, z: f32, current_feet_y: f32) -> f32 {
 }
 
 fn collides_at(x: f32, y: f32, z: f32) -> bool {
+    collides_at_with_height(x, y, z, PLAYER_HEIGHT)
+}
+
+fn collides_at_with_height(x: f32, y: f32, z: f32, player_height: f32) -> bool {
     if x - PLAYER_RADIUS < ARENA_MIN_X
         || x + PLAYER_RADIUS > ARENA_MAX_X
         || z - PLAYER_RADIUS < ARENA_MIN_Z
@@ -1876,7 +1923,7 @@ fn collides_at(x: f32, y: f32, z: f32) -> bool {
         return true;
     }
 
-    let head_y = y + PLAYER_HEIGHT;
+    let head_y = y + player_height;
     for block in ARENA_BLOCKS {
         if overlaps_block(x, z, block) && y < block.max_y && head_y > block.min_y {
             return true;
@@ -1894,13 +1941,23 @@ fn direction_from_yaw_pitch(yaw: f32, pitch: f32) -> Vec3 {
     }
 }
 
-fn ray_hits_player(origin: Vec3, direction: Vec3, position: Vec3) -> Option<f32> {
-    let min_x = position.x - PLAYER_HITBOX_HALF;
-    let max_x = position.x + PLAYER_HITBOX_HALF;
+fn ray_hits_player(origin: Vec3, direction: Vec3, position: Vec3, crouching: bool) -> Option<f32> {
+    let hitbox_half = if crouching {
+        CROUCH_HITBOX_HALF
+    } else {
+        PLAYER_HITBOX_HALF
+    };
+    let hitbox_height = if crouching {
+        CROUCH_HEIGHT
+    } else {
+        PLAYER_HEIGHT
+    };
+    let min_x = position.x - hitbox_half;
+    let max_x = position.x + hitbox_half;
     let min_y = position.y;
-    let max_y = position.y + PLAYER_HEIGHT;
-    let min_z = position.z - PLAYER_HITBOX_HALF;
-    let max_z = position.z + PLAYER_HITBOX_HALF;
+    let max_y = position.y + hitbox_height;
+    let min_z = position.z - hitbox_half;
+    let max_z = position.z + hitbox_half;
 
     let inv_x = if direction.x.abs() < 0.0001 {
         if origin.x < min_x || origin.x > max_x {
