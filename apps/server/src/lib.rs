@@ -1650,7 +1650,21 @@ fn simulate_movement_tick(state: PlayerState, input: PlayerInput) -> PlayerState
     resolve_horizontal_motion(&mut updated, horizontal_delta_x, horizontal_delta_z);
 
     let ground = ground_height_at(updated.x, updated.z, updated.y);
-    let proposed_y = updated.y + updated.vel_y * dt;
+    let mut proposed_y = updated.y + updated.vel_y * dt;
+    if updated.vel_y > 0.0 && collides_at(updated.x, proposed_y, updated.z) {
+        let mut low = updated.y;
+        let mut high = proposed_y;
+        for _ in 0..8 {
+            let midpoint = (low + high) * 0.5;
+            if collides_at(updated.x, midpoint, updated.z) {
+                high = midpoint;
+            } else {
+                low = midpoint;
+            }
+        }
+        proposed_y = low;
+        updated.vel_y = 0.0;
+    }
     if proposed_y <= ground {
         updated.y = ground;
         updated.vel_y = 0.0;

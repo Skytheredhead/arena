@@ -4,6 +4,8 @@ import {
   DEFAULT_ROOM_CODE,
   KILL_FEED_LIFETIME_MS,
   MAX_HEALTH,
+  RIFLE_CLIP_SIZE,
+  RIFLE_CARRY_CAPACITY,
   RIFLE_MAGAZINE,
   type KillFeedEntry,
   type LocalPlayerState,
@@ -45,6 +47,8 @@ interface SessionState {
   connectedRoomCode: string | null;
   localIdentity: string | null;
   localPlayer: LocalPlayerState;
+  magAmmo: number;
+  reserveAmmo: number;
   remotePlayers: Record<string, RemotePlayerState>;
   ammoPacks: Record<number, AmmoPackView>;
   healthPacks: Record<number, HealthPackView>;
@@ -57,6 +61,8 @@ interface SessionState {
   graphicsQuality: GraphicsQuality;
   lookSensitivity: number;
   fov: number;
+  sfxVolume: number;
+  musicVolume: number;
   scoreboardOpen: boolean;
   crosshairSpread: number;
   scoped: boolean;
@@ -69,6 +75,7 @@ interface SessionState {
   setConnectedRoomCode: (roomCode: string | null) => void;
   setLocalIdentity: (identity: string | null) => void;
   setLocalPlayer: (player: Partial<LocalPlayerState>) => void;
+  setDisplayedAmmo: (magAmmo: number, reserveAmmo: number) => void;
   resetRuntime: () => void;
   upsertPlayerMeta: (player: RuntimePlayerMeta) => void;
   upsertRemotePlayer: (player: RemotePlayerState) => void;
@@ -89,6 +96,13 @@ interface SessionState {
   setGraphicsQuality: (quality: GraphicsQuality) => void;
   setLookSensitivity: (value: number) => void;
   setFov: (value: number) => void;
+  setSfxVolume: (value: number) => void;
+  setMusicVolume: (value: number) => void;
+  consumeNearestAmmoPack: (
+    roomCode: string | null,
+    position: { x: number; y: number; z: number },
+    radius: number
+  ) => void;
   setScoreboardOpen: (open: boolean) => void;
   setCrosshairSpread: (spread: number) => void;
   setScoped: (scoped: boolean) => void;
@@ -115,6 +129,8 @@ export const useGameStore = create<SessionState>(set => ({
   connectedRoomCode: null,
   localIdentity: null,
   localPlayer: initialLocal,
+  magAmmo: RIFLE_CLIP_SIZE,
+  reserveAmmo: RIFLE_CARRY_CAPACITY - RIFLE_CLIP_SIZE,
   remotePlayers: {},
   ammoPacks: {},
   healthPacks: {},
@@ -127,6 +143,8 @@ export const useGameStore = create<SessionState>(set => ({
   graphicsQuality: 'medium',
   lookSensitivity: CAMERA_SENSITIVITY,
   fov: DEFAULT_FOV,
+  sfxVolume: 0.85,
+  musicVolume: 0.35,
   scoreboardOpen: false,
   crosshairSpread: 0,
   scoped: false,
@@ -148,6 +166,21 @@ export const useGameStore = create<SessionState>(set => ({
         velocity: player.velocity ?? state.localPlayer.velocity
       }
     })),
+  setDisplayedAmmo: (magAmmo, reserveAmmo) =>
+    set(state => {
+      const safeMag = Math.max(0, Math.min(RIFLE_CLIP_SIZE, Math.round(magAmmo)));
+      const safeReserve = Math.max(
+        0,
+        Math.min(RIFLE_CARRY_CAPACITY - safeMag, Math.round(reserveAmmo))
+      );
+      if (state.magAmmo === safeMag && state.reserveAmmo === safeReserve) {
+        return state;
+      }
+      return {
+        magAmmo: safeMag,
+        reserveAmmo: safeReserve
+      };
+    }),
   resetRuntime: () =>
     set({
       connectedRoomCode: null,
@@ -157,6 +190,8 @@ export const useGameStore = create<SessionState>(set => ({
         health: MAX_HEALTH,
         ammo: RIFLE_MAGAZINE
       },
+      magAmmo: RIFLE_CLIP_SIZE,
+      reserveAmmo: RIFLE_CARRY_CAPACITY - RIFLE_CLIP_SIZE,
       remotePlayers: {},
       ammoPacks: {},
       healthPacks: {},
@@ -294,6 +329,53 @@ export const useGameStore = create<SessionState>(set => ({
     set(state => {
       const clamped = Math.min(MAX_FOV, Math.max(MIN_FOV, fov));
       return state.fov === clamped ? state : { fov: clamped };
+    }),
+  setSfxVolume: sfxVolume =>
+    set(state => {
+      const clamped = Math.max(0, Math.min(1, sfxVolume));
+      return state.sfxVolume === clamped ? state : { sfxVolume: clamped };
+    }),
+  setMusicVolume: musicVolume =>
+    set(state => {
+      const clamped = Math.max(0, Math.min(1, musicVolume));
+      return state.musicVolume === clamped ? state : { musicVolume: clamped };
+    }),
+  consumeNearestAmmoPack: (roomCode, position, radius) =>
+    set(state => {
+      if (!roomCode) {
+        return state;
+      }
+      let nearestId: number | null = null;
+      let nearestDistanceSq = Number.POSITIVE_INFINITY;
+      const radiusSq = radius * radius;
+      for (const pack of Object.values(state.ammoPacks)) {
+        if (!pack.active || pack.roomCode !== roomCode) {
+          continue;
+        }
+        const dx = pack.position.x - position.x;
+        const dy = pack.position.y - position.y;
+        const dz = pack.position.z - position.z;
+        const distanceSq = dx * dx + dz * dz + dy * dy * 0.35;
+        if (distanceSq > radiusSq || distanceSq >= nearestDistanceSq) {
+          continue;
+        }
+        nearestDistanceSq = distanceSq;
+        nearestId = pack.id;
+      }
+      if (nearestId == null) {
+        return state;
+      }
+
+      const ammoPacks = { ...state.ammoPacks };
+      const targetPack = ammoPacks[nearestId];
+      if (!targetPack) {
+        return state;
+      }
+      ammoPacks[nearestId] = {
+        ...targetPack,
+        active: false
+      };
+      return { ammoPacks };
     }),
   setScoreboardOpen: scoreboardOpen =>
     set(state => (state.scoreboardOpen === scoreboardOpen ? state : { scoreboardOpen })),

@@ -1,7 +1,9 @@
 import {
   MAX_PITCH,
   REMOTE_INTERPOLATION_DELAY_MS,
-  RIFLE_MAGAZINE,
+  RIFLE_CLIP_SIZE,
+  RIFLE_CARRY_CAPACITY,
+  SPRINT_SPEED,
   SERVER_TICK_MS,
   simulatePlayerTick,
   type AmmoPackView,
@@ -20,6 +22,7 @@ import { SnapshotBuffer } from '../netcode/interpolation';
 import { ConnectOptions, SpacetimeBridge } from '../netcode/SpacetimeBridge';
 import { RifleController } from '../weapons/RifleController';
 import type { GraphicsQuality } from '../types/settings';
+import { AudioManager } from '../audio/AudioManager';
 
 declare global {
   interface Window {
@@ -35,9 +38,12 @@ declare global {
 
 export class GameRuntime {
   private static readonly MOBILE_LOOK_SPEED = 2.8;
+  private static readonly RELOAD_DURATION_MS = 980;
+  private static readonly DRY_FIRE_COOLDOWN_MS = 180;
   private readonly renderer: GameRenderer;
   private readonly input: InputController;
   private readonly rifle = new RifleController();
+  private readonly audio = new AudioManager();
   private readonly remoteBuffers = new Map<string, SnapshotBuffer>();
   private readonly impactMarks = new Map<number, ImpactMarkView>();
   private readonly bloodBursts: Array<{
@@ -57,6 +63,16 @@ export class GameRuntime {
   private localCorrectionOffset = { x: 0, y: 0, z: 0 };
   private paused = false;
   private crosshairKick = 0;
+  private totalAmmo = RIFLE_CARRY_CAPACITY;
+  private magAmmo = RIFLE_CLIP_SIZE;
+  private reserveAmmo = RIFLE_CARRY_CAPACITY - RIFLE_CLIP_SIZE;
+  private reloadStartedAt = -1;
+  private reloadCompletesAt = -1;
+  private nextDryFireAt = 0;
+  private walkPhase = 0;
+  private walkIntensity = 0;
+  private walkStrideDistance = 0;
+  private lastLocalShotAt = -1000;
 
   constructor(mount: HTMLElement) {
     this.renderer = new GameRenderer(mount);
@@ -65,6 +81,10 @@ export class GameRuntime {
     this.input.setLookSensitivity(settings.lookSensitivity);
     this.renderer.setGraphicsQuality(settings.graphicsQuality);
     this.renderer.setFov(settings.fov);
+    this.audio.setSfxVolume(settings.sfxVolume);
+    this.audio.setMusicVolume(settings.musicVolume);
+    this.audio.setLobbyActive(true);
+    useGameStore.getState().setDisplayedAmmo(this.magAmmo, this.reserveAmmo);
     this.frameHandle = requestAnimationFrame(this.frame);
   }
 
@@ -73,6 +93,7 @@ export class GameRuntime {
     this.bridge?.disconnect();
     this.input.dispose();
     this.renderer.dispose();
+    this.audio.dispose();
   }
 
   requestPointerLock(): void {
@@ -85,6 +106,14 @@ export class GameRuntime {
 
   setTouchControlsActive(active: boolean): void {
     this.input.setTouchControlsActive(active);
+  }
+
+  unlockAudio(): void {
+    this.audio.unlock();
+  }
+
+  setLobbyMusicActive(active: boolean): void {
+    this.audio.setLobbyActive(active);
   }
 
   setVirtualMove(moveX: number, moveZ: number): void {
@@ -120,6 +149,14 @@ export class GameRuntime {
     this.renderer.setFov(value);
   }
 
+  setSfxVolume(value: number): void {
+    this.audio.setSfxVolume(value);
+  }
+
+  setMusicVolume(value: number): void {
+    this.audio.setMusicVolume(value);
+  }
+
   async requestRespawn(): Promise<void> {
     if (!this.bridge) {
       return;
@@ -144,7 +181,7 @@ export class GameRuntime {
       onLocalState: state => this.handleAuthoritativeLocalState(state),
       onRemoteState: state => this.handleRemoteState(state),
       onDamageEvent: event => this.handleDamageEvent(event),
-      onImpactMark: mark => this.impactMarks.set(mark.id, mark),
+      onImpactMark: mark => this.handleImpactMark(mark),
       onImpactMarkRemoved: id => this.impactMarks.delete(id),
       onServerTick: serverTimeMs => this.observeServerTime(serverTimeMs),
       onWeaponAmmo: ammo => this.syncAuthoritativeAmmo(ammo),
@@ -177,6 +214,14 @@ export class GameRuntime {
     }
     useGameStore.getState().resetRuntime();
     this.crosshairKick = 0;
+    this.totalAmmo = RIFLE_CARRY_CAPACITY;
+    this.magAmmo = RIFLE_CLIP_SIZE;
+    this.reserveAmmo = RIFLE_CARRY_CAPACITY - RIFLE_CLIP_SIZE;
+    this.cancelReload();
+    this.walkPhase = 0;
+    this.walkIntensity = 0;
+    this.walkStrideDistance = 0;
+    this.applyDisplayedAmmo();
   }
 
   private handleAuthoritativeLocalState(state: LocalPlayerState): void {
@@ -185,6 +230,7 @@ export class GameRuntime {
     if (!this.prediction) {
       this.prediction = new PredictionController(state);
       this.localCorrectionOffset = { x: 0, y: 0, z: 0 };
+      this.syncMagazineFromTotal(state.ammo);
       useGameStore.getState().setLocalPlayer(state);
       useGameStore.getState().setPredictionDebug(this.prediction.getDebugState());
       return;
@@ -223,19 +269,96 @@ export class GameRuntime {
   }
 
   private syncAuthoritativeAmmo(ammo: number): void {
-    if (!this.prediction) {
-      return;
+    const clamped = Math.max(0, Math.min(RIFLE_CARRY_CAPACITY, ammo));
+    const previousTotal = this.totalAmmo;
+    this.totalAmmo = clamped;
+    if (this.prediction) {
+      this.prediction.setAmmo(clamped);
     }
 
-    this.prediction.setAmmo(ammo);
+    const ammoGain = clamped - previousTotal;
+    if (ammoGain > 0 && ammoGain <= 8) {
+      const store = useGameStore.getState();
+      this.audio.play('bulletPickup', { volume: 0.65, playbackRateMin: 0.93, playbackRateMax: 1.07 });
+      store.consumeNearestAmmoPack(store.connectedRoomCode, store.localPlayer.position, 2.4);
+    }
+
+    if (this.magAmmo > clamped) {
+      this.magAmmo = clamped;
+      this.reloadStartedAt = -1;
+      this.reloadCompletesAt = -1;
+    }
+    this.applyDisplayedAmmo();
   }
 
   private setLocalAmmo(ammo: number): void {
-    const clamped = Math.max(0, Math.min(RIFLE_MAGAZINE, ammo));
+    const clamped = Math.max(0, Math.min(RIFLE_CARRY_CAPACITY, ammo));
+    this.totalAmmo = clamped;
     if (this.prediction) {
       this.prediction.setAmmo(clamped);
     }
     useGameStore.getState().setLocalPlayer({ ammo: clamped });
+    this.applyDisplayedAmmo();
+  }
+
+  private applyDisplayedAmmo(): void {
+    this.reserveAmmo = Math.max(0, this.totalAmmo - this.magAmmo);
+    useGameStore.getState().setDisplayedAmmo(this.magAmmo, this.reserveAmmo);
+  }
+
+  private syncMagazineFromTotal(totalAmmo: number): void {
+    const clamped = Math.max(0, Math.min(RIFLE_CARRY_CAPACITY, totalAmmo));
+    this.totalAmmo = clamped;
+    this.magAmmo = Math.min(RIFLE_CLIP_SIZE, clamped);
+    this.applyDisplayedAmmo();
+  }
+
+  private startReload(now: number): void {
+    if (this.reloadCompletesAt >= now) {
+      return;
+    }
+    if (this.magAmmo >= RIFLE_CLIP_SIZE) {
+      return;
+    }
+    if (this.reserveAmmo <= 0) {
+      return;
+    }
+
+    this.reloadStartedAt = now;
+    this.reloadCompletesAt = now + GameRuntime.RELOAD_DURATION_MS;
+    this.audio.play('reload', { volume: 0.45, playbackRateMin: 0.96, playbackRateMax: 1.04 });
+  }
+
+  private completeReloadIfReady(now: number): void {
+    if (this.reloadCompletesAt < 0 || now < this.reloadCompletesAt) {
+      return;
+    }
+    const fill = Math.min(RIFLE_CLIP_SIZE, this.totalAmmo);
+    this.magAmmo = fill;
+    this.reloadStartedAt = -1;
+    this.reloadCompletesAt = -1;
+    this.applyDisplayedAmmo();
+  }
+
+  private cancelReload(): void {
+    this.reloadStartedAt = -1;
+    this.reloadCompletesAt = -1;
+  }
+
+  private getReloadProgress(now: number): number {
+    if (this.reloadCompletesAt < 0 || this.reloadStartedAt < 0) {
+      return 0;
+    }
+    const duration = Math.max(1, this.reloadCompletesAt - this.reloadStartedAt);
+    return Math.max(0, Math.min(1, (now - this.reloadStartedAt) / duration));
+  }
+
+  private handleImpactMark(mark: ImpactMarkView): void {
+    this.impactMarks.set(mark.id, mark);
+    const now = performance.now();
+    if (now - this.lastLocalShotAt <= 220) {
+      this.audio.play('bulletWallHit', { volume: 0.55, playbackRateMin: 0.94, playbackRateMax: 1.06 });
+    }
   }
 
   private handleDamageEvent(event: DamageEvent): void {
@@ -245,6 +368,7 @@ export class GameRuntime {
 
     if (event.victimIdentity === localIdentity) {
       store.triggerDamageFlash();
+      this.audio.play('flyby', { volume: 0.5, playbackRateMin: 0.95, playbackRateMax: 1.07 });
     }
 
     if (event.attackerIdentity !== localIdentity || event.victimIdentity === localIdentity) {
@@ -266,6 +390,7 @@ export class GameRuntime {
       createdAt: now,
       expiresAt: now + 320
     });
+    this.audio.play('bulletBodyHit', { volume: 0.65, playbackRateMin: 0.92, playbackRateMax: 1.05 });
   }
 
   private readonly frame = (now: number): void => {
@@ -277,6 +402,7 @@ export class GameRuntime {
 
     const store = useGameStore.getState();
     store.pruneKillFeed(now);
+    this.completeReloadIfReady(now);
     const frameInput = this.input.getFrameInput();
     store.setScoreboardOpen(frameInput.scoreboardHeld);
     store.setScoped(frameInput.scoped);
@@ -330,6 +456,28 @@ export class GameRuntime {
 
     const currentLocal = this.getPresentedLocalState(deltaSeconds);
     const speed = Math.hypot(currentLocal.velocity.x, currentLocal.velocity.z);
+    const movingOnGround = currentLocal.onGround && currentLocal.alive && speed > 1.25;
+    const targetWalkIntensity = movingOnGround
+      ? Math.max(0.15, Math.min(1, speed / Math.max(0.01, SPRINT_SPEED)))
+      : 0;
+    this.walkIntensity += (targetWalkIntensity - this.walkIntensity) * Math.min(1, deltaSeconds * 9);
+    if (movingOnGround) {
+      this.walkPhase += deltaSeconds * (7.3 + this.walkIntensity * 4.2);
+      const stride = Math.max(0.35, 0.58 - this.walkIntensity * 0.12);
+      this.walkStrideDistance += speed * deltaSeconds;
+      while (this.walkStrideDistance >= stride) {
+        this.walkStrideDistance -= stride;
+        this.audio.play('footstep', {
+          volume: 0.32 + this.walkIntensity * 0.16,
+          playbackRateMin: 0.9,
+          playbackRateMax: 1.1
+        });
+      }
+    } else {
+      this.walkStrideDistance = 0;
+      this.walkPhase += deltaSeconds * 1.6;
+    }
+
     const baseSpread = Math.min(20, speed * 2.4);
     const scopedSpread = frameInput.scoped ? baseSpread * 0.45 : baseSpread;
     useGameStore.getState().setCrosshairSpread(Math.max(0, scopedSpread + this.crosshairKick));
@@ -359,7 +507,10 @@ export class GameRuntime {
       scoped: frameInput.scoped,
       deltaSeconds,
       recoil: this.rifle.getRecoil(),
-      muzzleFlashVisible: useGameStore.getState().muzzleFlashUntil > now
+      muzzleFlashVisible: useGameStore.getState().muzzleFlashUntil > now,
+      walkPhase: this.walkPhase,
+      walkIntensity: this.walkIntensity,
+      reloadProgress: this.getReloadProgress(now)
     });
 
     this.frameHandle = requestAnimationFrame(this.frame);
@@ -418,22 +569,37 @@ export class GameRuntime {
     useGameStore.getState().setPredictionDebug(this.prediction.getDebugState());
     void this.bridge.submitInput(command).catch(() => undefined);
 
-    const currentAmmo = useGameStore.getState().localPlayer.ammo;
-    if (
-      frameInput.wantsFire &&
-      currentAmmo > 0 &&
-      this.rifle.tryFire(now, this.bridge.getFireIntervalTicks())
-    ) {
-      this.setLocalAmmo(currentAmmo - 1);
-      useGameStore.getState().triggerMuzzleFlash(this.rifle.getMuzzleFlashUntil(now));
-      this.crosshairKick = Math.min(10, this.crosshairKick + (frameInput.scoped ? 0.7 : 1.4));
-      void this.bridge
-        .fireWeapon(localState.yaw, localState.pitch, frameInput.scoped)
-        .catch(() => {
-          useGameStore.getState().incrementRejectedShots();
-        });
+    if (frameInput.wantsReload) {
+      this.startReload(now);
     }
 
+    if (frameInput.wantsFire) {
+      if (this.reloadCompletesAt >= now) {
+        return;
+      }
+      if (this.magAmmo <= 0 || this.totalAmmo <= 0) {
+        if (now >= this.nextDryFireAt) {
+          this.audio.play('magEmpty', { volume: 0.6, playbackRateMin: 0.96, playbackRateMax: 1.05 });
+          this.nextDryFireAt = now + GameRuntime.DRY_FIRE_COOLDOWN_MS;
+        }
+        return;
+      }
+
+      if (this.rifle.tryFire(now, this.bridge.getFireIntervalTicks())) {
+        this.cancelReload();
+        this.magAmmo = Math.max(0, this.magAmmo - 1);
+        this.setLocalAmmo(this.totalAmmo - 1);
+        this.audio.play('shot', { volume: 0.75, playbackRateMin: 0.95, playbackRateMax: 1.05 });
+        this.lastLocalShotAt = now;
+        useGameStore.getState().triggerMuzzleFlash(this.rifle.getMuzzleFlashUntil(now));
+        this.crosshairKick = Math.min(10, this.crosshairKick + (frameInput.scoped ? 0.7 : 1.4));
+        void this.bridge
+          .fireWeapon(localState.yaw, localState.pitch, frameInput.scoped)
+          .catch(() => {
+            useGameStore.getState().incrementRejectedShots();
+          });
+      }
+    }
   }
 
   private observeServerTime(serverTimeMs: number): void {

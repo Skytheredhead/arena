@@ -27,6 +27,9 @@ interface RenderFrameState {
   scoped: boolean;
   recoil: number;
   muzzleFlashVisible: boolean;
+  walkPhase: number;
+  walkIntensity: number;
+  reloadProgress: number;
   deltaSeconds: number;
 }
 
@@ -55,7 +58,7 @@ export class GameRenderer {
 
   constructor(private readonly mount: HTMLElement) {
     this.renderer = new THREE.WebGLRenderer({
-      antialias: false,
+      antialias: true,
       powerPreference: 'high-performance'
     });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.2));
@@ -121,6 +124,7 @@ export class GameRenderer {
     this.graphicsQuality = quality;
     const pixelRatioCap = quality === 'low' ? 0.9 : quality === 'medium' ? 1.2 : 1.5;
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, pixelRatioCap));
+    this.renderer.shadowMap.enabled = quality === 'high';
     this.scene.fog = quality === 'low'
       ? new THREE.Fog('#07111c', 16, 34)
       : quality === 'medium'
@@ -164,25 +168,25 @@ export class GameRenderer {
       emissiveIntensity: 0.35
     });
 
-    const body = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.18, 0.7), material);
+    const body = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.14, 0.74), material);
     body.castShadow = true;
     group.add(body);
 
-    const barrel = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.08, 0.65), material);
-    barrel.position.set(0, 0.02, -0.58);
+    const barrel = new THREE.Mesh(new THREE.BoxGeometry(0.055, 0.055, 0.68), material);
+    barrel.position.set(0, 0.015, -0.6);
     group.add(barrel);
 
-    const stock = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.12, 0.24), material);
-    stock.position.set(-0.08, -0.02, 0.36);
+    const stock = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.1, 0.22), material);
+    stock.position.set(-0.058, -0.02, 0.37);
     stock.rotation.y = 0.18;
     group.add(stock);
 
-    const sight = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.06, 0.14), accent);
-    sight.position.set(0, 0.12, -0.08);
+    const sight = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.045, 0.12), accent);
+    sight.position.set(0, 0.1, -0.08);
     group.add(sight);
 
-    const grip = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.2, 0.1), material);
-    grip.position.set(0.02, -0.18, -0.05);
+    const grip = new THREE.Mesh(new THREE.BoxGeometry(0.055, 0.18, 0.085), material);
+    grip.position.set(0.014, -0.16, -0.04);
     grip.rotation.z = 0.16;
     group.add(grip);
 
@@ -368,9 +372,11 @@ export class GameRenderer {
 
   render(frame: RenderFrameState): void {
     const now = performance.now();
+    const bobVertical = Math.sin(frame.walkPhase) * frame.walkIntensity * 0.032;
+    const bobLateral = Math.cos(frame.walkPhase * 0.5) * frame.walkIntensity * 0.02;
     this.targetCameraPosition.set(
       frame.localPlayer.position.x,
-      frame.localPlayer.position.y + PLAYER_EYE_HEIGHT,
+      frame.localPlayer.position.y + PLAYER_EYE_HEIGHT + bobVertical,
       frame.localPlayer.position.z
     );
     if (!this.cameraPositionInitialized) {
@@ -389,14 +395,25 @@ export class GameRenderer {
       this.camera.updateProjectionMatrix();
     }
     this.camera.position.copy(this.smoothedCameraPosition);
+    this.camera.position.x += bobLateral * 0.35;
     this.camera.rotation.y = frame.localPlayer.yaw;
     this.camera.rotation.x = frame.localPlayer.pitch + frame.recoil;
     this.muzzleFlash.visible = frame.muzzleFlashVisible;
-    const sway = frame.scoped ? 0 : Math.sin(now * 0.008) * 0.004;
-    this.weaponModel.rotation.x = (frame.scoped ? -0.02 : -0.08) + frame.recoil * (frame.scoped ? 0.6 : 1.4);
-    this.weaponModel.rotation.y = (frame.scoped ? 0 : -0.04) - frame.recoil * 0.3;
-    this.weaponModel.position.x = (frame.scoped ? 0.02 : 0.28) + sway;
-    this.weaponModel.position.y = (frame.scoped ? -0.18 : -0.28) + frame.recoil * 0.08;
+    const idleSway = frame.scoped ? 0 : Math.sin(now * 0.0045) * 0.0035;
+    const walkSwayX = Math.sin(frame.walkPhase) * frame.walkIntensity * 0.026;
+    const walkSwayY = Math.cos(frame.walkPhase * 2) * frame.walkIntensity * 0.014;
+    const reloadTilt = frame.reloadProgress * 0.22;
+    const reloadDrop = frame.reloadProgress * 0.08;
+    this.weaponModel.rotation.x =
+      (frame.scoped ? -0.02 : -0.08) +
+      frame.recoil * (frame.scoped ? 0.6 : 1.4) +
+      walkSwayY +
+      reloadTilt * 0.35;
+    this.weaponModel.rotation.y = (frame.scoped ? 0 : -0.04) - frame.recoil * 0.3 - walkSwayX * 0.55;
+    this.weaponModel.rotation.z = reloadTilt;
+    this.weaponModel.position.x = (frame.scoped ? 0.02 : 0.28) + idleSway + walkSwayX;
+    this.weaponModel.position.y =
+      (frame.scoped ? -0.18 : -0.28) + frame.recoil * 0.08 + bobVertical * 0.45 - reloadDrop;
     this.weaponModel.position.z = frame.scoped ? -0.45 : -0.55;
 
     const activeIds = new Set(frame.remotePlayers.map(player => player.identity));

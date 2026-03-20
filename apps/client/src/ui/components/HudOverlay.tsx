@@ -1,4 +1,4 @@
-import { RIFLE_MAGAZINE, type KillFeedEntry, type MatchView, type ScoreRow } from '@arena/shared';
+import { RIFLE_CLIP_SIZE, type KillFeedEntry, type MatchView, type ScoreRow } from '@arena/shared';
 import {
   CYBER,
   CyberBar,
@@ -25,6 +25,7 @@ interface HudOverlayProps {
   localIdentity: string | null;
   health: number;
   ammo: number;
+  reserveAmmo: number;
   localKills: number;
   localDeaths: number;
   match: MatchView | null;
@@ -49,6 +50,7 @@ export function HudOverlay({
   localIdentity,
   health,
   ammo,
+  reserveAmmo,
   localKills,
   localDeaths,
   match,
@@ -258,11 +260,14 @@ export function HudOverlay({
               {ammo}
             </div>
             <div style={{ fontFamily: CYBER.font, color: CYBER.textDim, fontSize: '22px', lineHeight: 1 }}>
-              /{RIFLE_MAGAZINE}
+              /{RIFLE_CLIP_SIZE}
             </div>
           </div>
+          <div style={{ fontFamily: CYBER.font, color: CYBER.textDim, fontSize: '11px', letterSpacing: '2px' }}>
+            RESERVE {reserveAmmo}
+          </div>
           <div style={{ display: 'flex', gap: '2px', justifyContent: 'flex-end', marginTop: '8px', flexWrap: 'wrap', maxWidth: '120px', marginLeft: 'auto' }}>
-            {Array.from({ length: RIFLE_MAGAZINE }, (_, index) => (
+            {Array.from({ length: RIFLE_CLIP_SIZE }, (_, index) => (
               <div
                 key={index}
                 style={{

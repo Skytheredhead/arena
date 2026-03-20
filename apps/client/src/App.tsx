@@ -24,6 +24,7 @@ export default function App(): React.JSX.Element {
   const [chatOpen, setChatOpen] = useState(false);
   const [chatDraft, setChatDraft] = useState('');
   const [chatBusy, setChatBusy] = useState(false);
+  const [pauseView, setPauseView] = useState<'pause' | 'settings'>('pause');
   const connectionStatus = useGameStore(state => state.connectionStatus);
   const connectionError = useGameStore(state => state.connectionError);
   const nickname = useGameStore(state => state.nickname);
@@ -36,6 +37,8 @@ export default function App(): React.JSX.Element {
   const crosshairSpread = useGameStore(state => state.crosshairSpread);
   const scoped = useGameStore(state => state.scoped);
   const localPlayer = useGameStore(state => state.localPlayer);
+  const magAmmo = useGameStore(state => state.magAmmo);
+  const reserveAmmo = useGameStore(state => state.reserveAmmo);
   const localIdentity = useGameStore(state => state.localIdentity);
   const players = useGameStore(state => state.players);
   const rooms = useGameStore(state => state.rooms);
@@ -43,11 +46,15 @@ export default function App(): React.JSX.Element {
   const graphicsQuality = useGameStore(state => state.graphicsQuality);
   const lookSensitivity = useGameStore(state => state.lookSensitivity);
   const fov = useGameStore(state => state.fov);
+  const sfxVolume = useGameStore(state => state.sfxVolume);
+  const musicVolume = useGameStore(state => state.musicVolume);
   const setNickname = useGameStore(state => state.setNickname);
   const setRoomCode = useGameStore(state => state.setRoomCode);
   const setGraphicsQuality = useGameStore(state => state.setGraphicsQuality);
   const setLookSensitivity = useGameStore(state => state.setLookSensitivity);
   const setFov = useGameStore(state => state.setFov);
+  const setSfxVolume = useGameStore(state => state.setSfxVolume);
+  const setMusicVolume = useGameStore(state => state.setMusicVolume);
 
   const syncViewportMode = useCallback((): void => {
     const coarsePointer =
@@ -90,6 +97,8 @@ export default function App(): React.JSX.Element {
       runtime.setGraphicsQuality(graphicsQuality);
       runtime.setLookSensitivity(lookSensitivity);
       runtime.setFov(fov);
+      runtime.setSfxVolume(sfxVolume);
+      runtime.setMusicVolume(musicVolume);
       runtime.setTouchControlsActive(touchControls);
       runtimeRef.current = runtime;
       setRuntimeError(null);
@@ -111,6 +120,21 @@ export default function App(): React.JSX.Element {
   );
 
   useEffect(() => {
+    ensureRuntime();
+    const unlockAudio = (): void => {
+      runtimeRef.current?.unlockAudio();
+    };
+    window.addEventListener('pointerdown', unlockAudio, { once: true });
+    window.addEventListener('keydown', unlockAudio, { once: true });
+    return () => {
+      window.removeEventListener('pointerdown', unlockAudio);
+      window.removeEventListener('keydown', unlockAudio);
+    };
+    // Intentionally run only once after mount.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
     syncViewportMode();
     window.addEventListener('resize', syncViewportMode);
     window.addEventListener('orientationchange', syncViewportMode);
@@ -128,13 +152,19 @@ export default function App(): React.JSX.Element {
     runtime.setGraphicsQuality(graphicsQuality);
     runtime.setLookSensitivity(lookSensitivity);
     runtime.setFov(fov);
+    runtime.setSfxVolume(sfxVolume);
+    runtime.setMusicVolume(musicVolume);
     runtime.setTouchControlsActive(touchControls);
-  }, [fov, graphicsQuality, lookSensitivity, touchControls]);
+  }, [fov, graphicsQuality, lookSensitivity, musicVolume, sfxVolume, touchControls]);
 
   const connected = connectionStatus === 'connected';
   const connecting = connectionStatus === 'connecting';
   const backendConnected = connected;
   const backendPingMs = null;
+
+  useEffect(() => {
+    runtimeRef.current?.setLobbyMusicActive(!connected);
+  }, [connected]);
 
   useEffect(() => {
     pausedRef.current = paused;
@@ -152,7 +182,9 @@ export default function App(): React.JSX.Element {
 
   const resumeFromPause = useCallback((deferPointerLock = false): void => {
     setPaused(false);
+    setPauseView('pause');
     runtimeRef.current?.setPaused(false);
+    runtimeRef.current?.unlockAudio();
     if (deferPointerLock) {
       resumeOnEscapeKeyupRef.current = true;
       return;
@@ -163,6 +195,7 @@ export default function App(): React.JSX.Element {
   useEffect(() => {
     if (!connected) {
       setPaused(false);
+      setPauseView('pause');
       setChatOpen(false);
       setChatDraft('');
       runtimeRef.current?.setPaused(false);
@@ -195,6 +228,7 @@ export default function App(): React.JSX.Element {
       }
 
       setPaused(true);
+      setPauseView('pause');
       runtimeRef.current?.setPaused(true);
     };
 
@@ -333,7 +367,8 @@ export default function App(): React.JSX.Element {
     () => ({
       localIdentity,
       health: localPlayer.health,
-      ammo: localPlayer.ammo,
+      ammo: magAmmo,
+      reserveAmmo,
       localKills: localMeta?.kills ?? 0,
       localDeaths: localMeta?.deaths ?? 0,
       match,
@@ -363,7 +398,8 @@ export default function App(): React.JSX.Element {
       hitmarkerVisible,
       killFeed,
       localIdentity,
-      localPlayer.ammo,
+      magAmmo,
+      reserveAmmo,
       localPlayer.health,
       localMeta?.deaths,
       localMeta?.kills,
@@ -384,6 +420,7 @@ export default function App(): React.JSX.Element {
     if (!runtime) {
       return;
     }
+    runtime.unlockAudio();
 
     const targetRoomCode = normalizeRoomCode(explicitRoomCode ?? roomCode);
     if (targetRoomCode !== roomCode) {
@@ -439,15 +476,23 @@ export default function App(): React.JSX.Element {
       <PauseOverlay
         visible={paused && connected}
         roomCode={roomCode}
+        view={pauseView}
         graphicsQuality={graphicsQuality}
         lookSensitivity={lookSensitivity}
         fov={fov}
+        sfxVolume={sfxVolume}
+        musicVolume={musicVolume}
         onGraphicsQualityChange={setGraphicsQuality}
         onLookSensitivityChange={setLookSensitivity}
         onFovChange={setFov}
+        onSfxVolumeChange={setSfxVolume}
+        onMusicVolumeChange={setMusicVolume}
+        onOpenSettings={() => setPauseView('settings')}
+        onCloseSettings={() => setPauseView('pause')}
         onResume={resumeFromPause}
         onDisconnect={() => {
           setPaused(false);
+          setPauseView('pause');
           runtimeRef.current?.disconnect();
         }}
       />

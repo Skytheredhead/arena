@@ -238,7 +238,21 @@ export const simulatePlayerTick = (
   next.velocity.x = resolved.velocity.x;
   next.velocity.z = resolved.velocity.z;
 
-  const proposedY = next.position.y + next.velocity.y * dtSeconds;
+  let proposedY = next.position.y + next.velocity.y * dtSeconds;
+  if (next.velocity.y > 0 && collidesAt(next.position.x, proposedY, next.position.z)) {
+    let low = next.position.y;
+    let high = proposedY;
+    for (let index = 0; index < 8; index += 1) {
+      const midpoint = (low + high) * 0.5;
+      if (collidesAt(next.position.x, midpoint, next.position.z)) {
+        high = midpoint;
+      } else {
+        low = midpoint;
+      }
+    }
+    proposedY = low;
+    next.velocity.y = 0;
+  }
   const groundHeight = groundHeightAt(next.position.x, next.position.z, next.position.y);
 
   if (proposedY <= groundHeight) {

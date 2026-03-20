@@ -13,6 +13,7 @@ interface FrameInput {
   scoped: boolean;
   scoreboardHeld: boolean;
   wantsFire: boolean;
+  wantsReload: boolean;
 }
 
 export class InputController {
@@ -24,6 +25,7 @@ export class InputController {
   private virtualMove = { x: 0, z: 0 };
   private virtualLook = { x: 0, y: 0 };
   private virtualFireHeld = false;
+  private reloadQueued = false;
 
   constructor(private readonly element: HTMLElement) {
     this.attach();
@@ -60,6 +62,7 @@ export class InputController {
     this.virtualMove = { x: 0, z: 0 };
     this.virtualLook = { x: 0, y: 0 };
     this.virtualFireHeld = false;
+    this.reloadQueued = false;
   }
 
   setLookSensitivity(next: number): void {
@@ -165,6 +168,9 @@ export class InputController {
     if (event.code === SCOREBOARD_KEY) {
       event.preventDefault();
     }
+    if (event.code === 'KeyR' && !event.repeat) {
+      this.reloadQueued = true;
+    }
 
     this.pressed.add(event.code);
   };
@@ -213,8 +219,17 @@ export class InputController {
       wantsFire:
         this.virtualFireHeld ||
         (this.fireHeld &&
-          (this.touchControlsActive || document.pointerLockElement === this.element))
+          (this.touchControlsActive || document.pointerLockElement === this.element)),
+      wantsReload: this.consumeReloadQueued()
     };
+  }
+
+  private consumeReloadQueued(): boolean {
+    if (!this.reloadQueued) {
+      return false;
+    }
+    this.reloadQueued = false;
+    return true;
   }
 
   buildInputCommand(
