@@ -8,6 +8,11 @@ import { LoadingOverlay } from './ui/components/LoadingOverlay';
 import { useGameStore } from './state/gameStore';
 import { GameRuntime } from './app/GameRuntime';
 import { normalizeRoomCode } from './utils/roomCode';
+import {
+  getBackendTarget,
+  setBackendTarget,
+  type BackendTarget
+} from './utils/env';
 import { CyberGlobalStyles, CyberScanFx } from './ui/cyberTheme';
 import { fetchOpenRoomsSnapshot } from './netcode/roomDirectory';
 import {
@@ -38,6 +43,7 @@ export default function App(): React.JSX.Element {
   const [authSnapshot, setAuthSnapshot] = useState<AuthSnapshot | null>(null);
   const [authBusy, setAuthBusy] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
+  const [backendTarget, setBackendTargetState] = useState<BackendTarget>(() => getBackendTarget());
   const connectionStatus = useGameStore(state => state.connectionStatus);
   const connectionError = useGameStore(state => state.connectionError);
   const nickname = useGameStore(state => state.nickname);
@@ -557,6 +563,14 @@ export default function App(): React.JSX.Element {
     } finally { setAuthBusy(false); }
   }, []);
 
+  const handleBackendTargetChange = useCallback((target: BackendTarget): void => {
+    setBackendTarget(target);
+    setBackendTargetState(target);
+    setLocalPing(null);
+    setLocalPingJitter(null);
+    useGameStore.getState().setConnection('disconnected', null);
+  }, [setLocalPing, setLocalPingJitter]);
+
   return (
     <div className="cyber-root relative h-full w-full overflow-hidden bg-[#020b14]">
       <CyberGlobalStyles />
@@ -571,6 +585,7 @@ export default function App(): React.JSX.Element {
         backendConnected={backendConnected}
         backendPingMs={backendPingMs}
         backendPingJitterMs={localPingJitterMs}
+        backendTarget={backendTarget}
         openRooms={openRooms}
         connectionError={runtimeError ?? connectionError}
         authError={authError}
@@ -587,6 +602,7 @@ export default function App(): React.JSX.Element {
         onCreateRoom={() => connectToRoom(true)}
         onJoinRoom={() => connectToRoom(false)}
         onJoinOpenRoom={code => connectToRoom(false, code)}
+        onBackendTargetChange={handleBackendTargetChange}
       />
       <LoadingOverlay
         visible={connecting}

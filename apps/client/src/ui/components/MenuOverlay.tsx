@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { normalizeRoomCode } from '../../utils/roomCode';
+import type { BackendTarget } from '../../utils/env';
 import type { RoomView } from '../../state/gameStore';
 import type { AccountStatsView } from '../../netcode/authClient';
 import {
@@ -20,6 +21,7 @@ interface MenuOverlayProps {
   backendConnected: boolean;
   backendPingMs: number | null;
   backendPingJitterMs: number | null;
+  backendTarget: BackendTarget;
   openRooms: RoomView[];
   connectionError: string | null;
   authError: string | null;
@@ -36,6 +38,7 @@ interface MenuOverlayProps {
   onCreateRoom: () => void;
   onJoinRoom: () => void;
   onJoinOpenRoom: (code: string) => void;
+  onBackendTargetChange: (target: BackendTarget) => void;
 }
 
 const formatDuration = (ticks: number): string => {
@@ -55,6 +58,7 @@ export function MenuOverlay({
   backendConnected,
   backendPingMs,
   backendPingJitterMs,
+  backendTarget,
   openRooms,
   connectionError,
   authError,
@@ -70,7 +74,8 @@ export function MenuOverlay({
   onRoomCodeChange,
   onCreateRoom,
   onJoinRoom,
-  onJoinOpenRoom
+  onJoinOpenRoom,
+  onBackendTargetChange
 }: MenuOverlayProps): React.JSX.Element | null {
   const [authPanel, setAuthPanel] = useState<'none' | 'login' | 'register' | 'account' | 'stats'>('none');
   const [loginIdentifier, setLoginIdentifier] = useState('');
@@ -111,7 +116,26 @@ export function MenuOverlay({
         }}
       >
         {/* Connection status */}
-        <div style={{ display: 'flex', gap: '14px', alignItems: 'center', fontFamily: CYBER.font, fontSize: '10px', letterSpacing: '2px' }}>
+        <div style={{ display: 'flex', gap: '14px', flexWrap: 'wrap', alignItems: 'center', fontFamily: CYBER.font, fontSize: '10px', letterSpacing: '2px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <span style={{ color: CYBER.textDim, letterSpacing: '1px' }}>BACKEND</span>
+            <CyberButton
+              small
+              primary={backendTarget === 'current'}
+              onClick={() => onBackendTargetChange('current')}
+              disabled={busy}
+            >
+              Current
+            </CyberButton>
+            <CyberButton
+              small
+              primary={backendTarget === 'arenaapi2'}
+              onClick={() => onBackendTargetChange('arenaapi2')}
+              disabled={busy}
+            >
+              arenaapi2.playit.plus
+            </CyberButton>
+          </div>
           {/* Status dot */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
             <div style={{
