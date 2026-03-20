@@ -300,6 +300,7 @@ export class SpacetimeBridge {
     connection.db.room.onDelete((_ctx, row) => useGameStore.getState().removeRoom(row.code));
     connection.db.player.onInsert((_ctx, row) => this.handlePlayerRow(row));
     connection.db.player.onUpdate((_ctx, row) => this.handlePlayerRow(row));
+    connection.db.player.onDelete((_ctx, row) => this.handlePlayerDeleteRow(row));
     connection.db.player_state.onInsert((_ctx, row) => this.handlePlayerStateRow(row));
     connection.db.player_state.onUpdate((_ctx, row) => this.handlePlayerStateRow(row));
     connection.db.weapon_state.onInsert((_ctx, row) => this.handleWeaponStateRow(row));
@@ -365,6 +366,17 @@ export class SpacetimeBridge {
       store.setPlayerPing(identity, null);
       this.remoteArrivalOffsetMs.delete(identity);
     }
+  }
+
+  private handlePlayerDeleteRow(row: PlayerRow): void {
+    const identity = identityToString(row.identity);
+    if (identity === this.localIdentity) {
+      return;
+    }
+    const store = useGameStore.getState();
+    store.removeRemotePlayer(identity);
+    store.setPlayerPing(identity, null);
+    this.remoteArrivalOffsetMs.delete(identity);
   }
 
   private handlePlayerStateRow(row: PlayerStateRow): void {
@@ -598,12 +610,25 @@ export class SpacetimeBridge {
     if (next.serverTick > previous.serverTick) {
       return true;
     }
+    const deathTransition = previous.alive && !next.alive;
+    if (deathTransition) {
+      return true;
+    }
+
+    const respawnTransition =
+      !previous.alive && next.alive && next.respawnTick > previous.respawnTick;
+    if (respawnTransition) {
+      return true;
+    }
+
     if (!previous.alive && next.alive) {
       return false;
     }
+
     if (next.health > previous.health && !next.alive) {
       return false;
     }
+
     return next.lastProcessedInput >= previous.lastProcessedInput;
   }
 

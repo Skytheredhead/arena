@@ -20,12 +20,18 @@ const lerpAngle = (start: number, end: number, alpha: number): number => {
 
 export class SnapshotBuffer {
   private readonly samples: BufferedSnapshot[] = [];
+  private lastPushAtMs = 0;
 
   size(): number {
     return this.samples.length;
   }
 
+  lastPushAtMsValue(): number {
+    return this.lastPushAtMs;
+  }
+
   push(state: RemotePlayerState): void {
+    this.lastPushAtMs = performance.now();
     const last = this.samples.at(-1);
     if (last && state.serverTimeMs < last.state.serverTimeMs) {
       return;

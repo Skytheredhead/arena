@@ -162,6 +162,7 @@ export function MenuOverlay({
           top: 0,
           left: 0,
           right: 0,
+          zIndex: 12,
           borderBottom: `1px solid ${CYBER.border}`,
           background: 'rgba(2,11,20,0.95)',
           backdropFilter: 'blur(12px)',
@@ -235,7 +236,7 @@ export function MenuOverlay({
             top: '86px',
             right: '24px',
             width: 'min(360px, 92vw)',
-            zIndex: 5
+            zIndex: 14
           }}
         >
           <CyberPanel style={{ padding: '14px', background: 'rgba(0,10,20,0.92)', backdropFilter: 'blur(8px)' }}>
@@ -380,7 +381,7 @@ export function MenuOverlay({
             position: 'absolute',
             right: '18px',
             bottom: '18px',
-            zIndex: 8
+            zIndex: 14
           }}
         >
           <CyberButton
@@ -397,7 +398,7 @@ export function MenuOverlay({
       ) : null}
 
       <div
-        className="pointer-events-auto"
+        className="pointer-events-none"
         style={{
           position: 'relative',
           zIndex: 2,

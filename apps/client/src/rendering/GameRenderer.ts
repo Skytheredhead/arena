@@ -306,15 +306,15 @@ export class GameRenderer {
     root.add(leftArmPivot);
 
     const rightArmPivot = new THREE.Group();
-    rightArmPivot.position.set(0.39, 1.44, 0);
+    rightArmPivot.position.set(0.37, 1.43, -0.02);
     const rightArm = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.62, 0.18), skin);
     rightArm.position.set(0, -0.31, 0);
     rightArm.castShadow = true;
     rightArm.receiveShadow = true;
     rightArmPivot.add(rightArm);
     const heldGun = this.createRemoteGunModel();
-    heldGun.position.set(-0.04, -0.34, -0.2);
-    heldGun.rotation.set(-0.12, -0.06, 0.06);
+    heldGun.position.set(-0.1, -0.36, -0.3);
+    heldGun.rotation.set(-0.22, -0.03, 0.02);
     rightArmPivot.add(heldGun);
     root.add(rightArmPivot);
 
@@ -571,8 +571,12 @@ export class GameRenderer {
       avatar.head.rotation.x = player.pitch * 0.35;
       avatar.leftLeg.rotation.x = strideSwing;
       avatar.rightLeg.rotation.x = -strideSwing;
-      avatar.leftArm.rotation.x = armSwing;
-      avatar.rightArm.rotation.x = -armSwing * 0.55 - 0.52;
+      avatar.leftArm.rotation.x = armSwing * 0.45 - 0.22;
+      avatar.leftArm.rotation.y = 0.12;
+      avatar.leftArm.rotation.z = -0.06;
+      avatar.rightArm.rotation.x = -0.86 - armSwing * 0.26;
+      avatar.rightArm.rotation.y = -0.16;
+      avatar.rightArm.rotation.z = 0.1;
     }
 
     for (const [identity, avatar] of this.remotePlayers) {

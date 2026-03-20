@@ -43,6 +43,7 @@ export class GameRuntime {
   private static readonly FOOTSTEP_MIN_INTERVAL_MS = 430;
   private static readonly AMMO_STALE_BUMP_IGNORE_MS = 420;
   private static readonly PING_AVERAGE_WINDOW_MS = 5_000;
+  private static readonly REMOTE_BUFFER_STALE_MS = 1_800;
   private readonly renderer: GameRenderer;
   private readonly input: InputController;
   private readonly rifle = new RifleController();
@@ -81,6 +82,7 @@ export class GameRuntime {
   private crouchAmount = 0;
   private lastFootstepAt = 0;
   private lastLocalShotAt = -1000;
+  private deathViewState: LocalPlayerState | null = null;
 
   constructor(mount: HTMLElement) {
     this.renderer = new GameRenderer(mount);
@@ -234,6 +236,7 @@ export class GameRuntime {
     this.walkStrideDistance = 0;
     this.crouchAmount = 0;
     this.lastFootstepAt = 0;
+    this.deathViewState = null;
     this.applyDisplayedAmmo();
   }
 
@@ -245,6 +248,13 @@ export class GameRuntime {
       this.prediction = new PredictionController(state);
       this.localCorrectionOffset = { x: 0, y: 0, z: 0 };
       this.syncMagazineFromTotal(state.ammo);
+      this.deathViewState = state.alive
+        ? null
+        : {
+            ...state,
+            position: { ...state.position },
+            velocity: { x: 0, y: 0, z: 0 }
+          };
       useGameStore.getState().setLocalPlayer(state);
       useGameStore.getState().setPredictionDebug(this.prediction.getDebugState());
       return;
@@ -267,6 +277,17 @@ export class GameRuntime {
         z: this.localCorrectionOffset.z + correction.z
       };
     }
+
+    if (before.alive && !reconciled.alive) {
+      this.deathViewState = {
+        ...reconciled,
+        position: { ...reconciled.position },
+        velocity: { x: 0, y: 0, z: 0 }
+      };
+    } else if (!before.alive && reconciled.alive) {
+      this.deathViewState = null;
+    }
+
     useGameStore.getState().setLocalPlayer(reconciled);
     useGameStore.getState().setPredictionDebug(this.prediction.getDebugState());
   }
@@ -436,7 +457,8 @@ export class GameRuntime {
     store.setScoreboardOpen(frameInput.scoreboardHeld);
     store.setScoped(frameInput.scoped);
 
-    if (this.prediction && !this.paused) {
+    const predictedForLook = this.prediction?.getState();
+    if (this.prediction && predictedForLook && !this.paused && predictedForLook.alive) {
       const look = this.input.consumeLook();
       const lookStick = this.input.getVirtualLook();
       if (lookStick.x !== 0 || lookStick.y !== 0) {
@@ -465,9 +487,17 @@ export class GameRuntime {
     const remotePlayers: RemotePlayerState[] = [];
     for (const [identity, buffer] of this.remoteBuffers) {
       const meta = useGameStore.getState().players[identity];
+      const staleBuffer = now - buffer.lastPushAtMsValue() > GameRuntime.REMOTE_BUFFER_STALE_MS;
+      if (staleBuffer) {
+        this.remoteBuffers.delete(identity);
+        useGameStore.getState().removeRemotePlayer(identity);
+        useGameStore.getState().setPlayerPing(identity, null);
+        continue;
+      }
       if (meta && (!meta.connected || !meta.roomCode)) {
         this.remoteBuffers.delete(identity);
         useGameStore.getState().removeRemotePlayer(identity);
+        useGameStore.getState().setPlayerPing(identity, null);
         continue;
       }
 
@@ -559,6 +589,16 @@ export class GameRuntime {
       return useGameStore.getState().localPlayer;
     }
 
+    if (!predicted.alive && this.deathViewState) {
+      return {
+        ...predicted,
+        position: { ...this.deathViewState.position },
+        velocity: { ...this.deathViewState.velocity },
+        yaw: this.deathViewState.yaw,
+        pitch: this.deathViewState.pitch
+      };
+    }
+
     const partialTickSeconds = this.accumulatorMs / 1000;
     if (partialTickSeconds <= 0) {
       return predicted;
@@ -600,6 +640,9 @@ export class GameRuntime {
 
     const frameInput = this.input.getFrameInput();
     const predicted = this.prediction.getState();
+    if (!predicted.alive) {
+      return;
+    }
     const command = this.input.buildInputCommand(++this.sequence, predicted.yaw, predicted.pitch);
     this.pendingInputSentAt.set(command.sequence, now);
     if (this.pendingInputSentAt.size > 256) {
