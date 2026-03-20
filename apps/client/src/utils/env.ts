@@ -36,13 +36,21 @@ export const SPACETIMEDB_DATABASE =
 
 export const getBackendTarget = (): BackendTarget => {
   if (typeof window === 'undefined') return 'current';
-  const stored = window.localStorage.getItem(BACKEND_TARGET_STORAGE_KEY);
-  return stored === 'arenaapi2' ? 'arenaapi2' : 'current';
+  try {
+    const stored = window.localStorage.getItem(BACKEND_TARGET_STORAGE_KEY);
+    return stored === 'arenaapi2' ? 'arenaapi2' : 'current';
+  } catch {
+    return 'current';
+  }
 };
 
 export const setBackendTarget = (target: BackendTarget): void => {
   if (typeof window === 'undefined') return;
-  window.localStorage.setItem(BACKEND_TARGET_STORAGE_KEY, target);
+  try {
+    window.localStorage.setItem(BACKEND_TARGET_STORAGE_KEY, target);
+  } catch {
+    // Ignore storage write failures (private mode/storage restrictions).
+  }
 };
 
 export const getSpacetimeUriForTarget = (target: BackendTarget): string =>
@@ -51,5 +59,11 @@ export const getSpacetimeUriForTarget = (target: BackendTarget): string =>
 export const getBackendTargetLabel = (target: BackendTarget): string =>
   target === 'arenaapi2' ? ARENAAPI2_HOST : 'Current';
 
-export const getSpacetimeUriCandidates = (): string[] =>
-  Array.from(new Set([getSpacetimeUriForTarget(getBackendTarget())]));
+export const getSpacetimeUriCandidates = (): string[] => {
+  const selected = getSpacetimeUriForTarget(getBackendTarget());
+  // Safety fallback: if selected endpoint is down/misconfigured, retry the default backend.
+  if (selected === SPACETIMEDB_REMOTE_URI) {
+    return [selected];
+  }
+  return Array.from(new Set([selected, SPACETIMEDB_REMOTE_URI]));
+};

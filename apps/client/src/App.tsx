@@ -564,12 +564,12 @@ export default function App(): React.JSX.Element {
   }, []);
 
   const handleBackendTargetChange = useCallback((target: BackendTarget): void => {
-    setBackendTarget(target);
-    setBackendTargetState(target);
-    setLocalPing(null);
-    setLocalPingJitter(null);
-    useGameStore.getState().setConnection('disconnected', null);
-  }, [setLocalPing, setLocalPingJitter]);
+    setBackendTargetState(current => {
+      if (current === target) return current;
+      setBackendTarget(target);
+      return target;
+    });
+  }, []);
 
   return (
     <div className="cyber-root relative h-full w-full overflow-hidden bg-[#020b14]">

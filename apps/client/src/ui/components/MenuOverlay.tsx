@@ -84,6 +84,8 @@ export function MenuOverlay({
   const [registerUsername, setRegisterUsername] = useState('');
   const [registerPassword, setRegisterPassword] = useState('');
   const [hoveredRoom, setHoveredRoom] = useState<string | null>(null);
+  const usingPlayitBackend = backendTarget === 'arenaapi2';
+  const nextBackendTarget: BackendTarget = usingPlayitBackend ? 'current' : 'arenaapi2';
 
   useEffect(() => {
     if (authLoggedIn && (authPanel === 'login' || authPanel === 'register')) {
@@ -117,25 +119,56 @@ export function MenuOverlay({
       >
         {/* Connection status */}
         <div style={{ display: 'flex', gap: '14px', flexWrap: 'wrap', alignItems: 'center', fontFamily: CYBER.font, fontSize: '10px', letterSpacing: '2px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <span style={{ color: CYBER.textDim, letterSpacing: '1px' }}>BACKEND</span>
-            <CyberButton
-              small
-              primary={backendTarget === 'current'}
-              onClick={() => onBackendTargetChange('current')}
-              disabled={busy}
+          <button
+            type="button"
+            onClick={() => onBackendTargetChange(nextBackendTarget)}
+            disabled={busy}
+            aria-label="Toggle backend endpoint"
+            aria-checked={usingPlayitBackend}
+            role="switch"
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '8px',
+              background: 'transparent',
+              border: `1px solid ${CYBER.border}`,
+              borderRadius: '999px',
+              padding: '3px 9px 3px 5px',
+              color: CYBER.textBright,
+              fontFamily: CYBER.font,
+              fontSize: '10px',
+              letterSpacing: '1px',
+              cursor: busy ? 'not-allowed' : 'pointer',
+              opacity: busy ? 0.55 : 1,
+            }}
+          >
+            <span
+              style={{
+                width: '32px',
+                height: '16px',
+                borderRadius: '999px',
+                border: `1px solid ${usingPlayitBackend ? CYBER.a : CYBER.border}`,
+                background: usingPlayitBackend ? `${CYBER.a}22` : 'rgba(255,255,255,0.04)',
+                position: 'relative',
+                transition: 'all .2s ease',
+              }}
             >
-              Current
-            </CyberButton>
-            <CyberButton
-              small
-              primary={backendTarget === 'arenaapi2'}
-              onClick={() => onBackendTargetChange('arenaapi2')}
-              disabled={busy}
-            >
-              arenaapi2.playit.plus
-            </CyberButton>
-          </div>
+              <span
+                style={{
+                  position: 'absolute',
+                  top: '1px',
+                  left: usingPlayitBackend ? '16px' : '1px',
+                  width: '12px',
+                  height: '12px',
+                  borderRadius: '50%',
+                  background: usingPlayitBackend ? CYBER.a : CYBER.textDim,
+                  boxShadow: usingPlayitBackend ? `0 0 8px ${CYBER.a}` : 'none',
+                  transition: 'all .2s ease',
+                }}
+              />
+            </span>
+            <span>{usingPlayitBackend ? 'arenaapi2.playit.plus' : 'Current'}</span>
+          </button>
           {/* Status dot */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
             <div style={{
@@ -283,10 +316,10 @@ export function MenuOverlay({
                       ['Matches Started',  String(authStats.matchesStarted)],
                       ['Respawns',         String(authStats.respawns)],
                     ].map(([label, val]) => (
-                      <>
+                      <div key={label} style={{ display: 'contents' }}>
                         <div style={{ color: CYBER.textBright }}>{label}</div>
                         <div style={{ color: CYBER.textBright, textAlign: 'right', fontFamily: "'Orbitron',var(--font)", fontSize: '11px' }}>{val}</div>
-                      </>
+                      </div>
                     ))}
                   </div>
                 ) : (
