@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { ARENA_BLOCKS, ARENA_HALF_SIZE } from '@arena/shared';
 
-const MAP_MODEL_URL = '/Map1.glb';
+const MAP_MODEL_URL = '/Map2.glb';
 
 const buildFallbackArena = (): THREE.Group => {
   const group = new THREE.Group();
