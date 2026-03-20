@@ -371,9 +371,72 @@ export function CyberBar({
   );
 }
 
-export function PingLabel({ ping }: { ping: number | null }): React.JSX.Element {
-  const color = ping == null ? CYBER.textDim : ping < 50 ? CYBER.ok : ping < 100 ? CYBER.warn : CYBER.danger;
-  return <span style={{ color, fontSize: '11px', fontFamily: CYBER.font }}>{ping == null ? 'N/A' : `${ping}ms`}</span>;
+const pingColor = (ping: number | null, jitter: number | null): string => {
+  if (jitter != null) {
+    if (jitter > 24) {
+      return CYBER.danger;
+    }
+    if (jitter > 12) {
+      return CYBER.warn;
+    }
+    return CYBER.ok;
+  }
+  if (ping == null) {
+    return CYBER.textDim;
+  }
+  if (ping < 50) {
+    return CYBER.ok;
+  }
+  if (ping < 100) {
+    return CYBER.warn;
+  }
+  return CYBER.danger;
+};
+
+export function PingLabel({
+  ping,
+  jitter
+}: {
+  ping: number | null;
+  jitter?: number | null;
+}): React.JSX.Element {
+  const color = pingColor(ping, jitter ?? null);
+  return (
+    <span
+      style={{
+        color,
+        fontSize: '11px',
+        fontFamily: CYBER.font,
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: '6px'
+      }}
+    >
+      <span
+        aria-hidden="true"
+        style={{
+          display: 'inline-flex',
+          alignItems: 'flex-end',
+          gap: '1px',
+          height: '9px'
+        }}
+      >
+        {Array.from({ length: 4 }, (_, index) => (
+          <span
+            key={index}
+            style={{
+              width: '2px',
+              height: `${3 + index * 2}px`,
+              background: color,
+              opacity:
+                ping == null ? 0.25 : index <= Math.max(0, Math.min(3, Math.round((4 - Math.min(400, ping) / 100)))) ? 0.95 : 0.22
+            }}
+          />
+        ))}
+      </span>
+      <span>{ping == null ? 'N/A' : `${ping}ms`}</span>
+    </span>
+  );
 }
 
 export function CyberCrosshair({

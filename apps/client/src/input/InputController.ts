@@ -1,11 +1,10 @@
 import {
   CAMERA_SENSITIVITY,
   MAX_PITCH,
+  SCOPED_MOVE_SCALE,
   SCOREBOARD_KEY,
   type InputCommand
 } from '@arena/shared';
-
-const SCOPED_MOVE_FACTOR = 0.62;
 
 interface FrameInput {
   moveX: number;
@@ -254,7 +253,7 @@ export class InputController {
     pitch: number
   ): InputCommand {
     const frame = this.getFrameInput();
-    const scopedMoveScale = frame.scoped ? SCOPED_MOVE_FACTOR : 1;
+    const scopedMoveScale = frame.scoped ? SCOPED_MOVE_SCALE : 1;
     return {
       sequence,
       moveX: frame.moveX * scopedMoveScale,

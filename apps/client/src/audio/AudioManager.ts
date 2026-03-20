@@ -78,7 +78,7 @@ export class AudioManager {
     footstep: 380
   };
   private readonly lastPlayedAt: Partial<Record<SfxKey, number>> = {};
-  private readonly lobbyMusic = new Audio('/music/lobby_theme.wav');
+  private readonly lobbyMusic = new Audio('/music/lobby_theme.mp3');
   private sfxVolume = 0.85;
   private musicVolume = 0.35;
   private lobbyActive = false;

@@ -20,6 +20,10 @@ const CHAT_RATE_LIMIT_TICKS: u32 = 4;
 const MAX_IMPACT_MARKS_PER_ROOM: usize = 120;
 const CHAT_EVENT_TTL_TICKS: u32 = SERVER_TICK_RATE * 10;
 const CHAT_MESSAGE_MAX_CHARS: usize = 160;
+const AUTH_SESSION_TTL_TICKS: u32 = SERVER_TICK_RATE * 60 * 60 * 24 * 30;
+const PASSWORD_MIN_LEN: usize = 8;
+const PASSWORD_MAX_LEN: usize = 64;
+const AUTH_TOKEN_PEPPER: &str = "arena-basic-auth-v1";
 
 const PLAYER_HEIGHT: f32 = 1.8;
 const PLAYER_RADIUS: f32 = 0.4;
@@ -49,6 +53,7 @@ const MOVEMENT_SPREAD: f32 = 0.1;
 const HEALTH_REGEN_DELAY_TICKS: u32 = SERVER_TICK_RATE * 5;
 const HEALTH_REGEN_PER_TICK: f32 = 3.0 / SERVER_TICK_RATE as f32;
 const AMMO_PACK_AMOUNT: u16 = 6;
+const AMMO_PACK_TOP_OFF_THRESHOLD: u16 = 34;
 const AMMO_PACK_RESPAWN_TICKS: u32 = SERVER_TICK_RATE * 3;
 const AMMO_PACK_RADIUS: f32 = 0.95;
 const AMMO_PACK_ACTIVE_COUNT: usize = 12;
@@ -340,6 +345,66 @@ pub struct Player {
     connected: bool,
 }
 
+#[table(accessor = account)]
+pub struct Account {
+    #[primary_key]
+    #[auto_inc]
+    id: u32,
+    email: String,
+    username: String,
+    username_norm: String,
+    password_hash: u64,
+    created_tick: u32,
+    last_login_tick: u32,
+    login_count: u32,
+}
+
+#[table(accessor = account_session)]
+pub struct AccountSession {
+    #[primary_key]
+    token: String,
+    account_id: u32,
+    identity: Identity,
+    created_tick: u32,
+    expires_tick: u32,
+}
+
+#[table(accessor = player_auth, public)]
+pub struct PlayerAuth {
+    #[primary_key]
+    identity: Identity,
+    logged_in: bool,
+    account_id: Option<u32>,
+    username: Option<String>,
+    session_token: Option<String>,
+    updated_tick: u32,
+}
+
+#[table(accessor = account_stats, public)]
+pub struct AccountStats {
+    #[primary_key]
+    account_id: u32,
+    username: String,
+    times_played: u32,
+    total_play_time_ticks: u64,
+    total_lobby_time_ticks: u64,
+    kills: u32,
+    deaths: u32,
+    kdr: f32,
+    shots_fired: u32,
+    shots_hit: u32,
+    damage_dealt: u32,
+    damage_taken: u32,
+    ammo_collected: u32,
+    health_collected: u32,
+    chat_messages: u32,
+    rooms_created: u32,
+    rooms_joined: u32,
+    matches_started: u32,
+    respawns: u32,
+    last_seen_tick: u32,
+}
+
 #[table(accessor = player_input)]
 pub struct PlayerInput {
     #[primary_key]
@@ -601,6 +666,17 @@ pub fn client_connected(ctx: &ReducerContext) {
         });
     }
 
+    if ctx.db.player_auth().identity().find(ctx.sender()).is_none() {
+        ctx.db.player_auth().insert(PlayerAuth {
+            identity: ctx.sender(),
+            logged_in: false,
+            account_id: None,
+            username: None,
+            session_token: None,
+            updated_tick: current_tick,
+        });
+    }
+
     reset_player_input(ctx, ctx.sender(), current_tick);
 }
 
@@ -639,6 +715,153 @@ pub fn set_nickname(ctx: &ReducerContext, nickname: String) -> Result<(), String
 }
 
 #[reducer]
+pub fn register_account(
+    ctx: &ReducerContext,
+    email: String,
+    username: String,
+    password: String,
+) -> Result<(), String> {
+    let email = validate_email(email)?;
+    let username = validate_account_username(username)?;
+    validate_password(password.as_str())?;
+    let username_norm = username.to_ascii_lowercase();
+
+    if ctx
+        .db
+        .account()
+        .iter()
+        .any(|account| account.email.eq_ignore_ascii_case(email.as_str()))
+    {
+        return Err("Email already registered".to_string());
+    }
+    if ctx
+        .db
+        .account()
+        .iter()
+        .any(|account| account.username_norm == username_norm)
+    {
+        return Err("Username already taken".to_string());
+    }
+
+    let tick = current_tick(ctx);
+    let password_hash = hash_password(email.as_str(), password.as_str());
+    ctx.db.account().insert(Account {
+        id: 0,
+        email: email.clone(),
+        username: username.clone(),
+        username_norm,
+        password_hash,
+        created_tick: tick,
+        last_login_tick: tick,
+        login_count: 1,
+    });
+
+    let Some(account) = ctx
+        .db
+        .account()
+        .iter()
+        .filter(|candidate| candidate.email == email)
+        .max_by_key(|candidate| candidate.id)
+    else {
+        return Err("Unable to create account".to_string());
+    };
+
+    ensure_account_stats(ctx, account.id, account.username.as_str(), tick);
+    let session_token = issue_session_token(ctx, account.id, ctx.sender(), tick);
+    set_logged_in_auth(
+        ctx,
+        ctx.sender(),
+        account.id,
+        account.username.clone(),
+        Some(session_token),
+        tick,
+    );
+    Ok(())
+}
+
+#[reducer]
+pub fn login_account(
+    ctx: &ReducerContext,
+    identifier: String,
+    password: String,
+) -> Result<(), String> {
+    validate_password(password.as_str())?;
+    let lookup = normalize_identifier(identifier)?;
+
+    let Some(mut account) = find_account_by_identifier(ctx, lookup.as_str()) else {
+        return Err("Invalid credentials".to_string());
+    };
+
+    let expected_hash = hash_password(account.email.as_str(), password.as_str());
+    if account.password_hash != expected_hash {
+        return Err("Invalid credentials".to_string());
+    }
+
+    let tick = current_tick(ctx);
+    account.last_login_tick = tick;
+    account.login_count = account.login_count.saturating_add(1);
+    ctx.db.account().id().update(account.clone());
+    ensure_account_stats(ctx, account.id, account.username.as_str(), tick);
+
+    let session_token = issue_session_token(ctx, account.id, ctx.sender(), tick);
+    set_logged_in_auth(
+        ctx,
+        ctx.sender(),
+        account.id,
+        account.username.clone(),
+        Some(session_token),
+        tick,
+    );
+    Ok(())
+}
+
+#[reducer]
+pub fn login_with_session(ctx: &ReducerContext, session_token: String) -> Result<(), String> {
+    let token = session_token.trim();
+    if token.is_empty() {
+        return Err("Session token is required".to_string());
+    }
+
+    let tick = current_tick(ctx);
+    let Some(session) = ctx.db.account_session().token().find(token.to_string()) else {
+        return Err("Session not found".to_string());
+    };
+    if session.expires_tick <= tick {
+        ctx.db.account_session().token().delete(token.to_string());
+        return Err("Session expired".to_string());
+    }
+
+    let account = ctx
+        .db
+        .account()
+        .id()
+        .find(session.account_id)
+        .ok_or_else(|| "Account missing".to_string())?;
+    ctx.db.account_session().token().update(AccountSession {
+        identity: ctx.sender(),
+        expires_tick: tick.saturating_add(AUTH_SESSION_TTL_TICKS),
+        ..session
+    });
+    ensure_account_stats(ctx, account.id, account.username.as_str(), tick);
+    set_logged_in_auth(
+        ctx,
+        ctx.sender(),
+        account.id,
+        account.username.clone(),
+        Some(token.to_string()),
+        tick,
+    );
+    Ok(())
+}
+
+#[reducer]
+pub fn logout_account(ctx: &ReducerContext) -> Result<(), String> {
+    let tick = current_tick(ctx);
+    set_logged_out_auth(ctx, ctx.sender(), tick);
+    Ok(())
+}
+
+#[reducer]
 pub fn send_chat_message(ctx: &ReducerContext, message: String) -> Result<(), String> {
     enforce_rate_limit(
         ctx,
@@ -658,6 +881,9 @@ pub fn send_chat_message(ctx: &ReducerContext, message: String) -> Result<(), St
         sender_nickname: sender.nickname,
         message: sanitized,
         tick,
+    });
+    bump_stat_for_identity(ctx, ctx.sender(), |stats| {
+        stats.chat_messages = stats.chat_messages.saturating_add(1);
     });
     Ok(())
 }
@@ -697,6 +923,9 @@ pub fn create_room(ctx: &ReducerContext, room_code: String) -> Result<(), String
     });
     initialize_room_ammo_packs(ctx, &room_code, tick);
     initialize_room_health_packs(ctx, &room_code, tick);
+    bump_stat_for_identity(ctx, ctx.sender(), |stats| {
+        stats.rooms_created = stats.rooms_created.saturating_add(1);
+    });
     Ok(())
 }
 
@@ -784,6 +1013,10 @@ pub fn join_room(ctx: &ReducerContext, room_code: String) -> Result<(), String> 
         player_count: room.player_count.saturating_add(1),
         ..room
     });
+    bump_stat_for_identity(ctx, ctx.sender(), |stats| {
+        stats.rooms_joined = stats.rooms_joined.saturating_add(1);
+        stats.times_played = stats.times_played.saturating_add(1);
+    });
     Ok(())
 }
 
@@ -840,6 +1073,9 @@ pub fn start_match(ctx: &ReducerContext, room_code: String) -> Result<(), String
         remaining_ms: MATCH_DURATION_TICKS * SERVER_TICK_MS,
         round: match_state.round.saturating_add(1),
         ..match_state
+    });
+    bump_stat_for_identity(ctx, ctx.sender(), |stats| {
+        stats.matches_started = stats.matches_started.saturating_add(1);
     });
     Ok(())
 }
@@ -908,6 +1144,9 @@ pub fn fire_weapon(ctx: &ReducerContext, yaw: f32, pitch: f32, scoped: bool) -> 
     if weapon.ammo_in_mag == 0 {
         return Ok(());
     }
+    bump_stat_for_identity(ctx, ctx.sender(), |stats| {
+        stats.shots_fired = stats.shots_fired.saturating_add(1);
+    });
 
     let movement_speed = (state.vel_x * state.vel_x + state.vel_z * state.vel_z).sqrt();
     let movement_ratio = (movement_speed / WALK_SPEED).clamp(0.0, 1.0);
@@ -1015,6 +1254,9 @@ pub fn request_respawn(ctx: &ReducerContext) -> Result<(), String> {
     }
 
     respawn_player(ctx, ctx.sender(), room_code);
+    bump_stat_for_identity(ctx, ctx.sender(), |stats| {
+        stats.respawns = stats.respawns.saturating_add(1);
+    });
     Ok(())
 }
 
@@ -1025,6 +1267,7 @@ pub fn sim_tick(ctx: &ReducerContext, _schedule: SimTickSchedule) -> Result<(), 
     }
 
     let tick = increment_tick(ctx);
+    prune_expired_sessions(ctx, tick);
     prune_empty_rooms(ctx);
 
     for match_state in ctx.db.match_state().iter() {
@@ -1097,6 +1340,7 @@ pub fn sim_tick(ctx: &ReducerContext, _schedule: SimTickSchedule) -> Result<(), 
     process_ammo_packs(ctx, tick);
     process_health_packs(ctx, tick);
     prune_chat_events(ctx, tick);
+    accrue_time_stats(ctx, tick);
 
     Ok(())
 }
@@ -1165,6 +1409,268 @@ fn validate_chat_message(value: String) -> Result<String, String> {
     }
 
     Ok(censor_blocked_language(trimmed))
+}
+
+fn validate_email(value: String) -> Result<String, String> {
+    let email = value.trim().to_ascii_lowercase();
+    if email.len() < 5 || email.len() > 120 {
+        return Err("Email must be between 5 and 120 characters".to_string());
+    }
+    if !email.contains('@') || email.starts_with('@') || email.ends_with('@') {
+        return Err("Email must be valid".to_string());
+    }
+    if !email
+        .chars()
+        .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '@' | '.' | '_' | '+' | '-'))
+    {
+        return Err("Email contains unsupported characters".to_string());
+    }
+    Ok(email)
+}
+
+fn validate_account_username(value: String) -> Result<String, String> {
+    let username = value.trim();
+    if username.len() < 3 || username.len() > 16 {
+        return Err("Username must be 3-16 characters".to_string());
+    }
+    if !username
+        .chars()
+        .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '_' | '-'))
+    {
+        return Err("Username can only use letters, numbers, _ and -".to_string());
+    }
+    if contains_blocked_language(username) {
+        return Err("Username contains blocked language".to_string());
+    }
+    Ok(username.to_string())
+}
+
+fn validate_password(value: &str) -> Result<(), String> {
+    let password = value.trim();
+    if password.len() < PASSWORD_MIN_LEN || password.len() > PASSWORD_MAX_LEN {
+        return Err(format!(
+            "Password must be {PASSWORD_MIN_LEN}-{PASSWORD_MAX_LEN} characters"
+        ));
+    }
+    if password.chars().any(|ch| ch.is_control()) {
+        return Err("Password contains unsupported characters".to_string());
+    }
+    Ok(())
+}
+
+fn normalize_identifier(value: String) -> Result<String, String> {
+    let normalized = value.trim().to_ascii_lowercase();
+    if normalized.is_empty() {
+        return Err("Email or username is required".to_string());
+    }
+    Ok(normalized)
+}
+
+fn hash64(bytes: &[u8]) -> u64 {
+    let mut hash = 0xcbf29ce484222325u64;
+    for byte in bytes {
+        hash ^= *byte as u64;
+        hash = hash.wrapping_mul(0x100000001b3);
+    }
+    hash
+}
+
+fn hash_password(email: &str, password: &str) -> u64 {
+    let payload = format!("{AUTH_TOKEN_PEPPER}:{email}:{password}");
+    hash64(payload.as_bytes())
+}
+
+fn find_account_by_identifier(ctx: &ReducerContext, identifier: &str) -> Option<Account> {
+    if identifier.contains('@') {
+        return ctx
+            .db
+            .account()
+            .iter()
+            .find(|account| account.email.eq_ignore_ascii_case(identifier));
+    }
+
+    ctx.db
+        .account()
+        .iter()
+        .find(|account| account.username_norm == identifier)
+}
+
+fn compute_kdr(kills: u32, deaths: u32) -> f32 {
+    if deaths == 0 {
+        kills as f32
+    } else {
+        kills as f32 / deaths as f32
+    }
+}
+
+fn ensure_account_stats(ctx: &ReducerContext, account_id: u32, username: &str, tick: u32) {
+    if let Some(mut stats) = ctx.db.account_stats().account_id().find(account_id) {
+        if stats.username != username {
+            stats.username = username.to_string();
+            stats.last_seen_tick = tick;
+            ctx.db.account_stats().account_id().update(stats);
+        }
+        return;
+    }
+
+    ctx.db.account_stats().insert(AccountStats {
+        account_id,
+        username: username.to_string(),
+        times_played: 0,
+        total_play_time_ticks: 0,
+        total_lobby_time_ticks: 0,
+        kills: 0,
+        deaths: 0,
+        kdr: 0.0,
+        shots_fired: 0,
+        shots_hit: 0,
+        damage_dealt: 0,
+        damage_taken: 0,
+        ammo_collected: 0,
+        health_collected: 0,
+        chat_messages: 0,
+        rooms_created: 0,
+        rooms_joined: 0,
+        matches_started: 0,
+        respawns: 0,
+        last_seen_tick: tick,
+    });
+}
+
+fn issue_session_token(
+    ctx: &ReducerContext,
+    account_id: u32,
+    identity: Identity,
+    tick: u32,
+) -> String {
+    let entropy = format!(
+        "{AUTH_TOKEN_PEPPER}:{identity}:{account_id}:{tick}:{}",
+        tick.wrapping_mul(971)
+    );
+    let token = format!(
+        "{:016x}{:016x}",
+        hash64(entropy.as_bytes()),
+        hash64(format!("{entropy}:session").as_bytes())
+    );
+    let expires_tick = tick.saturating_add(AUTH_SESSION_TTL_TICKS);
+
+    ctx.db.account_session().insert(AccountSession {
+        token: token.clone(),
+        account_id,
+        identity,
+        created_tick: tick,
+        expires_tick,
+    });
+
+    let stale_tokens: Vec<String> = ctx
+        .db
+        .account_session()
+        .iter()
+        .filter(|session| {
+            session.account_id == account_id
+                && session.identity == identity
+                && session.token != token
+        })
+        .map(|session| session.token)
+        .collect();
+    for stale in stale_tokens {
+        ctx.db.account_session().token().delete(stale);
+    }
+
+    token
+}
+
+fn set_logged_in_auth(
+    ctx: &ReducerContext,
+    identity: Identity,
+    account_id: u32,
+    username: String,
+    session_token: Option<String>,
+    tick: u32,
+) {
+    let row = PlayerAuth {
+        identity,
+        logged_in: true,
+        account_id: Some(account_id),
+        username: Some(username),
+        session_token,
+        updated_tick: tick,
+    };
+    if ctx.db.player_auth().identity().find(identity).is_some() {
+        ctx.db.player_auth().identity().update(row);
+    } else {
+        ctx.db.player_auth().insert(row);
+    }
+}
+
+fn set_logged_out_auth(ctx: &ReducerContext, identity: Identity, tick: u32) {
+    let row = PlayerAuth {
+        identity,
+        logged_in: false,
+        account_id: None,
+        username: None,
+        session_token: None,
+        updated_tick: tick,
+    };
+    if ctx.db.player_auth().identity().find(identity).is_some() {
+        ctx.db.player_auth().identity().update(row);
+    } else {
+        ctx.db.player_auth().insert(row);
+    }
+}
+
+fn bump_stat_for_identity<F>(ctx: &ReducerContext, identity: Identity, mutator: F)
+where
+    F: FnOnce(&mut AccountStats),
+{
+    let Some(auth) = ctx.db.player_auth().identity().find(identity) else {
+        return;
+    };
+    if !auth.logged_in {
+        return;
+    }
+    let Some(account_id) = auth.account_id else {
+        return;
+    };
+    let Some(mut stats) = ctx.db.account_stats().account_id().find(account_id) else {
+        return;
+    };
+    mutator(&mut stats);
+    stats.kdr = compute_kdr(stats.kills, stats.deaths);
+    stats.last_seen_tick = current_tick(ctx);
+    ctx.db.account_stats().account_id().update(stats);
+}
+
+fn prune_expired_sessions(ctx: &ReducerContext, tick: u32) {
+    let expired: Vec<String> = ctx
+        .db
+        .account_session()
+        .iter()
+        .filter(|session| session.expires_tick <= tick)
+        .map(|session| session.token)
+        .collect();
+    for token in expired {
+        ctx.db.account_session().token().delete(token);
+    }
+}
+
+fn accrue_time_stats(ctx: &ReducerContext, tick: u32) {
+    let players: Vec<Player> = ctx
+        .db
+        .player()
+        .iter()
+        .filter(|player| player.connected)
+        .collect();
+    for player in players {
+        bump_stat_for_identity(ctx, player.identity, |stats| {
+            if player.room_code.is_some() {
+                stats.total_play_time_ticks = stats.total_play_time_ticks.saturating_add(1);
+            } else {
+                stats.total_lobby_time_ticks = stats.total_lobby_time_ticks.saturating_add(1);
+            }
+            stats.last_seen_tick = tick;
+        });
+    }
 }
 
 fn contains_blocked_language(value: &str) -> bool {
@@ -2238,6 +2744,13 @@ fn apply_damage(
         tick,
         caused_death: lethal,
     });
+    bump_stat_for_identity(ctx, attacker_identity, |stats| {
+        stats.shots_hit = stats.shots_hit.saturating_add(1);
+        stats.damage_dealt = stats.damage_dealt.saturating_add(damage as u32);
+    });
+    bump_stat_for_identity(ctx, victim_identity, |stats| {
+        stats.damage_taken = stats.damage_taken.saturating_add(damage as u32);
+    });
 
     if lethal {
         victim_state.alive = false;
@@ -2254,6 +2767,14 @@ fn apply_damage(
         ctx.db.player().identity().update(Player {
             kills: attacker.kills.saturating_add(1),
             ..attacker
+        });
+        bump_stat_for_identity(ctx, attacker_identity, |stats| {
+            stats.kills = stats.kills.saturating_add(1);
+            stats.kdr = compute_kdr(stats.kills, stats.deaths);
+        });
+        bump_stat_for_identity(ctx, victim_identity, |stats| {
+            stats.deaths = stats.deaths.saturating_add(1);
+            stats.kdr = compute_kdr(stats.kills, stats.deaths);
         });
         ctx.db.kill_feed_event().insert(KillFeedEvent {
             id: 0,
@@ -2474,6 +2995,7 @@ fn process_ammo_packs(ctx: &ReducerContext, tick: u32) {
 
         candidates.sort_by(|left, right| left.1.total_cmp(&right.1));
         let mut collected = false;
+        let mut collected_by: Option<Identity> = None;
         for (identity, _) in candidates {
             let mut weapon = match ctx.db.weapon_state().identity().find(identity) {
                 Some(weapon) => weapon,
@@ -2481,7 +3003,7 @@ fn process_ammo_packs(ctx: &ReducerContext, tick: u32) {
                     ctx.db.weapon_state().insert(WeaponState {
                         identity,
                         room_code: Some(pack.room_code.clone()),
-                        ammo_in_mag: RIFLE_MAGAZINE,
+                        ammo_in_mag: 0,
                         next_ready_tick: tick,
                     });
                     match ctx.db.weapon_state().identity().find(identity) {
@@ -2503,16 +3025,26 @@ fn process_ammo_packs(ctx: &ReducerContext, tick: u32) {
                 continue;
             }
 
-            weapon.ammo_in_mag = weapon
-                .ammo_in_mag
-                .saturating_add(AMMO_PACK_AMOUNT)
-                .min(RIFLE_MAGAZINE);
+            weapon.ammo_in_mag = if weapon.ammo_in_mag >= AMMO_PACK_TOP_OFF_THRESHOLD {
+                RIFLE_MAGAZINE
+            } else {
+                weapon
+                    .ammo_in_mag
+                    .saturating_add(AMMO_PACK_AMOUNT)
+                    .min(RIFLE_MAGAZINE)
+            };
             ctx.db.weapon_state().identity().update(weapon);
             collected = true;
+            collected_by = Some(identity);
             break;
         }
 
         if collected {
+            if let Some(identity) = collected_by {
+                bump_stat_for_identity(ctx, identity, |stats| {
+                    stats.ammo_collected = stats.ammo_collected.saturating_add(1);
+                });
+            }
             pack.active = false;
             pack.respawn_tick = tick + AMMO_PACK_RESPAWN_TICKS;
             ctx.db.ammo_pack().id().update(pack);
@@ -2556,6 +3088,7 @@ fn process_health_packs(ctx: &ReducerContext, tick: u32) {
         }
 
         let mut collected = false;
+        let mut collected_by: Option<Identity> = None;
         let pickup_position = Vec3 {
             x: pack.x,
             y: pack.y,
@@ -2593,10 +3126,16 @@ fn process_health_packs(ctx: &ReducerContext, tick: u32) {
             player_state.server_tick = tick;
             ctx.db.player_state().identity().update(player_state);
             collected = true;
+            collected_by = Some(state.identity);
             break;
         }
 
         if collected {
+            if let Some(identity) = collected_by {
+                bump_stat_for_identity(ctx, identity, |stats| {
+                    stats.health_collected = stats.health_collected.saturating_add(1);
+                });
+            }
             pack.active = false;
             pack.respawn_tick = tick + HEALTH_PACK_RESPAWN_TICKS;
             ctx.db.health_pack().id().update(pack);

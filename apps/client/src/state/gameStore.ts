@@ -64,6 +64,7 @@ interface SessionState {
   sfxVolume: number;
   musicVolume: number;
   localPingMs: number | null;
+  localPingJitterMs: number | null;
   playerPings: Record<string, number | null>;
   scoreboardOpen: boolean;
   crosshairSpread: number;
@@ -102,6 +103,7 @@ interface SessionState {
   setSfxVolume: (value: number) => void;
   setMusicVolume: (value: number) => void;
   setLocalPing: (pingMs: number | null) => void;
+  setLocalPingJitter: (jitterMs: number | null) => void;
   setPlayerPing: (identity: string, pingMs: number | null) => void;
   consumeNearestAmmoPack: (
     roomCode: string | null,
@@ -151,6 +153,7 @@ export const useGameStore = create<SessionState>(set => ({
   sfxVolume: 0.85,
   musicVolume: 0.35,
   localPingMs: null,
+  localPingJitterMs: null,
   playerPings: {},
   scoreboardOpen: false,
   crosshairSpread: 0,
@@ -216,6 +219,7 @@ export const useGameStore = create<SessionState>(set => ({
       predictionDebug: initialPredictionDebug,
       rejectedShots: 0,
       localPingMs: null,
+      localPingJitterMs: null,
       playerPings: {},
       scoreboardOpen: false,
       crosshairSpread: 0,
@@ -373,6 +377,13 @@ export const useGameStore = create<SessionState>(set => ({
         return state;
       }
       return { localPingMs };
+    }),
+  setLocalPingJitter: localPingJitterMs =>
+    set(state => {
+      if (state.localPingJitterMs === localPingJitterMs) {
+        return state;
+      }
+      return { localPingJitterMs };
     }),
   setPlayerPing: (identity, pingMs) =>
     set(state => {

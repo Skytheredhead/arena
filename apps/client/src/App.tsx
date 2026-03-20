@@ -9,6 +9,14 @@ import { GameRuntime } from './app/GameRuntime';
 import { normalizeRoomCode } from './utils/roomCode';
 import { CyberGlobalStyles } from './ui/cyberTheme';
 import { fetchOpenRoomsSnapshot } from './netcode/roomDirectory';
+import {
+  type AccountStatsView,
+  type AuthSnapshot,
+  fetchAuthSnapshot,
+  loginAccount,
+  logoutAccount,
+  registerAccount
+} from './netcode/authClient';
 
 export default function App(): React.JSX.Element {
   const mountRef = useRef<HTMLDivElement | null>(null);
@@ -26,6 +34,9 @@ export default function App(): React.JSX.Element {
   const [chatDraft, setChatDraft] = useState('');
   const [chatBusy, setChatBusy] = useState(false);
   const [pauseView, setPauseView] = useState<'pause' | 'settings'>('pause');
+  const [authSnapshot, setAuthSnapshot] = useState<AuthSnapshot | null>(null);
+  const [authBusy, setAuthBusy] = useState(false);
+  const [authError, setAuthError] = useState<string | null>(null);
   const connectionStatus = useGameStore(state => state.connectionStatus);
   const connectionError = useGameStore(state => state.connectionError);
   const nickname = useGameStore(state => state.nickname);
@@ -48,6 +59,7 @@ export default function App(): React.JSX.Element {
   const sfxVolume = useGameStore(state => state.sfxVolume);
   const musicVolume = useGameStore(state => state.musicVolume);
   const localPingMs = useGameStore(state => state.localPingMs);
+  const localPingJitterMs = useGameStore(state => state.localPingJitterMs);
   const playerPings = useGameStore(state => state.playerPings);
   const setNickname = useGameStore(state => state.setNickname);
   const setRoomCode = useGameStore(state => state.setRoomCode);
@@ -57,7 +69,10 @@ export default function App(): React.JSX.Element {
   const setSfxVolume = useGameStore(state => state.setSfxVolume);
   const setMusicVolume = useGameStore(state => state.setMusicVolume);
   const setRoomDirectory = useGameStore(state => state.setRoomDirectory);
+  const setLocalPing = useGameStore(state => state.setLocalPing);
+  const setLocalPingJitter = useGameStore(state => state.setLocalPingJitter);
   const lastRoomListActivityRef = useRef(performance.now());
+  const lastLobbyPingMeasurementRef = useRef(0);
 
   const syncViewportMode = useCallback((): void => {
     const coarsePointer =
@@ -169,8 +184,47 @@ export default function App(): React.JSX.Element {
 
   const connected = connectionStatus === 'connected';
   const connecting = connectionStatus === 'connecting';
-  const backendConnected = connected;
+  const backendConnected = connected || localPingMs != null;
   const backendPingMs = localPingMs;
+  const authLoggedIn = authSnapshot?.loggedIn ?? false;
+  const authUsername = authSnapshot?.username ?? null;
+  const authStats: AccountStatsView | null = authSnapshot?.stats ?? null;
+
+  const refreshAuthSnapshot = useCallback(async (): Promise<void> => {
+    try {
+      const snapshot = await fetchAuthSnapshot();
+      setAuthSnapshot(snapshot);
+      setAuthError(null);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to reach auth backend';
+      setAuthError(message);
+    }
+  }, []);
+
+  useEffect(() => {
+    void refreshAuthSnapshot();
+  }, [refreshAuthSnapshot]);
+
+  useEffect(() => {
+    let cancelled = false;
+    let timeoutId: number | null = null;
+    const schedule = (): void => {
+      timeoutId = window.setTimeout(() => {
+        if (cancelled || document.visibilityState !== 'visible') {
+          schedule();
+          return;
+        }
+        void refreshAuthSnapshot().finally(schedule);
+      }, 20_000);
+    };
+    schedule();
+    return () => {
+      cancelled = true;
+      if (timeoutId != null) {
+        window.clearTimeout(timeoutId);
+      }
+    };
+  }, [refreshAuthSnapshot]);
 
   useEffect(() => {
     if (connected) {
@@ -204,13 +258,24 @@ export default function App(): React.JSX.Element {
         return;
       }
       inFlight = true;
+      const startedAt = performance.now();
       try {
         const snapshot = await fetchOpenRoomsSnapshot();
         if (!cancelled) {
           setRoomDirectory(snapshot);
+          const now = performance.now();
+          if (now - lastLobbyPingMeasurementRef.current >= 2_000) {
+            lastLobbyPingMeasurementRef.current = now;
+            setLocalPing(Math.max(1, Math.round(now - startedAt)));
+            setLocalPingJitter(null);
+          }
         }
       } catch {
         // Keep stale list until next successful poll.
+        if (!cancelled) {
+          setLocalPing(null);
+          setLocalPingJitter(null);
+        }
       } finally {
         inFlight = false;
         scheduleNext(computeDelayMs());
@@ -224,7 +289,7 @@ export default function App(): React.JSX.Element {
         window.clearTimeout(timeoutId);
       }
     };
-  }, [connected, setRoomDirectory]);
+  }, [connected, setLocalPing, setLocalPingJitter, setRoomDirectory]);
 
   useEffect(() => {
     const runtime = runtimeRef.current;
@@ -458,6 +523,7 @@ export default function App(): React.JSX.Element {
       scoreboardOpen,
       connected,
       pingMs: localPingMs,
+      pingJitterMs: localPingJitterMs,
       hitmarkerVisible,
       damageFlashToken,
       crosshairSpread,
@@ -485,6 +551,7 @@ export default function App(): React.JSX.Element {
       localMeta?.deaths,
       localMeta?.kills,
       localPingMs,
+      localPingJitterMs,
       match,
       sendChat,
       scoped,
@@ -534,6 +601,51 @@ export default function App(): React.JSX.Element {
       });
   };
 
+  const handleLogin = useCallback(async (identifier: string, password: string): Promise<void> => {
+    setAuthBusy(true);
+    setAuthError(null);
+    try {
+      const snapshot = await loginAccount(identifier, password);
+      setAuthSnapshot(snapshot);
+      setAuthError(null);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Login failed';
+      setAuthError(message);
+    } finally {
+      setAuthBusy(false);
+    }
+  }, []);
+
+  const handleRegister = useCallback(async (email: string, username: string, password: string): Promise<void> => {
+    setAuthBusy(true);
+    setAuthError(null);
+    try {
+      const snapshot = await registerAccount(email, username, password);
+      setAuthSnapshot(snapshot);
+      setAuthError(null);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Registration failed';
+      setAuthError(message);
+    } finally {
+      setAuthBusy(false);
+    }
+  }, []);
+
+  const handleLogout = useCallback(async (): Promise<void> => {
+    setAuthBusy(true);
+    setAuthError(null);
+    try {
+      const snapshot = await logoutAccount();
+      setAuthSnapshot(snapshot);
+      setAuthError(null);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Logout failed';
+      setAuthError(message);
+    } finally {
+      setAuthBusy(false);
+    }
+  }, []);
+
   return (
     <div className="cyber-root relative h-full w-full overflow-hidden bg-[#020b14]">
       <CyberGlobalStyles />
@@ -546,8 +658,20 @@ export default function App(): React.JSX.Element {
         roomCode={roomCode}
         backendConnected={backendConnected}
         backendPingMs={backendPingMs}
+        backendPingJitterMs={localPingJitterMs}
         openRooms={openRooms}
         connectionError={runtimeError ?? connectionError}
+        authError={authError}
+        authLoggedIn={authLoggedIn}
+        authUsername={authUsername}
+        authStats={authStats}
+        authBusy={authBusy}
+        onLogin={handleLogin}
+        onRegister={handleRegister}
+        onLogout={handleLogout}
+        onRefreshStats={() => {
+          void refreshAuthSnapshot();
+        }}
         onNicknameChange={setNickname}
         onRoomCodeChange={value => setRoomCode(normalizeRoomCode(value))}
         onCreateRoom={() => connectToRoom(true)}

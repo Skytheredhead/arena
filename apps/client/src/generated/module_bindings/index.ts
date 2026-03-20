@@ -38,6 +38,10 @@ import CreateRoomReducer from "./create_room_reducer";
 import FireWeaponReducer from "./fire_weapon_reducer";
 import JoinRoomReducer from "./join_room_reducer";
 import LeaveRoomReducer from "./leave_room_reducer";
+import LoginAccountReducer from "./login_account_reducer";
+import LoginWithSessionReducer from "./login_with_session_reducer";
+import LogoutAccountReducer from "./logout_account_reducer";
+import RegisterAccountReducer from "./register_account_reducer";
 import RequestRespawnReducer from "./request_respawn_reducer";
 import SendChatMessageReducer from "./send_chat_message_reducer";
 import SetNicknameReducer from "./set_nickname_reducer";
@@ -48,6 +52,7 @@ import SubmitInputReducer from "./submit_input_reducer";
 
 // Import all table schema definitions
 import AmmoPackRow from "./ammo_pack_table";
+import AccountStatsRow from "./account_stats_table";
 import ChatEventRow from "./chat_event_table";
 import DamageEventRow from "./damage_event_table";
 import HealthPackRow from "./health_pack_table";
@@ -55,6 +60,7 @@ import ImpactMarkRow from "./impact_mark_table";
 import KillFeedEventRow from "./kill_feed_event_table";
 import MatchStateRow from "./match_state_table";
 import PlayerRow from "./player_table";
+import PlayerAuthRow from "./player_auth_table";
 import PlayerStateRow from "./player_state_table";
 import RoomRow from "./room_table";
 import SpawnPointRow from "./spawn_point_table";
@@ -75,6 +81,17 @@ const tablesSchema = __schema({
       { name: 'ammo_pack_id_key', constraint: 'unique', columns: ['id'] },
     ],
   }, AmmoPackRow),
+  account_stats: __table({
+    name: 'account_stats',
+    indexes: [
+      { accessor: 'account_id', name: 'account_stats_account_id_idx_btree', algorithm: 'btree', columns: [
+        'accountId',
+      ] },
+    ],
+    constraints: [
+      { name: 'account_stats_account_id_key', constraint: 'unique', columns: ['accountId'] },
+    ],
+  }, AccountStatsRow),
   chat_event: __table({
     name: 'chat_event',
     indexes: [
@@ -152,6 +169,17 @@ const tablesSchema = __schema({
       { name: 'player_identity_key', constraint: 'unique', columns: ['identity'] },
     ],
   }, PlayerRow),
+  player_auth: __table({
+    name: 'player_auth',
+    indexes: [
+      { accessor: 'identity', name: 'player_auth_identity_idx_btree', algorithm: 'btree', columns: [
+        'identity',
+      ] },
+    ],
+    constraints: [
+      { name: 'player_auth_identity_key', constraint: 'unique', columns: ['identity'] },
+    ],
+  }, PlayerAuthRow),
   player_state: __table({
     name: 'player_state',
     indexes: [
@@ -204,6 +232,10 @@ const reducersSchema = __reducers(
   __reducerSchema("fire_weapon", FireWeaponReducer),
   __reducerSchema("join_room", JoinRoomReducer),
   __reducerSchema("leave_room", LeaveRoomReducer),
+  __reducerSchema("login_account", LoginAccountReducer),
+  __reducerSchema("login_with_session", LoginWithSessionReducer),
+  __reducerSchema("logout_account", LogoutAccountReducer),
+  __reducerSchema("register_account", RegisterAccountReducer),
   __reducerSchema("request_respawn", RequestRespawnReducer),
   __reducerSchema("send_chat_message", SendChatMessageReducer),
   __reducerSchema("set_nickname", SetNicknameReducer),

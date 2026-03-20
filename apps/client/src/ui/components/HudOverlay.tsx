@@ -39,6 +39,7 @@ interface HudOverlayProps {
   scoreboardOpen: boolean;
   connected: boolean;
   pingMs: number | null;
+  pingJitterMs: number | null;
   hitmarkerVisible: boolean;
   damageFlashToken: number;
   crosshairSpread: number;
@@ -64,6 +65,7 @@ export function HudOverlay({
   scoreboardOpen,
   connected,
   pingMs,
+  pingJitterMs,
   hitmarkerVisible,
   damageFlashToken,
   crosshairSpread,
@@ -333,7 +335,7 @@ export function HudOverlay({
         <span>{connected ? 'IN MATCH' : 'OFFLINE'}</span>
         <div style={{ display: 'flex', gap: '24px' }}>
           <span style={{ color: CYBER.ok }}>{connected ? 'US-WEST' : 'OFFLINE'}</span>
-          <span><PingLabel ping={pingMs} /></span>
+          <span><PingLabel ping={pingMs} jitter={pingJitterMs} /></span>
           <span>{match?.roomCode ?? 'NO ROOM'}</span>
           <span>{scoreboard.length} PILOTS</span>
           <span>RIFLE ONLY</span>
