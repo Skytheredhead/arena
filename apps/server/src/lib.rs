@@ -800,15 +800,17 @@ pub fn login_account(
     let tick = current_tick(ctx);
     account.last_login_tick = tick;
     account.login_count = account.login_count.saturating_add(1);
-    ctx.db.account().id().update(account.clone());
-    ensure_account_stats(ctx, account.id, account.username.as_str(), tick);
+    let account_id = account.id;
+    let username = account.username.clone();
+    ctx.db.account().id().update(account);
+    ensure_account_stats(ctx, account_id, username.as_str(), tick);
 
-    let session_token = issue_session_token(ctx, account.id, ctx.sender(), tick);
+    let session_token = issue_session_token(ctx, account_id, ctx.sender(), tick);
     set_logged_in_auth(
         ctx,
         ctx.sender(),
-        account.id,
-        account.username.clone(),
+        account_id,
+        username,
         Some(session_token),
         tick,
     );
