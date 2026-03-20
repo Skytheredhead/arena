@@ -74,6 +74,8 @@ export class SpacetimeBridge {
   private localArrivalOffsetMs = 0;
   private localArrivalOffsetInitialized = false;
   private readonly remoteArrivalOffsetMs = new Map<string, number>();
+  private readonly chatBaselineTickByRoom = new Map<string, number>();
+  private readonly killFeedBaselineTickByRoom = new Map<string, number>();
 
   constructor(private readonly callbacks: BridgeCallbacks) {}
 
@@ -112,6 +114,8 @@ export class SpacetimeBridge {
     this.localArrivalOffsetMs = 0;
     this.localArrivalOffsetInitialized = false;
     this.remoteArrivalOffsetMs.clear();
+    this.chatBaselineTickByRoom.clear();
+    this.killFeedBaselineTickByRoom.clear();
   }
 
   async submitInput(command: InputCommand): Promise<void> {
@@ -180,6 +184,8 @@ export class SpacetimeBridge {
     this.localArrivalOffsetMs = 0;
     this.localArrivalOffsetInitialized = false;
     this.remoteArrivalOffsetMs.clear();
+    this.chatBaselineTickByRoom.clear();
+    this.killFeedBaselineTickByRoom.clear();
   }
 
   private async connectWithUri(uri: string, options: ConnectOptions): Promise<void> {
@@ -344,6 +350,20 @@ export class SpacetimeBridge {
       await connection.reducers.createRoom({ roomCode: options.roomCode });
     }
     await connection.reducers.joinRoom({ roomCode: options.roomCode });
+    this.chatBaselineTickByRoom.set(
+      options.roomCode,
+      this.getRoomEventBaselineTick(
+        Array.from(connection.db.chat_event.iter() as Iterable<ChatEventRow>),
+        options.roomCode
+      )
+    );
+    this.killFeedBaselineTickByRoom.set(
+      options.roomCode,
+      this.getRoomEventBaselineTick(
+        Array.from(connection.db.kill_feed_event.iter() as Iterable<KillFeedEventRow>),
+        options.roomCode
+      )
+    );
     if (options.createRoom) {
       await connection.reducers.startMatch({ roomCode: options.roomCode });
     }
@@ -507,7 +527,11 @@ export class SpacetimeBridge {
 
   private handleKillFeedRow(row: KillFeedEventRow): void {
     const connectedRoom = useGameStore.getState().connectedRoomCode;
-    if (connectedRoom && row.roomCode !== connectedRoom) {
+    if (!connectedRoom || row.roomCode !== connectedRoom) {
+      return;
+    }
+    const baselineTick = this.killFeedBaselineTickByRoom.get(connectedRoom) ?? 0;
+    if (row.tick <= baselineTick) {
       return;
     }
 
@@ -522,7 +546,11 @@ export class SpacetimeBridge {
 
   private handleChatEventRow(row: ChatEventRow): void {
     const connectedRoom = useGameStore.getState().connectedRoomCode;
-    if (connectedRoom && row.roomCode !== connectedRoom) {
+    if (!connectedRoom || row.roomCode !== connectedRoom) {
+      return;
+    }
+    const baselineTick = this.chatBaselineTickByRoom.get(connectedRoom) ?? 0;
+    if (row.tick <= baselineTick) {
       return;
     }
 
@@ -597,6 +625,24 @@ export class SpacetimeBridge {
       normal: { x: row.normalX, y: row.normalY, z: row.normalZ },
       tick: row.tick
     });
+  }
+
+  private getRoomEventBaselineTick<
+    T extends {
+      roomCode: string;
+      tick: number;
+    }
+  >(events: T[], roomCode: string): number {
+    let baseline = 0;
+    for (const event of events) {
+      if (event.roomCode !== roomCode) {
+        continue;
+      }
+      if (event.tick > baseline) {
+        baseline = event.tick;
+      }
+    }
+    return baseline;
   }
 
   private shouldAcceptLocalState(next: LocalPlayerState): boolean {
