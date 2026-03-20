@@ -555,6 +555,10 @@ export class SpacetimeBridge {
       message: `eliminated ${row.victimNickname}`,
       tick: performance.now()
     });
+
+    if (identityToString(row.victimIdentity) === this.localIdentity) {
+      this.forceLocalDeath(row.tick);
+    }
   }
 
   private handleChatEventRow(row: ChatEventRow): void {
@@ -622,6 +626,9 @@ export class SpacetimeBridge {
     if (event.attackerIdentity === this.localIdentity) {
       useGameStore.getState().triggerHitmarker(performance.now() + 180);
     }
+    if (event.victimIdentity === this.localIdentity && event.causedDeath) {
+      this.forceLocalDeath(event.tick);
+    }
     this.callbacks.onDamageEvent(event);
   }
 
@@ -671,13 +678,24 @@ export class SpacetimeBridge {
       return true;
     }
 
-    const respawnTransition =
-      !previous.alive &&
-      next.alive &&
-      next.respawnTick >= previous.respawnTick &&
-      next.health >= previous.health;
-    if (respawnTransition) {
-      return true;
+    if (!previous.alive) {
+      const respawnTransition =
+        next.alive &&
+        next.respawnTick > previous.respawnTick &&
+        next.health >= previous.health;
+      if (respawnTransition) {
+        return true;
+      }
+      if (next.alive) {
+        return false;
+      }
+      if (next.serverTick < previous.serverTick) {
+        return false;
+      }
+      if (next.serverTick > previous.serverTick) {
+        return true;
+      }
+      return next.lastProcessedInput >= previous.lastProcessedInput;
     }
 
     if (next.serverTick < previous.serverTick) {
@@ -686,15 +704,35 @@ export class SpacetimeBridge {
     if (next.serverTick > previous.serverTick) {
       return true;
     }
-    if (!previous.alive && next.alive) {
-      return false;
-    }
 
     if (next.health > previous.health && !next.alive) {
       return false;
     }
 
     return next.lastProcessedInput >= previous.lastProcessedInput;
+  }
+
+  private forceLocalDeath(tick: number): void {
+    const previous = this.latestLocalState;
+    if (previous && !previous.alive && previous.respawnTick >= tick) {
+      return;
+    }
+
+    const store = useGameStore.getState();
+    const source = previous ?? store.localPlayer;
+    const serverTick = Math.max(source.serverTick, tick);
+    const forcedState: LocalPlayerState = {
+      ...source,
+      identity: this.localIdentity || source.identity,
+      alive: false,
+      health: 0,
+      velocity: { x: 0, y: 0, z: 0 },
+      serverTick,
+      serverTimeMs: serverTick * SERVER_TICK_MS,
+      respawnTick: Math.max(source.respawnTick, tick)
+    };
+    this.latestLocalState = forcedState;
+    this.callbacks.onLocalState(forcedState);
   }
 
   getFireIntervalTicks(): number {

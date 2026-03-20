@@ -409,6 +409,28 @@ export class GameRuntime {
     if (event.victimIdentity === localIdentity) {
       store.triggerDamageFlash();
       this.audio.play('flyby', { volume: 0.5, playbackRateMin: 0.95, playbackRateMax: 1.07 });
+      if (event.causedDeath) {
+        this.audio.play('death', { volume: 0.68, playbackRateMin: 0.94, playbackRateMax: 1.05 });
+        const predicted = this.prediction?.getState() ?? store.localPlayer;
+        const deadState: LocalPlayerState = {
+          ...predicted,
+          alive: false,
+          health: 0,
+          velocity: { x: 0, y: 0, z: 0 },
+          serverTick: Math.max(predicted.serverTick, event.tick),
+          serverTimeMs: event.tick * SERVER_TICK_MS,
+          respawnTick: event.tick
+        };
+        if (this.prediction) {
+          this.prediction.hydrate(deadState);
+        }
+        this.deathViewState = {
+          ...deadState,
+          position: { ...deadState.position },
+          velocity: { x: 0, y: 0, z: 0 }
+        };
+        store.setLocalPlayer(deadState);
+      }
     }
 
     if (event.attackerIdentity !== localIdentity || event.victimIdentity === localIdentity) {

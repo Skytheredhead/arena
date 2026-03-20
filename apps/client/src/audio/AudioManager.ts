@@ -5,6 +5,7 @@ type SfxKey =
   | 'bulletBodyHit'
   | 'bulletWallHit'
   | 'flyby'
+  | 'death'
   | 'reload'
   | 'magEmpty';
 
@@ -62,6 +63,7 @@ const SFX_PATHS: Record<SfxKey, string[]> = {
   bulletBodyHit: range(4, 'bullet_body_hit', 'mp3'),
   bulletWallHit: range(5, 'bullet_wall_hit', 'mp3'),
   flyby: range(11, 'flyby', 'mp3'),
+  death: range(4, 'death', 'mp3'),
   reload: [],
   magEmpty: []
 };
@@ -96,6 +98,7 @@ export class AudioManager {
       bulletBodyHit: new RotationPicker(SFX_PATHS.bulletBodyHit),
       bulletWallHit: new RotationPicker(SFX_PATHS.bulletWallHit),
       flyby: new RotationPicker(SFX_PATHS.flyby),
+      death: new RotationPicker(SFX_PATHS.death),
       reload: new RotationPicker(SFX_PATHS.reload),
       magEmpty: new RotationPicker(SFX_PATHS.magEmpty)
     };
@@ -163,6 +166,10 @@ export class AudioManager {
 
     const path = this.pickers[key].next();
     if (!path) {
+      if (key === 'death') {
+        this.play('flyby', { volume: 0.58, playbackRateMin: 0.88, playbackRateMax: 0.98 });
+        return;
+      }
       if (key === 'magEmpty') {
         this.playSyntheticClick(980, 0.04, 0.08);
         return;
@@ -181,7 +188,11 @@ export class AudioManager {
       playbackRateMin + Math.random() * Math.max(0.0001, playbackRateMax - playbackRateMin);
     audio.playbackRate = randomizedRate;
     audio.volume = clamp01(this.sfxVolume * (options?.volume ?? 1));
-    void audio.play().catch(() => undefined);
+    void audio.play().catch(() => {
+      if (key === 'death') {
+        this.play('flyby', { volume: 0.58, playbackRateMin: 0.88, playbackRateMax: 0.98 });
+      }
+    });
   }
 
   private applyMusicVolume(now: number): void {

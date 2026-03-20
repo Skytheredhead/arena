@@ -232,11 +232,18 @@ export class InputController {
       (this.pressed.has('KeyW') ? 1 : 0) - (this.pressed.has('KeyS') ? 1 : 0);
     const moveX = Math.max(-1, Math.min(1, keyboardMoveX + this.virtualMove.x));
     const moveZ = Math.max(-1, Math.min(1, keyboardMoveZ + this.virtualMove.z));
+    const sprinting =
+      this.pressed.has('ShiftLeft') ||
+      this.pressed.has('ShiftRight') ||
+      this.pressed.has('ControlLeft') ||
+      this.pressed.has('ControlRight') ||
+      this.pressed.has('MetaLeft') ||
+      this.pressed.has('MetaRight');
     return {
       moveX,
       moveZ,
       jumping: this.pressed.has('Space'),
-      sprinting: this.pressed.has('ShiftLeft') || this.pressed.has('ShiftRight'),
+      sprinting,
       scoped: this.pressed.has('KeyF') || this.rightMouseScoped,
       scoreboardHeld: this.pressed.has(SCOREBOARD_KEY),
       wantsFire:
