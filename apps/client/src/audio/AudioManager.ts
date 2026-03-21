@@ -1,5 +1,7 @@
 type SfxKey =
   | 'shot'
+  | 'sniperShot'
+  | 'shotgunShot'
   | 'footstep'
   | 'bulletPickup'
   | 'bulletBodyHit'
@@ -27,57 +29,18 @@ interface SpatialFootstepOptions extends PlayOptions {
   listenerYaw: number;
 }
 
-class RotationPicker {
-  private readonly queue: string[] = [];
-  private previous = '';
-
-  constructor(private readonly values: string[]) {}
-
-  next(): string | null {
-    if (this.values.length === 0) {
-      return null;
-    }
-    if (this.values.length === 1) {
-      return this.values[0] ?? null;
-    }
-
-    if (this.queue.length === 0) {
-      const shuffled = [...this.values];
-      for (let index = shuffled.length - 1; index > 0; index -= 1) {
-        const swapWith = Math.floor(Math.random() * (index + 1));
-        const tmp = shuffled[index]!;
-        shuffled[index] = shuffled[swapWith]!;
-        shuffled[swapWith] = tmp;
-      }
-      if (shuffled[0] === this.previous) {
-        const tail = shuffled[shuffled.length - 1]!;
-        shuffled[shuffled.length - 1] = shuffled[0]!;
-        shuffled[0] = tail;
-      }
-      this.queue.push(...shuffled);
-    }
-
-    const value = this.queue.shift() ?? null;
-    if (value) {
-      this.previous = value;
-    }
-    return value;
-  }
-}
-
-const range = (count: number, prefix: string, ext: string): string[] =>
-  Array.from({ length: count }, (_, index) => `/sfx/${prefix}_${index + 1}.${ext}`);
-
-const SFX_PATHS: Record<SfxKey, string[]> = {
-  shot: range(6, 'shot', 'mp3'),
-  footstep: range(9, 'footstep', 'mp3'),
-  bulletPickup: range(4, 'bullet_pickup', 'mp3'),
-  bulletBodyHit: range(4, 'bullet_body_hit', 'mp3'),
-  bulletWallHit: range(5, 'bullet_wall_hit', 'mp3'),
-  flyby: range(11, 'flyby', 'mp3'),
-  death: range(4, 'death', 'mp3'),
-  reload: [],
-  magEmpty: []
+const SFX_PATHS: Record<SfxKey, string | null> = {
+  shot: '/sfx/shot_1.mp3',
+  sniperShot: '/sfx/sniper.mp3',
+  shotgunShot: '/sfx/shotgun.mp3',
+  footstep: '/sfx/footstep_1.mp3',
+  bulletPickup: '/sfx/bullet_pickup_1.mp3',
+  bulletBodyHit: '/sfx/bullet_body_hit_1.mp3',
+  bulletWallHit: '/sfx/bullet_wall_hit_1.mp3',
+  flyby: '/sfx/flyby_1.mp3',
+  death: '/sfx/death_1.mp3',
+  reload: null,
+  magEmpty: null
 };
 
 const clamp01 = (value: number): number => Math.max(0, Math.min(1, value));
@@ -87,7 +50,6 @@ export class AudioManager {
   private static readonly LOBBY_FADE_IN_MS = 1600;
   private static readonly LOBBY_FADE_OUT_MS = 5000;
   private static readonly LOBBY_FADE_OUT_TRIGGER_SECONDS = 15;
-  private readonly pickers: Record<SfxKey, RotationPicker>;
   private readonly minReplayGapMs: Partial<Record<SfxKey, number>> = {};
   private readonly lastPlayedAt: Partial<Record<SfxKey, number>> = {};
   private readonly lobbyMusic = new Audio('/music/lobby_theme.mp3');
@@ -105,18 +67,6 @@ export class AudioManager {
   private pageSuppressed = false;
 
   constructor() {
-    this.pickers = {
-      shot: new RotationPicker(SFX_PATHS.shot),
-      footstep: new RotationPicker(SFX_PATHS.footstep),
-      bulletPickup: new RotationPicker(SFX_PATHS.bulletPickup),
-      bulletBodyHit: new RotationPicker(SFX_PATHS.bulletBodyHit),
-      bulletWallHit: new RotationPicker(SFX_PATHS.bulletWallHit),
-      flyby: new RotationPicker(SFX_PATHS.flyby),
-      death: new RotationPicker(SFX_PATHS.death),
-      reload: new RotationPicker(SFX_PATHS.reload),
-      magEmpty: new RotationPicker(SFX_PATHS.magEmpty)
-    };
-
     this.lobbyMusic.loop = false;
     this.lobbyMusic.preload = 'auto';
     this.pageSuppressed = this.computePageSuppressed();
@@ -187,7 +137,7 @@ export class AudioManager {
     }
     this.lastPlayedAt[key] = now;
 
-    const path = this.pickers[key].next();
+    const path = SFX_PATHS[key];
     if (!path) {
       if (key === 'death') {
         this.play('flyby', { volume: 0.58, playbackRateMin: 0.88, playbackRateMax: 0.98 });
@@ -225,7 +175,7 @@ export class AudioManager {
 
   playFootstepSpatial(options: SpatialFootstepOptions): void {
     const now = performance.now();
-    const path = this.pickers.footstep.next();
+    const path = SFX_PATHS.footstep;
     if (!path) {
       return;
     }

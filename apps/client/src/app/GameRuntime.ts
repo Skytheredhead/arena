@@ -822,7 +822,27 @@ export class GameRuntime {
         const visualAmmoBeforeShot = this.totalAmmo;
         this.setLocalAmmo(visualAmmoBeforeShot - 1);
         this.cancelReload();
-        this.audio.play('shot', { volume: 0.75, playbackRateMin: 0.95, playbackRateMax: 1.05 });
+        const fireSfxKey =
+          frameInput.weaponSlot === WEAPON_SLOT_SNIPER
+            ? 'sniperShot'
+            : frameInput.weaponSlot === WEAPON_SLOT_SHOTGUN
+              ? 'shotgunShot'
+              : 'shot';
+        this.audio.play(fireSfxKey, {
+          volume: 0.75,
+          playbackRateMin:
+            frameInput.weaponSlot === WEAPON_SLOT_SNIPER
+              ? 0.985
+              : frameInput.weaponSlot === WEAPON_SLOT_SHOTGUN
+                ? 0.94
+                : 0.95,
+          playbackRateMax:
+            frameInput.weaponSlot === WEAPON_SLOT_SNIPER
+              ? 1.015
+              : frameInput.weaponSlot === WEAPON_SLOT_SHOTGUN
+                ? 1.02
+                : 1.05
+        });
         this.lastLocalShotAt = now;
         if (frameInput.weaponSlot === WEAPON_SLOT_SNIPER) {
           this.sniperCooldownEndsAt = now + fireIntervalTicks * SERVER_TICK_MS;

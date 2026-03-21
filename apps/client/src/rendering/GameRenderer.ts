@@ -701,7 +701,6 @@ export class GameRenderer {
   render(frame: RenderFrameState): void {
     const now = performance.now();
     const bobVertical = Math.sin(frame.walkPhase) * frame.walkIntensity * 0.032;
-    const bobLateral = Math.cos(frame.walkPhase * 0.5) * frame.walkIntensity * 0.02;
     this.targetCameraPosition.set(
       frame.localPlayer.position.x,
       frame.localPlayer.position.y + PLAYER_EYE_HEIGHT + bobVertical - frame.crouchAmount * 0.36,
@@ -713,6 +712,9 @@ export class GameRenderer {
     } else {
       const blend = 1 - Math.exp(-18 * frame.deltaSeconds);
       this.smoothedCameraPosition.lerp(this.targetCameraPosition, blend);
+      // Keep horizontal aim fully locked to gameplay coordinates so shots and scope stay centered.
+      this.smoothedCameraPosition.x = this.targetCameraPosition.x;
+      this.smoothedCameraPosition.z = this.targetCameraPosition.z;
     }
 
     const targetFov =
@@ -999,6 +1001,7 @@ export class GameRenderer {
       const scopeLeft = Math.floor((fullWidth - scopeSize) * 0.5);
       const scopeBottom = Math.floor((fullHeight - scopeSize) * 0.5);
       const basePassFov = this.camera.fov;
+      const basePassAspect = this.camera.aspect;
       const zoomedFov = Math.max(10, this.baseFov * 0.25);
 
       this.renderer.setScissorTest(false);
@@ -1006,6 +1009,7 @@ export class GameRenderer {
       this.renderer.render(this.scene, this.camera);
 
       this.camera.fov = zoomedFov;
+      this.camera.aspect = 1;
       this.camera.updateProjectionMatrix();
       this.renderer.clearDepth();
       this.renderer.setViewport(scopeLeft, scopeBottom, scopeSize, scopeSize);
@@ -1015,8 +1019,11 @@ export class GameRenderer {
       this.renderer.setScissorTest(false);
       this.renderer.setViewport(0, 0, fullWidth, fullHeight);
       this.camera.fov = basePassFov;
+      this.camera.aspect = basePassAspect;
       this.camera.updateProjectionMatrix();
     } else {
+      this.renderer.setScissorTest(false);
+      this.renderer.setViewport(0, 0, this.renderer.domElement.width, this.renderer.domElement.height);
       this.renderer.render(this.scene, this.camera);
     }
   }
