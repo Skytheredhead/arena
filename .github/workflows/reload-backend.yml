@@ -1,0 +1,69 @@
+name: Reload Backend
+
+on:
+  workflow_dispatch:
+    inputs:
+      git_ref:
+        description: "Branch or tag to deploy"
+        required: true
+        default: "main"
+      db_name:
+        description: "SpacetimeDB database name"
+        required: true
+        default: "arena-fps-slice"
+      spacetime_server:
+        description: "SpacetimeDB server URL"
+        required: true
+        default: "http://127.0.0.1:4789"
+
+jobs:
+  reload:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Configure SSH key
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' "${{ secrets.SERVER_SSH_PRIVATE_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          if [ -n "${{ secrets.SERVER_SSH_KNOWN_HOSTS }}" ]; then
+            printf '%s\n' "${{ secrets.SERVER_SSH_KNOWN_HOSTS }}" > ~/.ssh/known_hosts
+          else
+            ssh-keyscan -p "${{ secrets.SERVER_SSH_PORT || '22' }}" "${{ secrets.SERVER_HOST }}" >> ~/.ssh/known_hosts
+          fi
+
+      - name: Reload backend on Linux server
+        shell: bash
+        run: |
+          set -euo pipefail
+          PORT="${{ secrets.SERVER_SSH_PORT || '22' }}"
+          ssh -p "$PORT" "${{ secrets.SERVER_SSH_USER }}@${{ secrets.SERVER_HOST }}" \
+            "APP_DIR='${{ secrets.SERVER_APP_DIR }}' GIT_REF='${{ inputs.git_ref }}' DB_NAME='${{ inputs.db_name }}' SPACETIME_SERVER='${{ inputs.spacetime_server }}' bash -s" <<'REMOTE'
+              set -euo pipefail
+
+              if [ ! -d "$APP_DIR/.git" ]; then
+                echo "SERVER_APP_DIR is not a git repo: $APP_DIR" >&2
+                exit 1
+              fi
+
+              cd "$APP_DIR"
+              git fetch --all --prune
+              git checkout "$GIT_REF"
+              git pull --ff-only origin "$GIT_REF"
+
+              corepack enable >/dev/null 2>&1 || true
+              pnpm install --frozen-lockfile
+              pnpm --filter @arena/shared build
+              pnpm server:build
+
+              if ! pgrep -f "spacetime start --listen-addr 0.0.0.0:4789" >/dev/null 2>&1; then
+                nohup spacetime start --listen-addr 0.0.0.0:4789 >/tmp/spacetime.log 2>&1 &
+                sleep 3
+              fi
+
+              cd apps/server
+              spacetime publish --server "$SPACETIME_SERVER" "$DB_NAME"
+              echo "Backend reloaded for DB: $DB_NAME"
+REMOTE
