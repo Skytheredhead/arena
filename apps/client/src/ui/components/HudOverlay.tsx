@@ -200,7 +200,7 @@ export function HudOverlay({
             zIndex: 19,
             pointerEvents: 'none',
             background:
-              'radial-gradient(circle at center, transparent 0 18vw, rgba(0,0,0,0.9) 18.2vw 100%)'
+              'radial-gradient(circle at center, transparent 0 31vmin, rgba(0,0,0,0.9) 31.2vmin 100%)'
           }}
         >
           <div
@@ -209,10 +209,8 @@ export function HudOverlay({
               left: '50%',
               top: '50%',
               transform: 'translate(-50%,-50%)',
-              width: '36vw',
-              height: '36vw',
-              maxWidth: '72vh',
-              maxHeight: '72vh',
+              width: '62vmin',
+              height: '62vmin',
               border: '2px solid rgba(210,244,255,0.35)',
               borderRadius: '50%',
               boxShadow: '0 0 36px rgba(0,245,255,0.16) inset'
@@ -224,8 +222,7 @@ export function HudOverlay({
               left: '50%',
               top: '50%',
               width: '1px',
-              height: '36vw',
-              maxHeight: '72vh',
+              height: '62vmin',
               background: 'rgba(210,244,255,0.24)',
               transform: 'translate(-50%,-50%)'
             }}
@@ -235,13 +232,51 @@ export function HudOverlay({
               position: 'absolute',
               left: '50%',
               top: '50%',
-              width: '36vw',
-              maxWidth: '72vh',
+              width: '62vmin',
               height: '1px',
               background: 'rgba(210,244,255,0.24)',
               transform: 'translate(-50%,-50%)'
             }}
           />
+          <div
+            style={{
+              position: 'absolute',
+              left: 'calc(50% + 31vmin + 14px)',
+              top: '50%',
+              transform: 'translateY(-50%)',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px'
+            }}
+          >
+            <div
+              style={{
+                width: '8px',
+                height: '98px',
+                border: `1px solid ${CYBER.border}`,
+                background: `${CYBER.bg}aa`,
+                position: 'relative',
+                overflow: 'hidden',
+                boxShadow: `0 0 12px ${CYBER.a}33`
+              }}
+            >
+              <div
+                style={{
+                  position: 'absolute',
+                  left: 0,
+                  right: 0,
+                  bottom: 0,
+                  height: `${Math.round(sniperCooldownReady * 100)}%`,
+                  background: sniperCooldownReady >= 1 ? CYBER.ok : CYBER.warn,
+                  boxShadow:
+                    sniperCooldownReady >= 1
+                      ? `0 0 10px ${CYBER.ok}`
+                      : `0 0 10px ${CYBER.warn}`,
+                  transition: 'height 0.06s linear'
+                }}
+              />
+            </div>
+          </div>
         </div>
       )}
 
@@ -389,7 +424,7 @@ export function HudOverlay({
                 <div style={{ fontFamily: CYBER.font, color: CYBER.textBright, fontSize: '22px', lineHeight: 1 }}>
                   /{RIFLE_MAGAZINE}
                 </div>
-                {selectedWeaponSlot === WEAPON_SLOT_SNIPER && (
+                {selectedWeaponSlot === WEAPON_SLOT_SNIPER && !scoped && (
                   <div style={{ display: 'flex', alignItems: 'center', gap: '4px', marginLeft: '4px' }}>
                     <div
                       style={{

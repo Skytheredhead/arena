@@ -841,31 +841,8 @@ export class GameRuntime {
                 ? 0.7
                 : 1.4;
         this.crosshairKick = Math.min(20, this.crosshairKick + kick);
-        const recoil = this.rifle.getRecoil();
-        const recoilYawScale =
-          frameInput.weaponSlot === WEAPON_SLOT_SNIPER
-            ? frameInput.scoped
-              ? 0.18
-              : 1.85
-            : frameInput.weaponSlot === WEAPON_SLOT_SHOTGUN
-              ? 1.2
-              : 0.45;
-        const recoilPitchScale =
-          frameInput.weaponSlot === WEAPON_SLOT_SNIPER
-            ? frameInput.scoped
-              ? 0.52
-              : 1.45
-            : frameInput.weaponSlot === WEAPON_SLOT_SHOTGUN
-              ? frameInput.scoped
-                ? 1.05
-                : 1.35
-              : frameInput.scoped
-                ? 0.78
-                : 1.14;
-        const recoilYaw = (Math.random() - 0.5) * recoil * recoilYawScale;
-        const recoilPitch = recoil * recoilPitchScale;
-        const shotYaw = localState.yaw + recoilYaw;
-        const shotPitch = Math.max(-MAX_PITCH, Math.min(MAX_PITCH, localState.pitch + recoilPitch));
+        const shotYaw = localState.yaw;
+        const shotPitch = Math.max(-MAX_PITCH, Math.min(MAX_PITCH, localState.pitch));
         void this.bridge
           .fireWeapon(shotYaw, shotPitch, frameInput.scoped, frameInput.weaponSlot)
           .catch(() => {

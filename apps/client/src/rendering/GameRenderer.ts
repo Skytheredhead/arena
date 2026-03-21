@@ -2,6 +2,8 @@ import * as THREE from 'three';
 import {
   PLAYER_EYE_HEIGHT,
   SERVER_TICK_MS,
+  WEAPON_SLOT_RIFLE,
+  WEAPON_SLOT_SHOTGUN,
   WEAPON_SLOT_SNIPER,
   type WeaponSlot,
   WALK_SPEED,
@@ -81,7 +83,10 @@ export class GameRenderer {
   private readonly impactMarkMeshes = new Map<number, THREE.Mesh>();
   private readonly bloodBurstMeshes = new Map<number, THREE.Group>();
   private readonly muzzleFlash: THREE.Mesh;
-  private readonly weaponModel: THREE.Group;
+  private readonly weaponRig: THREE.Group;
+  private readonly rifleWeaponModel: THREE.Group;
+  private readonly sniperWeaponModel: THREE.Group;
+  private readonly shotgunWeaponModel: THREE.Group;
   private readonly smoothedCameraPosition = new THREE.Vector3();
   private readonly targetCameraPosition = new THREE.Vector3();
   private readonly decalUp = new THREE.Vector3(0, 0, 1);
@@ -131,8 +136,13 @@ export class GameRenderer {
     );
     this.muzzleFlash.position.set(0.22, -0.18, -0.65);
     this.muzzleFlash.visible = false;
-    this.weaponModel = this.createWeaponModel();
-    this.camera.add(this.weaponModel);
+    this.weaponRig = new THREE.Group();
+    this.weaponRig.position.set(0.26, -0.27, -0.58);
+    this.rifleWeaponModel = this.createRifleWeaponModel();
+    this.sniperWeaponModel = this.createSniperWeaponModel();
+    this.shotgunWeaponModel = this.createShotgunWeaponModel();
+    this.weaponRig.add(this.rifleWeaponModel, this.sniperWeaponModel, this.shotgunWeaponModel);
+    this.camera.add(this.weaponRig);
     this.camera.add(this.muzzleFlash);
     this.scene.add(this.camera);
 
@@ -184,9 +194,8 @@ export class GameRenderer {
     this.renderer.setSize(width, height);
   };
 
-  private createWeaponModel(): THREE.Group {
+  private createRifleWeaponModel(): THREE.Group {
     const group = new THREE.Group();
-    group.position.set(0.26, -0.27, -0.58);
 
     const material = new THREE.MeshStandardMaterial({
       color: '#202730',
@@ -249,6 +258,122 @@ export class GameRenderer {
     const rail = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.014, 0.42), accent);
     rail.position.set(0, 0.108, -0.26);
     group.add(rail);
+
+    return group;
+  }
+
+  private createSniperWeaponModel(): THREE.Group {
+    const group = new THREE.Group();
+
+    const body = new THREE.MeshStandardMaterial({
+      color: '#242c35',
+      roughness: 0.42,
+      metalness: 0.5
+    });
+    const matte = new THREE.MeshStandardMaterial({
+      color: '#11161b',
+      roughness: 0.72,
+      metalness: 0.2
+    });
+    const scopeMetal = new THREE.MeshStandardMaterial({
+      color: '#8ea4bb',
+      roughness: 0.3,
+      metalness: 0.62
+    });
+
+    const receiver = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.09, 0.74), body);
+    receiver.position.set(0, 0.02, -0.12);
+    group.add(receiver);
+
+    const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.013, 0.013, 0.92, 12), matte);
+    barrel.rotation.x = Math.PI / 2;
+    barrel.position.set(0, 0.05, -0.86);
+    group.add(barrel);
+
+    const muzzle = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, 0.06, 12), scopeMetal);
+    muzzle.rotation.x = Math.PI / 2;
+    muzzle.position.set(0, 0.05, -1.33);
+    group.add(muzzle);
+
+    const stock = new THREE.Mesh(new THREE.BoxGeometry(0.11, 0.1, 0.28), body);
+    stock.position.set(-0.03, -0.01, 0.35);
+    stock.rotation.y = 0.08;
+    group.add(stock);
+
+    const grip = new THREE.Mesh(new THREE.BoxGeometry(0.045, 0.15, 0.075), matte);
+    grip.position.set(0.015, -0.13, 0.08);
+    grip.rotation.z = 0.2;
+    group.add(grip);
+
+    const scope = new THREE.Mesh(new THREE.CylinderGeometry(0.034, 0.034, 0.5, 14), scopeMetal);
+    scope.rotation.x = Math.PI / 2;
+    scope.position.set(0, 0.12, -0.28);
+    group.add(scope);
+
+    const scopeFront = new THREE.Mesh(new THREE.CylinderGeometry(0.038, 0.038, 0.03, 14), scopeMetal);
+    scopeFront.rotation.x = Math.PI / 2;
+    scopeFront.position.set(0, 0.12, -0.52);
+    group.add(scopeFront);
+
+    const scopeBack = new THREE.Mesh(new THREE.CylinderGeometry(0.038, 0.038, 0.03, 14), scopeMetal);
+    scopeBack.rotation.x = Math.PI / 2;
+    scopeBack.position.set(0, 0.12, -0.04);
+    group.add(scopeBack);
+
+    return group;
+  }
+
+  private createShotgunWeaponModel(): THREE.Group {
+    const group = new THREE.Group();
+
+    const body = new THREE.MeshStandardMaterial({
+      color: '#2a3138',
+      roughness: 0.58,
+      metalness: 0.34
+    });
+    const dark = new THREE.MeshStandardMaterial({
+      color: '#13181f',
+      roughness: 0.76,
+      metalness: 0.16
+    });
+    const wood = new THREE.MeshStandardMaterial({
+      color: '#5f4430',
+      roughness: 0.7,
+      metalness: 0.04
+    });
+
+    const receiver = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.11, 0.42), body);
+    receiver.position.set(0, 0.02, -0.02);
+    group.add(receiver);
+
+    const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.015, 0.015, 0.74, 12), dark);
+    barrel.rotation.x = Math.PI / 2;
+    barrel.position.set(0, 0.05, -0.61);
+    group.add(barrel);
+
+    const tube = new THREE.Mesh(new THREE.CylinderGeometry(0.013, 0.013, 0.62, 12), dark);
+    tube.rotation.x = Math.PI / 2;
+    tube.position.set(0, 0.01, -0.54);
+    group.add(tube);
+
+    const muzzle = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, 0.055, 12), body);
+    muzzle.rotation.x = Math.PI / 2;
+    muzzle.position.set(0, 0.05, -1.0);
+    group.add(muzzle);
+
+    const foregrip = new THREE.Mesh(new THREE.BoxGeometry(0.085, 0.08, 0.18), wood);
+    foregrip.position.set(0, -0.005, -0.41);
+    group.add(foregrip);
+
+    const stock = new THREE.Mesh(new THREE.BoxGeometry(0.13, 0.1, 0.26), wood);
+    stock.position.set(-0.03, -0.005, 0.29);
+    stock.rotation.y = 0.1;
+    group.add(stock);
+
+    const grip = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.16, 0.08), dark);
+    grip.position.set(0.014, -0.14, 0.11);
+    grip.rotation.z = 0.24;
+    group.add(grip);
 
     return group;
   }
@@ -601,30 +726,41 @@ export class GameRenderer {
       this.camera.updateProjectionMatrix();
     }
     this.camera.position.copy(this.smoothedCameraPosition);
-    this.camera.position.x += bobLateral * 0.35;
     this.camera.rotation.y = frame.localPlayer.yaw;
     this.camera.rotation.x = frame.localPlayer.pitch + frame.recoil;
     this.muzzleFlash.visible = frame.muzzleFlashVisible;
+    this.rifleWeaponModel.visible = frame.weaponSlot === WEAPON_SLOT_RIFLE;
+    this.sniperWeaponModel.visible = frame.weaponSlot === WEAPON_SLOT_SNIPER;
+    this.shotgunWeaponModel.visible = frame.weaponSlot === WEAPON_SLOT_SHOTGUN;
+    this.muzzleFlash.position.set(
+      frame.weaponSlot === WEAPON_SLOT_SNIPER ? 0 : frame.weaponSlot === WEAPON_SLOT_SHOTGUN ? -0.02 : 0.02,
+      frame.weaponSlot === WEAPON_SLOT_SNIPER ? 0.02 : 0.04,
+      frame.weaponSlot === WEAPON_SLOT_SNIPER ? -1.18 : frame.weaponSlot === WEAPON_SLOT_SHOTGUN ? -0.86 : -0.92
+    );
     const idleSway = frame.scoped ? 0 : Math.sin(now * 0.0045) * 0.0035;
     const walkSwayX = Math.sin(frame.walkPhase) * frame.walkIntensity * 0.026;
     const walkSwayY = Math.cos(frame.walkPhase * 2) * frame.walkIntensity * 0.014;
     const reloadTilt = frame.reloadProgress * 0.22;
     const reloadDrop = frame.reloadProgress * 0.08;
-    this.weaponModel.rotation.x =
+    const scopedBaseX =
+      frame.weaponSlot === WEAPON_SLOT_SNIPER ? 0 : frame.weaponSlot === WEAPON_SLOT_SHOTGUN ? -0.01 : 0;
+    const unscopedBaseX =
+      frame.weaponSlot === WEAPON_SLOT_SNIPER ? 0.24 : frame.weaponSlot === WEAPON_SLOT_SHOTGUN ? 0.2 : 0.28;
+    this.weaponRig.rotation.x =
       (frame.scoped ? -0.02 : -0.08) +
       frame.recoil * (frame.scoped ? 0.6 : 1.4) +
       walkSwayY +
       reloadTilt * 0.35;
-    this.weaponModel.rotation.y = (frame.scoped ? 0 : -0.04) - frame.recoil * 0.3 - walkSwayX * 0.55;
-    this.weaponModel.rotation.z = reloadTilt;
-    this.weaponModel.position.x = (frame.scoped ? 0.02 : 0.28) + idleSway + walkSwayX;
-    this.weaponModel.position.y =
+    this.weaponRig.rotation.y = (frame.scoped ? 0 : -0.04) - frame.recoil * 0.3 - walkSwayX * 0.55;
+    this.weaponRig.rotation.z = reloadTilt;
+    this.weaponRig.position.x = (frame.scoped ? scopedBaseX : unscopedBaseX) + idleSway + walkSwayX;
+    this.weaponRig.position.y =
       (frame.scoped ? -0.18 : -0.28) +
       frame.recoil * 0.08 +
       bobVertical * 0.45 -
       reloadDrop -
       frame.crouchAmount * 0.08;
-    this.weaponModel.position.z = frame.scoped ? -0.45 : -0.55;
+    this.weaponRig.position.z = frame.scoped ? -0.45 : -0.55;
 
     const activeIds = new Set(frame.remotePlayers.map(player => player.identity));
 

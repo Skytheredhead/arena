@@ -1215,7 +1215,7 @@ pub fn fire_weapon(
         z: state.z,
     };
 
-    let mut impact_mark: Option<(f32, Vec3, Vec3)> = None;
+    let mut impact_marks: Vec<(f32, Vec3, Vec3)> = Vec::with_capacity(spec.pellet_count as usize);
     for pellet_index in 0..spec.pellet_count {
         let base_seed = tick as f32 * 0.197
             + state.x * 1.31
@@ -1261,16 +1261,11 @@ pub fn fire_weapon(
         if let Some((victim_identity, victim_hit)) = best_hit {
             if let Some(block) = block_hit {
                 if block.distance < victim_hit.distance {
-                    if impact_mark
-                        .map(|mark| mark.0 > block.distance)
-                        .unwrap_or(true)
-                    {
-                        impact_mark = Some((
-                            block.distance,
-                            point_along_ray(origin, direction, block.distance),
-                            block.normal,
-                        ));
-                    }
+                    impact_marks.push((
+                        block.distance,
+                        point_along_ray(origin, direction, block.distance),
+                        block.normal,
+                    ));
                     continue;
                 }
             }
@@ -1295,20 +1290,21 @@ pub fn fire_weapon(
         }
 
         if let Some(block) = block_hit {
-            if impact_mark
-                .map(|mark| mark.0 > block.distance)
-                .unwrap_or(true)
-            {
-                impact_mark = Some((
-                    block.distance,
-                    point_along_ray(origin, direction, block.distance),
-                    block.normal,
-                ));
-            }
+            impact_marks.push((
+                block.distance,
+                point_along_ray(origin, direction, block.distance),
+                block.normal,
+            ));
         }
     }
 
-    if let Some((_, impact_position, impact_normal)) = impact_mark {
+    impact_marks.sort_by(|left, right| left.0.total_cmp(&right.0));
+    let max_marks_to_insert = if matches!(weapon_kind, WeaponKind::Shotgun) {
+        spec.pellet_count as usize
+    } else {
+        1
+    };
+    for (_, impact_position, impact_normal) in impact_marks.into_iter().take(max_marks_to_insert) {
         insert_impact_mark(ctx, &room_code, impact_position, impact_normal, tick);
     }
 
@@ -2087,6 +2083,7 @@ struct WeaponSpec {
 
 fn weapon_kind_from_slot(slot: u8) -> WeaponKind {
     match slot {
+        WEAPON_SLOT_RIFLE => WeaponKind::Rifle,
         WEAPON_SLOT_SNIPER => WeaponKind::Sniper,
         WEAPON_SLOT_SHOTGUN => WeaponKind::Shotgun,
         _ => WeaponKind::Rifle,
