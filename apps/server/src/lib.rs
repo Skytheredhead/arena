@@ -733,7 +733,6 @@ pub fn set_nickname(ctx: &ReducerContext, nickname: String) -> Result<(), String
         "Changing nickname too fast",
     )?;
     let player = require_player(ctx, ctx.sender())?;
-    let join_nickname = player.nickname.clone();
     let nickname = validate_nickname(nickname)?;
     let unique_nickname = coerce_unique_nickname(ctx, &nickname, ctx.sender());
     ctx.db.player().identity().update(Player {
@@ -1004,6 +1003,7 @@ pub fn join_room(ctx: &ReducerContext, room_code: String) -> Result<(), String> 
     }
 
     let player = require_player(ctx, ctx.sender())?;
+    let join_nickname = player.nickname.clone();
     let mut state = require_player_state(ctx, ctx.sender())?;
     let mut weapon = require_weapon_state(ctx, ctx.sender())?;
 
