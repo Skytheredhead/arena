@@ -152,7 +152,7 @@ export function HudOverlay({
   );
 
   return (
-    <div className="pointer-events-none fixed inset-0" style={{ zIndex: paused ? 40 : 20 }}>
+    <div className="pointer-events-none absolute inset-0" style={{ zIndex: paused ? 40 : 20 }}>
       {!paused && (
         <>
           <div

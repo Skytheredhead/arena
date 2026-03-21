@@ -289,9 +289,9 @@ export class GameRuntime {
       this.localCorrectionOffset = { x: 0, y: 0, z: 0 };
     } else {
       this.localCorrectionOffset = {
-        x: this.localCorrectionOffset.x + correction.x,
+        x: 0,
         y: this.localCorrectionOffset.y + correction.y,
-        z: this.localCorrectionOffset.z + correction.z
+        z: 0
       };
     }
 
@@ -767,9 +767,9 @@ export class GameRuntime {
     return {
       ...preview,
       position: {
-        x: preview.position.x + this.localCorrectionOffset.x,
+        x: preview.position.x,
         y: preview.position.y + this.localCorrectionOffset.y,
-        z: preview.position.z + this.localCorrectionOffset.z
+        z: preview.position.z
       }
     };
   }
