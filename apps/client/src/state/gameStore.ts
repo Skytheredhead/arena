@@ -7,6 +7,8 @@ import {
   RIFLE_CLIP_SIZE,
   RIFLE_CARRY_CAPACITY,
   RIFLE_MAGAZINE,
+  WEAPON_SLOT_RIFLE,
+  type WeaponSlot,
   type KillFeedEntry,
   type LocalPlayerState,
   type MatchView,
@@ -72,6 +74,8 @@ interface SessionState {
   hitmarkerUntil: number;
   muzzleFlashUntil: number;
   damageFlashToken: number;
+  selectedWeaponSlot: WeaponSlot;
+  sniperCooldownRemainingMs: number;
   setConnection: (status: ConnectionStatus, error?: string | null) => void;
   setNickname: (nickname: string) => void;
   setRoomCode: (roomCode: string) => void;
@@ -116,6 +120,8 @@ interface SessionState {
   triggerHitmarker: (until: number) => void;
   triggerMuzzleFlash: (until: number) => void;
   triggerDamageFlash: () => void;
+  setSelectedWeaponSlot: (slot: WeaponSlot) => void;
+  setSniperCooldownRemainingMs: (value: number) => void;
 }
 
 const initialLocal = makeDefaultLocalPlayer();
@@ -161,6 +167,8 @@ export const useGameStore = create<SessionState>(set => ({
   hitmarkerUntil: 0,
   muzzleFlashUntil: 0,
   damageFlashToken: 0,
+  selectedWeaponSlot: WEAPON_SLOT_RIFLE,
+  sniperCooldownRemainingMs: 0,
   setConnection: (connectionStatus, connectionError = null) =>
     set({ connectionStatus, connectionError }),
   setNickname: nickname => set({ nickname }),
@@ -226,7 +234,9 @@ export const useGameStore = create<SessionState>(set => ({
       scoped: false,
       hitmarkerUntil: 0,
       muzzleFlashUntil: 0,
-      damageFlashToken: 0
+      damageFlashToken: 0,
+      selectedWeaponSlot: WEAPON_SLOT_RIFLE,
+      sniperCooldownRemainingMs: 0
     }),
   upsertPlayerMeta: player =>
     set(state => ({
@@ -323,7 +333,26 @@ export const useGameStore = create<SessionState>(set => ({
       }
       return { healthPacks };
     }),
-  setMatch: match => set({ match }),
+  setMatch: match =>
+    set(state => {
+      const previous = state.match;
+      if (previous === match) {
+        return state;
+      }
+      if (!previous || !match) {
+        return { match };
+      }
+      if (
+        previous.roomCode === match.roomCode &&
+        previous.active === match.active &&
+        previous.tick === match.tick &&
+        previous.remainingMs === match.remainingMs &&
+        previous.round === match.round
+      ) {
+        return state;
+      }
+      return { match };
+    }),
   pushKillFeed: entry =>
     set(state => {
       if (state.killFeed.some(existing => existing.id === entry.id)) {
@@ -331,7 +360,7 @@ export const useGameStore = create<SessionState>(set => ({
       }
 
       return {
-        killFeed: [entry, ...state.killFeed].slice(0, 8)
+        killFeed: [...state.killFeed, entry].slice(-8)
       };
     }),
   pruneKillFeed: nowMs =>
@@ -444,5 +473,19 @@ export const useGameStore = create<SessionState>(set => ({
   triggerHitmarker: hitmarkerUntil => set({ hitmarkerUntil }),
   triggerMuzzleFlash: muzzleFlashUntil => set({ muzzleFlashUntil }),
   triggerDamageFlash: () =>
-    set(state => ({ damageFlashToken: state.damageFlashToken + 1 }))
+    set(state => ({ damageFlashToken: state.damageFlashToken + 1 })),
+  setSelectedWeaponSlot: selectedWeaponSlot =>
+    set(state =>
+      state.selectedWeaponSlot === selectedWeaponSlot
+        ? state
+        : { selectedWeaponSlot }
+    ),
+  setSniperCooldownRemainingMs: sniperCooldownRemainingMs =>
+    set(state => {
+      const clamped = Math.max(0, sniperCooldownRemainingMs);
+      if (Math.abs(state.sniperCooldownRemainingMs - clamped) < 1) {
+        return state;
+      }
+      return { sniperCooldownRemainingMs: clamped };
+    })
 }));

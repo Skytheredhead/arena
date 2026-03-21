@@ -45,27 +45,45 @@ const MAX_PITCH: f32 = std::f32::consts::PI * 0.49;
 
 const MAX_HEALTH: u16 = 100;
 const KILL_HEAL_AMOUNT: u16 = 50;
+const KILL_AMMO_REWARD: u16 = 10;
 const RIFLE_DAMAGE: u16 = 10;
 const RIFLE_FIRE_INTERVAL_TICKS: u32 = 7;
 const RIFLE_RANGE: f32 = 80.0;
 const RIFLE_MAGAZINE: u16 = 40;
 const BASE_WEAPON_SPREAD: f32 = 0.004;
 const MOVEMENT_SPREAD: f32 = 0.1;
+const HEADSHOT_MULTIPLIER: u16 = 2;
+const WEAPON_SLOT_RIFLE: u8 = 1;
+const WEAPON_SLOT_SNIPER: u8 = 2;
+const WEAPON_SLOT_SHOTGUN: u8 = 3;
+const SNIPER_DAMAGE: u16 = 75;
+const SNIPER_FIRE_INTERVAL_TICKS: u32 = SERVER_TICK_RATE * 2;
+const SNIPER_RANGE: f32 = 140.0;
+const SNIPER_BASE_SPREAD: f32 = 0.0014;
+const SNIPER_MOVEMENT_SPREAD: f32 = 0.08;
+const SNIPER_UNSCOPED_SPREAD_MULTIPLIER: f32 = 14.0;
+const SHOTGUN_PELLETS: u32 = 10;
+const SHOTGUN_DAMAGE: u16 = 5;
+const SHOTGUN_FIRE_INTERVAL_TICKS: u32 = 24;
+const SHOTGUN_RANGE: f32 = 36.0;
+const SHOTGUN_BASE_SPREAD: f32 = 0.018;
+const SHOTGUN_MOVEMENT_SPREAD: f32 = 0.085;
+const SHOTGUN_SCOPED_SPREAD_MULTIPLIER: f32 = 0.62;
+const SHOTGUN_UNSCOPED_SPREAD_MULTIPLIER: f32 = 1.55;
 const HEALTH_REGEN_DELAY_TICKS: u32 = SERVER_TICK_RATE * 5;
 const HEALTH_REGEN_PER_TICK: f32 = 3.0 / SERVER_TICK_RATE as f32;
 const AMMO_PACK_AMOUNT: u16 = 6;
-const AMMO_PACK_TOP_OFF_THRESHOLD: u16 = 34;
 const AMMO_PACK_RESPAWN_TICKS: u32 = SERVER_TICK_RATE * 3;
-const AMMO_PACK_RADIUS: f32 = 1.2;
-const AMMO_PICKUP_HORIZONTAL_GRACE: f32 = 1.05;
-const AMMO_PICKUP_VERTICAL_GRACE: f32 = 0.9;
+const AMMO_PACK_RADIUS: f32 = 1.35;
+const AMMO_PICKUP_HORIZONTAL_GRACE: f32 = 1.4;
+const AMMO_PICKUP_VERTICAL_GRACE: f32 = 1.25;
 const AMMO_PACK_ACTIVE_COUNT: usize = 18;
 const HEALTH_PACK_AMOUNT: u16 = 50;
 const HEALTH_PACK_RESPAWN_TICKS: u32 = SERVER_TICK_RATE * 10;
 const HEALTH_PACK_RADIUS: f32 = 0.5;
-const HEALTH_PACK_ACTIVE_COUNT: usize = 2;
-const PICKUP_HORIZONTAL_GRACE: f32 = 0.7;
-const PICKUP_VERTICAL_GRACE: f32 = 0.6;
+const HEALTH_PACK_ACTIVE_COUNT: usize = 4;
+const PICKUP_HORIZONTAL_GRACE: f32 = 1.0;
+const PICKUP_VERTICAL_GRACE: f32 = 0.95;
 const PICKUP_SWEEP_EXTRA: f32 = 0.35;
 const PICKUP_HEIGHT_MAX: f32 = 1.4;
 const COLLISION_EPSILON: f32 = 0.0001;
@@ -595,8 +613,12 @@ pub fn client_connected(ctx: &ReducerContext) {
     let fallback_nickname = default_nickname_for_identity(ctx.sender());
 
     if let Some(player) = ctx.db.player().identity().find(ctx.sender()) {
+        if player.room_code.is_some() {
+            leave_room_internal(ctx, ctx.sender(), LeaveReason::Disconnected);
+        }
         ctx.db.player().identity().update(Player {
             connected: true,
+            room_code: None,
             ..player
         });
     } else {
@@ -690,7 +712,7 @@ pub fn client_connected(ctx: &ReducerContext) {
 pub fn client_disconnected(ctx: &ReducerContext) {
     if let Some(player) = ctx.db.player().identity().find(ctx.sender()) {
         if player.room_code.is_some() {
-            leave_room_internal(ctx, ctx.sender());
+            leave_room_internal(ctx, ctx.sender(), LeaveReason::Disconnected);
         }
 
         ctx.db.player().identity().update(Player {
@@ -711,6 +733,7 @@ pub fn set_nickname(ctx: &ReducerContext, nickname: String) -> Result<(), String
         "Changing nickname too fast",
     )?;
     let player = require_player(ctx, ctx.sender())?;
+    let join_nickname = player.nickname.clone();
     let nickname = validate_nickname(nickname)?;
     let unique_nickname = coerce_unique_nickname(ctx, &nickname, ctx.sender());
     ctx.db.player().identity().update(Player {
@@ -968,7 +991,7 @@ pub fn join_room(ctx: &ReducerContext, room_code: String) -> Result<(), String> 
         return Ok(());
     }
 
-    leave_room_internal(ctx, ctx.sender());
+    leave_room_internal(ctx, ctx.sender(), LeaveReason::LeftRoom);
 
     let room = ctx
         .db
@@ -1021,6 +1044,12 @@ pub fn join_room(ctx: &ReducerContext, room_code: String) -> Result<(), String> 
         player_count: room.player_count.saturating_add(1),
         ..room
     });
+    insert_system_chat_event(
+        ctx,
+        room_code.as_str(),
+        format!("{} joined the room", join_nickname),
+        current_tick(ctx),
+    );
     bump_stat_for_identity(ctx, ctx.sender(), |stats| {
         stats.rooms_joined = stats.rooms_joined.saturating_add(1);
         stats.times_played = stats.times_played.saturating_add(1);
@@ -1037,7 +1066,7 @@ pub fn leave_room(ctx: &ReducerContext) -> Result<(), String> {
         ROOM_ACTION_RATE_LIMIT_TICKS,
         "Leave room rate limit hit",
     )?;
-    leave_room_internal(ctx, ctx.sender());
+    leave_room_internal(ctx, ctx.sender(), LeaveReason::LeftRoom);
     Ok(())
 }
 
@@ -1119,13 +1148,21 @@ pub fn submit_input(
 }
 
 #[reducer]
-pub fn fire_weapon(ctx: &ReducerContext, yaw: f32, pitch: f32, scoped: bool) -> Result<(), String> {
+pub fn fire_weapon(
+    ctx: &ReducerContext,
+    yaw: f32,
+    pitch: f32,
+    scoped: bool,
+    weapon_slot: u8,
+) -> Result<(), String> {
     let tick = current_tick(ctx);
     let player = require_player(ctx, ctx.sender())?;
     let state = require_player_state(ctx, ctx.sender())?;
     let shooter_input = require_input_state(ctx, ctx.sender())?;
     let weapon = require_weapon_state(ctx, ctx.sender())?;
     let room_code = require_room_membership(ctx, ctx.sender())?;
+    let weapon_kind = weapon_kind_from_slot(weapon_slot);
+    let spec = weapon_spec(weapon_kind);
 
     let match_state = ctx
         .db
@@ -1159,15 +1196,12 @@ pub fn fire_weapon(ctx: &ReducerContext, yaw: f32, pitch: f32, scoped: bool) -> 
 
     let movement_speed = (state.vel_x * state.vel_x + state.vel_z * state.vel_z).sqrt();
     let movement_ratio = (movement_speed / WALK_SPEED).clamp(0.0, 1.0);
-    let scoped_factor = if scoped { 0.45 } else { 1.0 };
-    let spread = (BASE_WEAPON_SPREAD + movement_ratio * MOVEMENT_SPREAD) * scoped_factor;
-    let base_seed = tick as f32 * 0.197 + state.x * 1.31 + state.z * 2.17 + state.yaw * 0.97;
-    let yaw_offset = (hash01(base_seed) - 0.5) * 2.0 * spread;
-    let pitch_offset = (hash01(base_seed + 17.13) - 0.5) * 2.0 * spread;
-
-    let aim_yaw = yaw + yaw_offset;
-    let aim_pitch = (pitch + pitch_offset).clamp(-MAX_PITCH, MAX_PITCH);
-    let direction = direction_from_yaw_pitch(aim_yaw, aim_pitch);
+    let spread_multiplier = if scoped {
+        spec.scoped_spread_multiplier
+    } else {
+        spec.unscoped_spread_multiplier
+    };
+    let spread = (spec.base_spread + movement_ratio * spec.movement_spread) * spread_multiplier;
     let shooter_crouching = shooter_input.sprinting;
     let rewind_ticks = estimate_hit_rewind_ticks(&shooter_input, tick);
     let eye_height = if shooter_crouching {
@@ -1180,68 +1214,105 @@ pub fn fire_weapon(ctx: &ReducerContext, yaw: f32, pitch: f32, scoped: bool) -> 
         y: state.y + eye_height,
         z: state.z,
     };
-    let block_hit = ray_hits_environment(origin, direction);
 
-    let mut best_hit: Option<(Identity, f32)> = None;
-    for target in ctx.db.player_state().iter() {
-        if target.identity == ctx.sender() || !target.alive {
-            continue;
-        }
-        if target.room_code.as_deref() != Some(room_code.as_str()) {
-            continue;
-        }
+    let mut impact_mark: Option<(f32, Vec3, Vec3)> = None;
+    for pellet_index in 0..spec.pellet_count {
+        let base_seed = tick as f32 * 0.197
+            + state.x * 1.31
+            + state.z * 2.17
+            + state.yaw * 0.97
+            + pellet_index as f32 * 9.83
+            + weapon_slot as f32 * 4.71;
+        let yaw_offset = (hash01(base_seed) - 0.5) * 2.0 * spread;
+        let pitch_offset = (hash01(base_seed + 17.13) - 0.5) * 2.0 * spread;
 
-        let position = rewind_player_for_hit(&target, rewind_ticks);
-        let crouching = ctx
-            .db
-            .player_input()
-            .identity()
-            .find(target.identity)
-            .map(|input| input.sprinting)
-            .unwrap_or(false);
-        if let Some(distance) = ray_hits_player(origin, direction, position, crouching) {
-            if distance <= RIFLE_RANGE {
-                match best_hit {
-                    Some((_, best_distance)) if best_distance <= distance => {}
-                    _ => best_hit = Some((target.identity, distance)),
+        let aim_yaw = yaw + yaw_offset;
+        let aim_pitch = (pitch + pitch_offset).clamp(-MAX_PITCH, MAX_PITCH);
+        let direction = direction_from_yaw_pitch(aim_yaw, aim_pitch);
+        let block_hit = ray_hits_environment(origin, direction);
+
+        let mut best_hit: Option<(Identity, PlayerHit)> = None;
+        for target in ctx.db.player_state().iter() {
+            if target.identity == ctx.sender() || !target.alive {
+                continue;
+            }
+            if target.room_code.as_deref() != Some(room_code.as_str()) {
+                continue;
+            }
+
+            let position = rewind_player_for_hit(&target, rewind_ticks);
+            let crouching = ctx
+                .db
+                .player_input()
+                .identity()
+                .find(target.identity)
+                .map(|input| input.sprinting)
+                .unwrap_or(false);
+            if let Some(hit) = ray_hits_player(origin, direction, position, crouching) {
+                if hit.distance <= spec.max_range {
+                    match best_hit {
+                        Some((_, best)) if best.distance <= hit.distance => {}
+                        _ => best_hit = Some((target.identity, hit)),
+                    }
                 }
             }
         }
-    }
 
-    if let Some((victim_identity, victim_distance)) = best_hit {
-        if let Some(block_hit) = block_hit {
-            if block_hit.distance < victim_distance {
-                insert_impact_mark(
-                    ctx,
-                    &room_code,
-                    point_along_ray(origin, direction, block_hit.distance),
-                    block_hit.normal,
-                    tick,
-                );
-                apply_weapon_cooldown(ctx, weapon, tick);
-                return Ok(());
+        if let Some((victim_identity, victim_hit)) = best_hit {
+            if let Some(block) = block_hit {
+                if block.distance < victim_hit.distance {
+                    if impact_mark
+                        .map(|mark| mark.0 > block.distance)
+                        .unwrap_or(true)
+                    {
+                        impact_mark = Some((
+                            block.distance,
+                            point_along_ray(origin, direction, block.distance),
+                            block.normal,
+                        ));
+                    }
+                    continue;
+                }
             }
+
+            let headshot_bonus = if victim_hit.headshot {
+                HEADSHOT_MULTIPLIER
+            } else {
+                1
+            };
+            let damage = spec
+                .pellet_damage
+                .saturating_mul(headshot_bonus)
+                .min(MAX_HEALTH.saturating_mul(2));
+            apply_damage(
+                ctx,
+                room_code.clone(),
+                ctx.sender(),
+                victim_identity,
+                damage,
+            )?;
+            continue;
         }
 
-        apply_damage(
-            ctx,
-            room_code.clone(),
-            ctx.sender(),
-            victim_identity,
-            RIFLE_DAMAGE,
-        )?;
-    } else if let Some(block_hit) = block_hit {
-        insert_impact_mark(
-            ctx,
-            &room_code,
-            point_along_ray(origin, direction, block_hit.distance),
-            block_hit.normal,
-            tick,
-        );
+        if let Some(block) = block_hit {
+            if impact_mark
+                .map(|mark| mark.0 > block.distance)
+                .unwrap_or(true)
+            {
+                impact_mark = Some((
+                    block.distance,
+                    point_along_ray(origin, direction, block.distance),
+                    block.normal,
+                ));
+            }
+        }
     }
 
-    apply_weapon_cooldown(ctx, weapon, tick);
+    if let Some((_, impact_position, impact_normal)) = impact_mark {
+        insert_impact_mark(ctx, &room_code, impact_position, impact_normal, tick);
+    }
+
+    apply_weapon_cooldown(ctx, weapon, tick, spec.fire_interval_ticks);
     Ok(())
 }
 
@@ -1396,17 +1467,45 @@ fn validate_room_code(value: String) -> Result<String, String> {
 }
 
 fn validate_chat_message(value: String) -> Result<String, String> {
-    let trimmed = value.trim();
-    if trimmed.is_empty() {
+    let sanitized = sanitize_chat_payload(value.trim());
+    if sanitized.is_empty() {
         return Err("Chat message cannot be empty".to_string());
     }
-    if trimmed.chars().count() > CHAT_MESSAGE_MAX_CHARS {
+    if sanitized.chars().count() > CHAT_MESSAGE_MAX_CHARS {
         return Err(format!(
             "Chat message must be {CHAT_MESSAGE_MAX_CHARS} characters or fewer"
         ));
     }
 
-    Ok(censor_blocked_language(trimmed))
+    Ok(censor_blocked_language(sanitized.as_str()))
+}
+
+fn sanitize_chat_payload(value: &str) -> String {
+    let mut sanitized = String::with_capacity(value.len());
+    let mut previous_was_space = false;
+    for ch in value.chars() {
+        let mapped = match ch {
+            '<' => '[',
+            '>' => ']',
+            '&' => '+',
+            '`' => '\'',
+            '\n' | '\r' | '\t' => ' ',
+            _ if ch.is_control() => continue,
+            _ => ch,
+        };
+        if mapped.is_whitespace() {
+            if previous_was_space {
+                continue;
+            }
+            sanitized.push(' ');
+            previous_was_space = true;
+            continue;
+        }
+
+        previous_was_space = false;
+        sanitized.push(mapped);
+    }
+    sanitized.trim().to_string()
 }
 
 fn validate_email(value: String) -> Result<String, String> {
@@ -1961,7 +2060,75 @@ fn can_fire_weapon_at_tick(next_ready_tick: u32, current_tick: u32) -> bool {
     current_tick >= next_ready_tick
 }
 
-fn leave_room_internal(ctx: &ReducerContext, identity: Identity) {
+#[derive(Clone, Copy)]
+enum WeaponKind {
+    Rifle,
+    Sniper,
+    Shotgun,
+}
+
+#[derive(Clone, Copy)]
+enum LeaveReason {
+    LeftRoom,
+    Disconnected,
+}
+
+#[derive(Clone, Copy)]
+struct WeaponSpec {
+    fire_interval_ticks: u32,
+    pellet_count: u32,
+    max_range: f32,
+    pellet_damage: u16,
+    base_spread: f32,
+    movement_spread: f32,
+    scoped_spread_multiplier: f32,
+    unscoped_spread_multiplier: f32,
+}
+
+fn weapon_kind_from_slot(slot: u8) -> WeaponKind {
+    match slot {
+        WEAPON_SLOT_SNIPER => WeaponKind::Sniper,
+        WEAPON_SLOT_SHOTGUN => WeaponKind::Shotgun,
+        _ => WeaponKind::Rifle,
+    }
+}
+
+fn weapon_spec(kind: WeaponKind) -> WeaponSpec {
+    match kind {
+        WeaponKind::Rifle => WeaponSpec {
+            fire_interval_ticks: RIFLE_FIRE_INTERVAL_TICKS,
+            pellet_count: 1,
+            max_range: RIFLE_RANGE,
+            pellet_damage: RIFLE_DAMAGE,
+            base_spread: BASE_WEAPON_SPREAD,
+            movement_spread: MOVEMENT_SPREAD,
+            scoped_spread_multiplier: 0.45,
+            unscoped_spread_multiplier: 1.0,
+        },
+        WeaponKind::Sniper => WeaponSpec {
+            fire_interval_ticks: SNIPER_FIRE_INTERVAL_TICKS,
+            pellet_count: 1,
+            max_range: SNIPER_RANGE,
+            pellet_damage: SNIPER_DAMAGE,
+            base_spread: SNIPER_BASE_SPREAD,
+            movement_spread: SNIPER_MOVEMENT_SPREAD,
+            scoped_spread_multiplier: 0.2,
+            unscoped_spread_multiplier: SNIPER_UNSCOPED_SPREAD_MULTIPLIER,
+        },
+        WeaponKind::Shotgun => WeaponSpec {
+            fire_interval_ticks: SHOTGUN_FIRE_INTERVAL_TICKS,
+            pellet_count: SHOTGUN_PELLETS,
+            max_range: SHOTGUN_RANGE,
+            pellet_damage: SHOTGUN_DAMAGE,
+            base_spread: SHOTGUN_BASE_SPREAD,
+            movement_spread: SHOTGUN_MOVEMENT_SPREAD,
+            scoped_spread_multiplier: SHOTGUN_SCOPED_SPREAD_MULTIPLIER,
+            unscoped_spread_multiplier: SHOTGUN_UNSCOPED_SPREAD_MULTIPLIER,
+        },
+    }
+}
+
+fn leave_room_internal(ctx: &ReducerContext, identity: Identity, reason: LeaveReason) {
     let Some(player) = ctx.db.player().identity().find(identity) else {
         return;
     };
@@ -1970,6 +2137,13 @@ fn leave_room_internal(ctx: &ReducerContext, identity: Identity) {
     };
 
     if let Some(room) = ctx.db.room().code().find(room_code.clone()) {
+        if room.player_count > 1 {
+            let message = match reason {
+                LeaveReason::LeftRoom => format!("{} left the room", player.nickname),
+                LeaveReason::Disconnected => format!("{} disconnected", player.nickname),
+            };
+            insert_system_chat_event(ctx, room_code.as_str(), message, current_tick(ctx));
+        }
         let next_player_count = room.player_count.saturating_sub(1);
         if next_player_count == 0 {
             remove_room_artifacts(ctx, &room_code);
@@ -2316,6 +2490,12 @@ struct BlockHit {
     normal: Vec3,
 }
 
+#[derive(Clone, Copy)]
+struct PlayerHit {
+    distance: f32,
+    headshot: bool,
+}
+
 fn normalize_angle(mut angle: f32) -> f32 {
     while angle <= -std::f32::consts::PI {
         angle += TWO_PI;
@@ -2491,16 +2671,21 @@ fn direction_from_yaw_pitch(yaw: f32, pitch: f32) -> Vec3 {
     }
 }
 
-fn ray_hits_player(origin: Vec3, direction: Vec3, position: Vec3, crouching: bool) -> Option<f32> {
+fn ray_hits_player(
+    origin: Vec3,
+    direction: Vec3,
+    position: Vec3,
+    crouching: bool,
+) -> Option<PlayerHit> {
     let hitbox_half = if crouching {
         CROUCH_HITBOX_HALF
     } else {
         PLAYER_HITBOX_HALF
     };
     let hitbox_height = if crouching {
-        CROUCH_HEIGHT
+        CROUCH_HEIGHT + 0.14
     } else {
-        PLAYER_HEIGHT
+        PLAYER_HEIGHT + 0.24
     };
     let min_x = position.x - hitbox_half;
     let max_x = position.x + hitbox_half;
@@ -2550,7 +2735,13 @@ fn ray_hits_player(origin: Vec3, direction: Vec3, position: Vec3, crouching: boo
     t_max = t_max.min(t1.max(t2));
 
     if t_max >= t_min.max(0.0) {
-        Some(t_min.max(0.0))
+        let distance = t_min.max(0.0);
+        let hit_y = origin.y + direction.y * distance;
+        let head_threshold = position.y + hitbox_height * 0.74;
+        Some(PlayerHit {
+            distance,
+            headshot: hit_y >= head_threshold,
+        })
     } else {
         None
     }
@@ -2768,9 +2959,14 @@ fn point_along_ray(origin: Vec3, direction: Vec3, distance: f32) -> Vec3 {
     }
 }
 
-fn apply_weapon_cooldown(ctx: &ReducerContext, mut weapon: WeaponState, tick: u32) {
+fn apply_weapon_cooldown(
+    ctx: &ReducerContext,
+    mut weapon: WeaponState,
+    tick: u32,
+    fire_interval_ticks: u32,
+) {
     weapon.ammo_in_mag = weapon.ammo_in_mag.saturating_sub(1);
-    weapon.next_ready_tick = tick + RIFLE_FIRE_INTERVAL_TICKS;
+    weapon.next_ready_tick = tick + fire_interval_ticks;
     ctx.db.weapon_state().identity().update(weapon);
 }
 
@@ -2802,6 +2998,21 @@ fn insert_impact_mark(
         normal_x: normal.x,
         normal_y: normal.y,
         normal_z: normal.z,
+        tick,
+    });
+}
+
+fn insert_system_chat_event(ctx: &ReducerContext, room_code: &str, message: String, tick: u32) {
+    let sanitized = sanitize_chat_payload(message.as_str());
+    if sanitized.is_empty() {
+        return;
+    }
+    ctx.db.chat_event().insert(ChatEvent {
+        id: 0,
+        room_code: room_code.to_string(),
+        sender_identity: ctx.identity(),
+        sender_nickname: "SYSTEM".to_string(),
+        message: sanitized,
         tick,
     });
 }
@@ -2853,6 +3064,18 @@ fn apply_damage(
             attacker_state.server_tick = tick;
             attacker_state.regen_progress = 0.0;
             ctx.db.player_state().identity().update(attacker_state);
+        }
+
+        if let Some(mut attacker_weapon) = ctx.db.weapon_state().identity().find(attacker_identity)
+        {
+            let rewarded_ammo = attacker_weapon
+                .ammo_in_mag
+                .saturating_add(KILL_AMMO_REWARD)
+                .min(RIFLE_MAGAZINE);
+            if rewarded_ammo != attacker_weapon.ammo_in_mag {
+                attacker_weapon.ammo_in_mag = rewarded_ammo;
+                ctx.db.weapon_state().identity().update(attacker_weapon);
+            }
         }
 
         victim_state.alive = false;
@@ -3062,7 +3285,7 @@ fn player_touches_pickup(
     horizontal_grace: f32,
     vertical_grace: f32,
 ) -> bool {
-    let max_delta = 1.2;
+    let max_delta = 1.8;
     let previous_x = state.x - (state.vel_x / SERVER_TICK_RATE as f32).clamp(-max_delta, max_delta);
     let previous_z = state.z - (state.vel_z / SERVER_TICK_RATE as f32).clamp(-max_delta, max_delta);
     let max_horizontal = PLAYER_RADIUS + pickup_radius + horizontal_grace + PICKUP_SWEEP_EXTRA;
@@ -3208,14 +3431,10 @@ fn process_ammo_packs(ctx: &ReducerContext, tick: u32) {
                 continue;
             }
 
-            weapon.ammo_in_mag = if weapon.ammo_in_mag >= AMMO_PACK_TOP_OFF_THRESHOLD {
-                RIFLE_MAGAZINE
-            } else {
-                weapon
-                    .ammo_in_mag
-                    .saturating_add(AMMO_PACK_AMOUNT)
-                    .min(RIFLE_MAGAZINE)
-            };
+            weapon.ammo_in_mag = weapon
+                .ammo_in_mag
+                .saturating_add(AMMO_PACK_AMOUNT)
+                .min(RIFLE_MAGAZINE);
             ctx.db.weapon_state().identity().update(weapon);
             collected = true;
             collected_by = Some(identity);

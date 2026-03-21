@@ -55,6 +55,8 @@ export default function App(): React.JSX.Element {
   const damageFlashToken = useGameStore(state => state.damageFlashToken);
   const crosshairSpread = useGameStore(state => state.crosshairSpread);
   const scoped = useGameStore(state => state.scoped);
+  const selectedWeaponSlot = useGameStore(state => state.selectedWeaponSlot);
+  const sniperCooldownRemainingMs = useGameStore(state => state.sniperCooldownRemainingMs);
   const localPlayer = useGameStore(state => state.localPlayer);
   const localIdentity = useGameStore(state => state.localIdentity);
   const players = useGameStore(state => state.players);
@@ -263,8 +265,8 @@ export default function App(): React.JSX.Element {
   }, [fov, graphicsQuality, lookSensitivity, musicVolume, sfxVolume, touchControls]);
 
   useEffect(() => {
-    runtimeRef.current?.setPointerLockEnabled(connected && !touchControls && localPlayer.alive);
-  }, [connected, localPlayer.alive, touchControls]);
+    runtimeRef.current?.setPointerLockEnabled(connected && !touchControls);
+  }, [connected, touchControls]);
 
   useEffect(() => {
     runtimeRef.current?.setLobbyMusicActive(!connected);
@@ -399,8 +401,8 @@ export default function App(): React.JSX.Element {
     [rooms]
   );
   const localMeta = useMemo(
-    () => (localIdentity ? players[localIdentity] : undefined),
-    [localIdentity, players]
+    () => (localIdentity ? scoreboard.find(player => player.identity === localIdentity) : undefined),
+    [localIdentity, scoreboard]
   );
   const eliminated = connected && !localPlayer.alive;
 
@@ -408,8 +410,18 @@ export default function App(): React.JSX.Element {
     if (!eliminated) return;
     setPaused(false); setPauseView('pause'); setChatOpen(false);
     runtimeRef.current?.setPaused(false);
-    if (document.pointerLockElement) void document.exitPointerLock();
   }, [eliminated]);
+
+  useEffect(() => {
+    if (!eliminated || touchControls) return;
+    const releasePointerOnMouseMove = (event: MouseEvent): void => {
+      if (!document.pointerLockElement) return;
+      if (Math.abs(event.movementX) + Math.abs(event.movementY) <= 0) return;
+      void document.exitPointerLock();
+    };
+    window.addEventListener('mousemove', releasePointerOnMouseMove);
+    return () => window.removeEventListener('mousemove', releasePointerOnMouseMove);
+  }, [eliminated, touchControls]);
 
   const triggerRespawn = useCallback((): void => {
     void runtimeRef.current?.requestRespawn().catch(() => undefined);
@@ -463,6 +475,9 @@ export default function App(): React.JSX.Element {
       damageFlashToken,
       crosshairSpread,
       scoped,
+      selectedWeaponSlot,
+      sniperCooldownRemainingMs,
+      paused,
       chatOpen,
       chatDraft,
       chatBusy,
@@ -478,7 +493,7 @@ export default function App(): React.JSX.Element {
       localPlayer.health, localPlayer.ammo,
       localMeta?.deaths, localMeta?.kills,
       localPingMs, localPingJitterMs,
-      match, sendChat, scoped, scoreboard, scoreboardOpen,
+      match, paused, selectedWeaponSlot, sendChat, sniperCooldownRemainingMs, scoped, scoreboard, scoreboardOpen,
     ]
   );
 

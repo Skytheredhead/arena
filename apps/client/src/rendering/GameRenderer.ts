@@ -2,6 +2,8 @@ import * as THREE from 'three';
 import {
   PLAYER_EYE_HEIGHT,
   SERVER_TICK_MS,
+  WEAPON_SLOT_SNIPER,
+  type WeaponSlot,
   WALK_SPEED,
   type AmmoPackView,
   type HealthPackView,
@@ -27,6 +29,7 @@ interface RenderFrameState {
   impactMarks: ImpactMarkView[];
   bloodBursts: BloodBurstView[];
   scoped: boolean;
+  weaponSlot: WeaponSlot;
   recoil: number;
   muzzleFlashVisible: boolean;
   walkPhase: number;
@@ -61,11 +64,14 @@ export class GameRenderer {
   private readonly camera: THREE.PerspectiveCamera;
   private static readonly IMPACT_MARK_LIFETIME_MS = 20_000;
   private static readonly IMPACT_MARK_FADE_WINDOW_MS = 2_000;
-  private static readonly REMOTE_DEATH_DURATION_MS = 3_000;
-  private static readonly REMOTE_DEATH_FALL_MS = 750;
-  private static readonly REMOTE_DEATH_FADE_START_MS = 1_050;
+  private static readonly REMOTE_DEATH_DURATION_MS = 540;
+  private static readonly REMOTE_DEATH_FALL_MS = 220;
+  private static readonly REMOTE_DEATH_FADE_START_MS = 170;
+  private static readonly REMOTE_TELEPORT_HIDE_MS = 160;
+  private static readonly REMOTE_TELEPORT_DISTANCE = 7.5;
   private readonly remotePlayers = new Map<string, RemoteAvatar>();
   private readonly remoteDeathFx = new Map<string, RemoteDeathFxState>();
+  private readonly remoteTeleportHideUntil = new Map<string, number>();
   private readonly ammoPackMeshes = new Map<number, THREE.Group>();
   private readonly ammoPackActiveState = new Map<number, boolean>();
   private readonly ammoPackActivatedAt = new Map<number, number>();
@@ -584,7 +590,10 @@ export class GameRenderer {
       this.smoothedCameraPosition.lerp(this.targetCameraPosition, blend);
     }
 
-    const targetFov = frame.scoped ? Math.max(30, this.baseFov * 0.78) : this.baseFov;
+    const targetFov =
+      frame.scoped && frame.weaponSlot !== WEAPON_SLOT_SNIPER
+        ? Math.max(30, this.baseFov * 0.78)
+        : this.baseFov;
     const nextFov =
       this.camera.fov + (targetFov - this.camera.fov) * Math.min(1, frame.deltaSeconds * 14);
     if (Math.abs(nextFov - this.camera.fov) > 0.01) {
@@ -629,11 +638,29 @@ export class GameRenderer {
       const armSwing = player.alive ? Math.sin(stridePhase + Math.PI) * 0.56 * moveRatio : 0;
 
       if (player.alive) {
-        if (this.remoteDeathFx.has(player.identity)) {
+        const hadDeathFx = this.remoteDeathFx.has(player.identity);
+        if (hadDeathFx) {
           this.remoteDeathFx.delete(player.identity);
+          this.remoteTeleportHideUntil.set(
+            player.identity,
+            now + GameRenderer.REMOTE_TELEPORT_HIDE_MS
+          );
         }
+        const teleportDistance = mesh.position.distanceToSquared(
+          new THREE.Vector3(player.position.x, player.position.y, player.position.z)
+        );
+        if (
+          mesh.visible &&
+          teleportDistance >
+            GameRenderer.REMOTE_TELEPORT_DISTANCE * GameRenderer.REMOTE_TELEPORT_DISTANCE
+        ) {
+          this.remoteTeleportHideUntil.set(
+            player.identity,
+            now + GameRenderer.REMOTE_TELEPORT_HIDE_MS
+          );
+        }
+        const hiddenUntil = this.remoteTeleportHideUntil.get(player.identity) ?? 0;
         this.resetRemoteAvatarAppearance(avatar);
-        mesh.visible = true;
         mesh.position.set(player.position.x, player.position.y, player.position.z);
         mesh.rotation.set(0, player.yaw, 0);
         avatar.head.rotation.x = player.pitch * 0.35;
@@ -645,6 +672,7 @@ export class GameRenderer {
         avatar.rightArm.rotation.x = -0.86 - armSwing * 0.26;
         avatar.rightArm.rotation.y = -0.16;
         avatar.rightArm.rotation.z = 0.1;
+        mesh.visible = now >= hiddenUntil;
         continue;
       }
 
@@ -669,7 +697,9 @@ export class GameRenderer {
         Math.min(1, deathAgeMs / GameRenderer.REMOTE_DEATH_FALL_MS)
       );
       const easedFall = 1 - Math.pow(1 - fallProgress, 3);
-      const tintProgress = Math.max(0, Math.min(1, deathAgeMs / 180));
+      const tintProgress = deathAgeMs <= 220
+        ? 0.65 + Math.abs(Math.sin(deathAgeMs * 0.11)) * 0.35
+        : 0.55;
       const alpha =
         deathAgeMs <= GameRenderer.REMOTE_DEATH_FADE_START_MS
           ? 1
@@ -700,6 +730,7 @@ export class GameRenderer {
     for (const [identity, avatar] of this.remotePlayers) {
       if (!activeIds.has(identity)) {
         this.remoteDeathFx.delete(identity);
+        this.remoteTeleportHideUntil.delete(identity);
         this.resetRemoteAvatarAppearance(avatar);
         avatar.root.visible = false;
       }
@@ -824,6 +855,33 @@ export class GameRenderer {
       }
     }
 
-    this.renderer.render(this.scene, this.camera);
+    if (frame.scoped && frame.weaponSlot === WEAPON_SLOT_SNIPER) {
+      const canvas = this.renderer.domElement;
+      const fullWidth = canvas.width;
+      const fullHeight = canvas.height;
+      const scopeSize = Math.floor(Math.min(fullWidth, fullHeight) * 0.62);
+      const scopeLeft = Math.floor((fullWidth - scopeSize) * 0.5);
+      const scopeBottom = Math.floor((fullHeight - scopeSize) * 0.5);
+      const basePassFov = this.camera.fov;
+      const zoomedFov = Math.max(10, this.baseFov * 0.25);
+
+      this.renderer.setScissorTest(false);
+      this.renderer.setViewport(0, 0, fullWidth, fullHeight);
+      this.renderer.render(this.scene, this.camera);
+
+      this.camera.fov = zoomedFov;
+      this.camera.updateProjectionMatrix();
+      this.renderer.clearDepth();
+      this.renderer.setViewport(scopeLeft, scopeBottom, scopeSize, scopeSize);
+      this.renderer.setScissor(scopeLeft, scopeBottom, scopeSize, scopeSize);
+      this.renderer.setScissorTest(true);
+      this.renderer.render(this.scene, this.camera);
+      this.renderer.setScissorTest(false);
+      this.renderer.setViewport(0, 0, fullWidth, fullHeight);
+      this.camera.fov = basePassFov;
+      this.camera.updateProjectionMatrix();
+    } else {
+      this.renderer.render(this.scene, this.camera);
+    }
   }
 }

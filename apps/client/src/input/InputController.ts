@@ -3,6 +3,10 @@ import {
   MAX_PITCH,
   SCOPED_MOVE_SCALE,
   SCOREBOARD_KEY,
+  WEAPON_SLOT_RIFLE,
+  WEAPON_SLOT_SHOTGUN,
+  WEAPON_SLOT_SNIPER,
+  type WeaponSlot,
   type InputCommand
 } from '@arena/shared';
 
@@ -15,6 +19,7 @@ interface FrameInput {
   scoreboardHeld: boolean;
   wantsFire: boolean;
   wantsReload: boolean;
+  weaponSlot: WeaponSlot;
 }
 
 export class InputController {
@@ -29,6 +34,7 @@ export class InputController {
   private rightMouseScoped = false;
   private reloadQueued = false;
   private pointerLockEnabled = false;
+  private selectedWeaponSlot: WeaponSlot = WEAPON_SLOT_RIFLE;
 
   constructor(private readonly element: HTMLElement) {
     this.attach();
@@ -195,6 +201,15 @@ export class InputController {
     if (event.code === SCOREBOARD_KEY) {
       event.preventDefault();
     }
+    if (!event.repeat) {
+      if (event.code === 'Digit1') {
+        this.selectedWeaponSlot = WEAPON_SLOT_RIFLE;
+      } else if (event.code === 'Digit2') {
+        this.selectedWeaponSlot = WEAPON_SLOT_SNIPER;
+      } else if (event.code === 'Digit3') {
+        this.selectedWeaponSlot = WEAPON_SLOT_SHOTGUN;
+      }
+    }
     if (event.code === 'KeyR' && !event.repeat) {
       this.reloadQueued = true;
     }
@@ -250,8 +265,13 @@ export class InputController {
         this.virtualFireHeld ||
         (this.fireHeld &&
           (this.touchControlsActive || document.pointerLockElement === this.element)),
-      wantsReload: this.consumeReloadQueued()
+      wantsReload: this.consumeReloadQueued(),
+      weaponSlot: this.selectedWeaponSlot
     };
+  }
+
+  getSelectedWeaponSlot(): WeaponSlot {
+    return this.selectedWeaponSlot;
   }
 
   private consumeReloadQueued(): boolean {

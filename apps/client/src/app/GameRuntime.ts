@@ -4,6 +4,9 @@ import {
   RIFLE_CLIP_SIZE,
   RIFLE_CARRY_CAPACITY,
   SERVER_TICK_MS,
+  WEAPON_SLOT_RIFLE,
+  WEAPON_SLOT_SNIPER,
+  WEAPON_SLOT_SHOTGUN,
   WALK_SPEED,
   simulatePlayerTick,
   type AmmoPackView,
@@ -88,6 +91,7 @@ export class GameRuntime {
   private lastFootstepAt = 0;
   private lastLocalShotAt = -1000;
   private deathViewState: LocalPlayerState | null = null;
+  private sniperCooldownEndsAt = 0;
 
   constructor(mount: HTMLElement) {
     this.renderer = new GameRenderer(mount);
@@ -247,6 +251,9 @@ export class GameRuntime {
     this.crouchAmount = 0;
     this.lastFootstepAt = 0;
     this.deathViewState = null;
+    this.sniperCooldownEndsAt = 0;
+    useGameStore.getState().setSniperCooldownRemainingMs(0);
+    useGameStore.getState().setSelectedWeaponSlot(WEAPON_SLOT_RIFLE);
     this.applyDisplayedAmmo();
   }
 
@@ -482,6 +489,12 @@ export class GameRuntime {
     const frameInput = this.input.getFrameInput();
     store.setScoreboardOpen(frameInput.scoreboardHeld);
     store.setScoped(frameInput.scoped);
+    store.setSelectedWeaponSlot(frameInput.weaponSlot);
+    if (frameInput.weaponSlot === WEAPON_SLOT_SNIPER) {
+      store.setSniperCooldownRemainingMs(Math.max(0, this.sniperCooldownEndsAt - now));
+    } else {
+      store.setSniperCooldownRemainingMs(0);
+    }
 
     const predictedForLook = this.prediction?.getState();
     if (this.prediction && predictedForLook && !this.paused && predictedForLook.alive) {
@@ -580,9 +593,19 @@ export class GameRuntime {
 
     this.updateRemoteFootsteps(remotePlayers, currentLocal, deltaSeconds, now);
 
-    const baseSpread = Math.min(20, speed * 2.4);
-    const scopedSpread = frameInput.scoped ? baseSpread * 0.45 : baseSpread;
-    useGameStore.getState().setCrosshairSpread(Math.max(0, scopedSpread + this.crosshairKick));
+    const weaponSpread =
+      frameInput.weaponSlot === WEAPON_SLOT_SNIPER
+        ? frameInput.scoped
+          ? Math.min(6, speed * 0.75)
+          : Math.min(36, 20 + speed * 3.2)
+        : frameInput.weaponSlot === WEAPON_SLOT_SHOTGUN
+          ? frameInput.scoped
+            ? Math.min(18, 8 + speed * 1.45)
+            : Math.min(30, 14 + speed * 2.5)
+          : frameInput.scoped
+            ? Math.min(12, speed * 1.2)
+            : Math.min(20, speed * 2.4);
+    useGameStore.getState().setCrosshairSpread(Math.max(0, weaponSpread + this.crosshairKick));
 
     const ammoPacks: AmmoPackView[] = Object.values(useGameStore.getState().ammoPacks).filter(
       pack => !connectedRoomCode || pack.roomCode === connectedRoomCode
@@ -607,6 +630,7 @@ export class GameRuntime {
       ),
       bloodBursts,
       scoped: frameInput.scoped,
+      weaponSlot: frameInput.weaponSlot,
       deltaSeconds,
       recoil: this.rifle.getRecoil(),
       muzzleFlashVisible: useGameStore.getState().muzzleFlashUntil > now,
@@ -793,21 +817,57 @@ export class GameRuntime {
         return;
       }
 
-      if (this.rifle.tryFire(now, this.bridge.getFireIntervalTicks())) {
+      const fireIntervalTicks = this.bridge.getFireIntervalTicks(frameInput.weaponSlot);
+      if (this.rifle.tryFire(now, fireIntervalTicks)) {
         const visualAmmoBeforeShot = this.totalAmmo;
         this.setLocalAmmo(visualAmmoBeforeShot - 1);
         this.cancelReload();
         this.audio.play('shot', { volume: 0.75, playbackRateMin: 0.95, playbackRateMax: 1.05 });
         this.lastLocalShotAt = now;
+        if (frameInput.weaponSlot === WEAPON_SLOT_SNIPER) {
+          this.sniperCooldownEndsAt = now + fireIntervalTicks * SERVER_TICK_MS;
+        }
         useGameStore.getState().triggerMuzzleFlash(this.rifle.getMuzzleFlashUntil(now));
-        this.crosshairKick = Math.min(10, this.crosshairKick + (frameInput.scoped ? 0.7 : 1.4));
+        const kick =
+          frameInput.weaponSlot === WEAPON_SLOT_SNIPER
+            ? frameInput.scoped
+              ? 0.3
+              : 2.6
+            : frameInput.weaponSlot === WEAPON_SLOT_SHOTGUN
+              ? frameInput.scoped
+                ? 0.9
+                : 1.8
+              : frameInput.scoped
+                ? 0.7
+                : 1.4;
+        this.crosshairKick = Math.min(20, this.crosshairKick + kick);
         const recoil = this.rifle.getRecoil();
-        const recoilYaw = (Math.random() - 0.5) * recoil * 0.45;
-        const recoilPitch = recoil * (frameInput.scoped ? 0.78 : 1.14);
+        const recoilYawScale =
+          frameInput.weaponSlot === WEAPON_SLOT_SNIPER
+            ? frameInput.scoped
+              ? 0.18
+              : 1.85
+            : frameInput.weaponSlot === WEAPON_SLOT_SHOTGUN
+              ? 1.2
+              : 0.45;
+        const recoilPitchScale =
+          frameInput.weaponSlot === WEAPON_SLOT_SNIPER
+            ? frameInput.scoped
+              ? 0.52
+              : 1.45
+            : frameInput.weaponSlot === WEAPON_SLOT_SHOTGUN
+              ? frameInput.scoped
+                ? 1.05
+                : 1.35
+              : frameInput.scoped
+                ? 0.78
+                : 1.14;
+        const recoilYaw = (Math.random() - 0.5) * recoil * recoilYawScale;
+        const recoilPitch = recoil * recoilPitchScale;
         const shotYaw = localState.yaw + recoilYaw;
         const shotPitch = Math.max(-MAX_PITCH, Math.min(MAX_PITCH, localState.pitch + recoilPitch));
         void this.bridge
-          .fireWeapon(shotYaw, shotPitch, frameInput.scoped)
+          .fireWeapon(shotYaw, shotPitch, frameInput.scoped, frameInput.weaponSlot)
           .catch(() => {
             useGameStore.getState().incrementRejectedShots();
             this.setLocalAmmo(visualAmmoBeforeShot);
@@ -892,9 +952,10 @@ export class GameRuntime {
         }
 
         const state = this.prediction.getState();
+        const weaponSlot = this.input.getSelectedWeaponSlot();
         for (let index = 0; index < count; index += 1) {
           try {
-            await this.bridge.fireWeapon(state.yaw, state.pitch, false);
+            await this.bridge.fireWeapon(state.yaw, state.pitch, false, weaponSlot);
           } catch {
             useGameStore.getState().incrementRejectedShots();
           }

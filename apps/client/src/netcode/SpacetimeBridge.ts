@@ -3,6 +3,11 @@ import {
   RIFLE_FIRE_INTERVAL_TICKS,
   RIFLE_MAGAZINE,
   SERVER_TICK_MS,
+  SHOTGUN_FIRE_INTERVAL_TICKS,
+  SNIPER_FIRE_INTERVAL_TICKS,
+  WEAPON_SLOT_SHOTGUN,
+  WEAPON_SLOT_SNIPER,
+  type WeaponSlot,
   type AmmoPackView,
   type DamageEvent,
   type HealthPackView,
@@ -69,6 +74,7 @@ interface BridgeCallbacks {
 export class SpacetimeBridge {
   private connection: DbConnection | null = null;
   private localIdentity = '';
+  private activeRoomCode: string | null = null;
   private latestWeaponTick = -1;
   private latestWeaponAmmo = -1;
   private latestLocalState: LocalPlayerState | null = null;
@@ -84,6 +90,7 @@ export class SpacetimeBridge {
   async connect(options: ConnectOptions): Promise<void> {
     const store = useGameStore.getState();
     store.setConnection('connecting', null);
+    this.activeRoomCode = options.roomCode;
     this.latestWeaponTick = -1;
     this.latestWeaponAmmo = -1;
     this.latestLocalState = null;
@@ -110,6 +117,7 @@ export class SpacetimeBridge {
     this.connection?.disconnect();
     this.connection = null;
     this.localIdentity = '';
+    this.activeRoomCode = null;
     this.latestWeaponTick = -1;
     this.latestWeaponAmmo = -1;
     this.latestLocalState = null;
@@ -136,12 +144,17 @@ export class SpacetimeBridge {
     });
   }
 
-  async fireWeapon(yaw: number, pitch: number, scoped: boolean): Promise<void> {
+  async fireWeapon(
+    yaw: number,
+    pitch: number,
+    scoped: boolean,
+    weaponSlot: WeaponSlot
+  ): Promise<void> {
     if (!this.connection) {
       return;
     }
 
-    await this.connection.reducers.fireWeapon({ yaw, pitch, scoped });
+    await this.connection.reducers.fireWeapon({ yaw, pitch, scoped, weaponSlot });
   }
 
   async requestRespawn(): Promise<void> {
@@ -182,6 +195,7 @@ export class SpacetimeBridge {
     }
     this.connection = null;
     this.localIdentity = '';
+    this.activeRoomCode = null;
     this.latestLocalState = null;
     this.localArrivalOffsetMs = 0;
     this.localArrivalOffsetInitialized = false;
@@ -325,10 +339,8 @@ export class SpacetimeBridge {
     connection.db.match_state.onInsert((_ctx, row) => this.handleMatchStateRow(row));
     connection.db.match_state.onUpdate((_ctx, row) => this.handleMatchStateRow(row));
     connection.db.match_state.onDelete((_ctx, row) => {
-      const store = useGameStore.getState();
-      if (store.connectedRoomCode === row.roomCode) {
-        store.setMatch(null);
-      }
+      if (!this.isTrackedRoom(row.roomCode)) return;
+      useGameStore.getState().setMatch(null);
     });
     connection.db.ammo_pack.onInsert((_ctx, row) => this.handleAmmoPackRow(row));
     connection.db.ammo_pack.onUpdate((_ctx, row) => this.handleAmmoPackRow(row));
@@ -530,8 +542,7 @@ export class SpacetimeBridge {
   }
 
   private handleMatchStateRow(row: MatchStateRow): void {
-    const connectedRoom = useGameStore.getState().connectedRoomCode;
-    if (connectedRoom && row.roomCode !== connectedRoom) {
+    if (!this.isTrackedRoom(row.roomCode)) {
       return;
     }
 
@@ -547,11 +558,11 @@ export class SpacetimeBridge {
   }
 
   private handleKillFeedRow(row: KillFeedEventRow): void {
-    const connectedRoom = useGameStore.getState().connectedRoomCode;
-    if (!connectedRoom || row.roomCode !== connectedRoom) {
+    const trackedRoom = this.getTrackedRoomCode();
+    if (!trackedRoom || row.roomCode !== trackedRoom) {
       return;
     }
-    const baselineTick = this.killFeedBaselineTickByRoom.get(connectedRoom) ?? 0;
+    const baselineTick = this.killFeedBaselineTickByRoom.get(trackedRoom) ?? 0;
     if (row.tick <= baselineTick) {
       return;
     }
@@ -570,11 +581,11 @@ export class SpacetimeBridge {
   }
 
   private handleChatEventRow(row: ChatEventRow): void {
-    const connectedRoom = useGameStore.getState().connectedRoomCode;
-    if (!connectedRoom || row.roomCode !== connectedRoom) {
+    const trackedRoom = this.getTrackedRoomCode();
+    if (!trackedRoom || row.roomCode !== trackedRoom) {
       return;
     }
-    const baselineTick = this.chatBaselineTickByRoom.get(connectedRoom) ?? 0;
+    const baselineTick = this.chatBaselineTickByRoom.get(trackedRoom) ?? 0;
     if (row.tick <= baselineTick) {
       return;
     }
@@ -590,8 +601,7 @@ export class SpacetimeBridge {
   }
 
   private handleAmmoPackRow(row: AmmoPackRow): void {
-    const connectedRoom = useGameStore.getState().connectedRoomCode;
-    if (connectedRoom && row.roomCode !== connectedRoom) {
+    if (!this.isTrackedRoom(row.roomCode)) {
       return;
     }
 
@@ -606,8 +616,7 @@ export class SpacetimeBridge {
   }
 
   private handleHealthPackRow(row: HealthPackRow): void {
-    const connectedRoom = useGameStore.getState().connectedRoomCode;
-    if (connectedRoom && row.roomCode !== connectedRoom) {
+    if (!this.isTrackedRoom(row.roomCode)) {
       return;
     }
 
@@ -641,8 +650,7 @@ export class SpacetimeBridge {
   }
 
   private handleImpactMarkRow(row: ImpactMarkRow): void {
-    const connectedRoom = useGameStore.getState().connectedRoomCode;
-    if (connectedRoom && row.roomCode !== connectedRoom) {
+    if (!this.isTrackedRoom(row.roomCode)) {
       return;
     }
 
@@ -653,6 +661,16 @@ export class SpacetimeBridge {
       normal: { x: row.normalX, y: row.normalY, z: row.normalZ },
       tick: row.tick
     });
+  }
+
+  private getTrackedRoomCode(): string | null {
+    const storeRoom = useGameStore.getState().connectedRoomCode;
+    return storeRoom ?? this.activeRoomCode;
+  }
+
+  private isTrackedRoom(roomCode: string | null | undefined): boolean {
+    const trackedRoom = this.getTrackedRoomCode();
+    return trackedRoom != null && roomCode === trackedRoom;
   }
 
   private getRoomEventBaselineTick<
@@ -745,7 +763,13 @@ export class SpacetimeBridge {
     this.callbacks.onLocalState(forcedState);
   }
 
-  getFireIntervalTicks(): number {
+  getFireIntervalTicks(weaponSlot: WeaponSlot): number {
+    if (weaponSlot === WEAPON_SLOT_SNIPER) {
+      return SNIPER_FIRE_INTERVAL_TICKS;
+    }
+    if (weaponSlot === WEAPON_SLOT_SHOTGUN) {
+      return SHOTGUN_FIRE_INTERVAL_TICKS;
+    }
     return RIFLE_FIRE_INTERVAL_TICKS;
   }
 }

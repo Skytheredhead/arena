@@ -14,4 +14,5 @@ export default {
   yaw: __t.f32(),
   pitch: __t.f32(),
   scoped: __t.bool(),
+  weaponSlot: __t.u8(),
 };
