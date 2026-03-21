@@ -215,6 +215,9 @@ export class InputController {
     }
 
     this.pressed.add(event.code);
+    if (event.key === 'Control') {
+      this.pressed.add('Control');
+    }
   };
 
   private readonly handleKeyUp = (event: KeyboardEvent): void => {
@@ -229,6 +232,9 @@ export class InputController {
     }
 
     this.pressed.delete(event.code);
+    if (event.key === 'Control') {
+      this.pressed.delete('Control');
+    }
   };
 
   consumeLook(): { yawDelta: number; pitchDelta: number } {
@@ -250,6 +256,7 @@ export class InputController {
     const sprinting =
       this.pressed.has('ShiftLeft') ||
       this.pressed.has('ShiftRight') ||
+      this.pressed.has('Control') ||
       this.pressed.has('ControlLeft') ||
       this.pressed.has('ControlRight') ||
       this.pressed.has('MetaLeft') ||

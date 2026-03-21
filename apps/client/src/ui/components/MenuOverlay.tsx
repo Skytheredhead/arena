@@ -1,8 +1,16 @@
 import { useEffect, useState } from 'react';
+import { CAMERA_SENSITIVITY } from '@arena/shared';
 import { normalizeRoomCode } from '../../utils/roomCode';
 import type { BackendTarget } from '../../utils/env';
 import type { RoomView } from '../../state/gameStore';
 import type { AccountStatsView } from '../../netcode/authClient';
+import type { GraphicsQuality } from '../../types/settings';
+import {
+  MAX_FOV,
+  MAX_LOOK_SENSITIVITY,
+  MIN_FOV,
+  MIN_LOOK_SENSITIVITY
+} from '../../types/settings';
 import {
   CYBER,
   CyberButton,
@@ -29,10 +37,20 @@ interface MenuOverlayProps {
   authUsername: string | null;
   authStats: AccountStatsView | null;
   authBusy: boolean;
+  graphicsQuality: GraphicsQuality;
+  lookSensitivity: number;
+  fov: number;
+  sfxVolume: number;
+  musicVolume: number;
   onLogin: (identifier: string, password: string) => Promise<void>;
   onRegister: (email: string, username: string, password: string) => Promise<void>;
   onLogout: () => Promise<void>;
   onRefreshStats: () => void;
+  onGraphicsQualityChange: (value: GraphicsQuality) => void;
+  onLookSensitivityChange: (value: number) => void;
+  onFovChange: (value: number) => void;
+  onSfxVolumeChange: (value: number) => void;
+  onMusicVolumeChange: (value: number) => void;
   onNicknameChange: (value: string) => void;
   onRoomCodeChange: (value: string) => void;
   onCreateRoom: () => void;
@@ -50,6 +68,75 @@ const formatDuration = (ticks: number): string => {
   return `${minutes}m ${seconds % 60}s`;
 };
 
+function SettingSlider({
+  label,
+  value,
+  display,
+  min,
+  max,
+  step,
+  onChange,
+  delay = 0
+}: {
+  label: string;
+  value: number;
+  display: string;
+  min: number;
+  max: number;
+  step: number;
+  onChange: (v: number) => void;
+  delay?: number;
+}): React.JSX.Element {
+  const pct = ((value - min) / (max - min)) * 100;
+  return (
+    <div style={{ marginBottom: '14px', animation: `cyberFadeUp .3s ${delay}s ease both` }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '7px' }}>
+        <div style={{ color: CYBER.textDim, fontSize: '9px', letterSpacing: '2px', fontFamily: CYBER.font, textTransform: 'uppercase' }}>
+          {label}
+        </div>
+        <div style={{ color: CYBER.a, fontSize: '11px', fontFamily: "'Orbitron',var(--font)", textShadow: `0 0 8px ${CYBER.a}88` }}>
+          {display}
+        </div>
+      </div>
+      <div style={{ position: 'relative', height: '3px', background: `${CYBER.textDim}33`, cursor: 'pointer' }}>
+        <div style={{
+          position: 'absolute', left: 0, top: 0, height: '100%',
+          width: `${pct}%`,
+          background: `linear-gradient(90deg,${CYBER.a3},${CYBER.a})`,
+          boxShadow: `0 0 8px ${CYBER.a}`,
+          transition: 'width 0.15s',
+        }} />
+        <div style={{
+          position: 'absolute', inset: 0,
+          backgroundImage: `linear-gradient(90deg,transparent,${CYBER.textBright}33,transparent)`,
+          backgroundSize: '200% 100%',
+          animation: 'cyberShimmer 2.5s linear infinite',
+        }} />
+        <div style={{
+          position: 'absolute', top: '50%',
+          left: `${pct}%`,
+          width: '12px', height: '12px',
+          background: CYBER.a, borderRadius: '50%',
+          transform: 'translate(-50%,-50%)',
+          boxShadow: `0 0 10px ${CYBER.a}`,
+          transition: 'left 0.15s',
+        }} />
+        <input
+          type="range"
+          min={min} max={max} step={step} value={value}
+          onChange={e => onChange(Number(e.target.value))}
+          style={{
+            position: 'absolute', inset: 0, width: '100%', height: '100%',
+            opacity: 0, cursor: 'pointer', margin: 0,
+          }}
+        />
+      </div>
+    </div>
+  );
+}
+
+const GRAPHICS_QUALITIES: GraphicsQuality[] = ['low', 'medium', 'high'];
+
 export function MenuOverlay({
   connected,
   busy,
@@ -66,10 +153,20 @@ export function MenuOverlay({
   authUsername,
   authStats,
   authBusy,
+  graphicsQuality,
+  lookSensitivity,
+  fov,
+  sfxVolume,
+  musicVolume,
   onLogin,
   onRegister,
   onLogout,
   onRefreshStats,
+  onGraphicsQualityChange,
+  onLookSensitivityChange,
+  onFovChange,
+  onSfxVolumeChange,
+  onMusicVolumeChange,
   onNicknameChange,
   onRoomCodeChange,
   onCreateRoom,
@@ -78,6 +175,7 @@ export function MenuOverlay({
   onBackendTargetChange
 }: MenuOverlayProps): React.JSX.Element | null {
   const [authPanel, setAuthPanel] = useState<'none' | 'login' | 'register' | 'account' | 'stats'>('none');
+  const [menuView, setMenuView] = useState<'room' | 'settings'>('room');
   const [loginIdentifier, setLoginIdentifier] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
   const [registerEmail, setRegisterEmail] = useState('');
@@ -363,111 +461,193 @@ export function MenuOverlay({
           className="pointer-events-auto"
           style={{ position: 'relative', zIndex: 2, width: 'min(420px,92vw)', animation: 'cyberFadeUp .5s .2s cubic-bezier(.16,1,.3,1) both' }}
         >
-          <CyberPanel style={{ padding: '22px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
-            {/* Callsign */}
-            <div className="cyber-label" style={{ animation: 'cyberSlideLeft .35s .3s both', color: CYBER.textBright }}>operator callsign</div>
-            <input
-              className="cyber-input"
-              value={nickname}
-              maxLength={16}
-              disabled={authLoggedIn}
-              onChange={e => onNicknameChange(e.target.value.slice(0, 16))}
-              placeholder={authLoggedIn ? 'ACCOUNT USERNAME' : 'CALLSIGN'}
-              style={{ animation: 'cyberSlideLeft .35s .35s both' }}
-            />
+          {menuView === 'room' ? (
+            <CyberPanel style={{ padding: '22px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              <div className="cyber-label" style={{ animation: 'cyberSlideLeft .35s .3s both', color: CYBER.textBright }}>operator callsign</div>
+              <input
+                className="cyber-input"
+                value={nickname}
+                maxLength={16}
+                disabled={authLoggedIn}
+                onChange={e => onNicknameChange(e.target.value.slice(0, 16))}
+                placeholder={authLoggedIn ? 'ACCOUNT USERNAME' : 'CALLSIGN'}
+                style={{ animation: 'cyberSlideLeft .35s .35s both' }}
+              />
 
-            {/* Room code */}
-            <div className="cyber-label" style={{ animation: 'cyberSlideLeft .35s .4s both', color: CYBER.textBright }}>room access code</div>
-            <input
-              className="cyber-input"
-              value={roomCode}
-              onChange={e => onRoomCodeChange(normalizeRoomCode(e.target.value))}
-              placeholder="XK-0000"
-              style={{ letterSpacing: '5px', textTransform: 'uppercase', animation: 'cyberSlideLeft .35s .42s both' }}
-            />
+              <div className="cyber-label" style={{ animation: 'cyberSlideLeft .35s .4s both', color: CYBER.textBright }}>room access code</div>
+              <input
+                className="cyber-input"
+                value={roomCode}
+                onChange={e => onRoomCodeChange(normalizeRoomCode(e.target.value))}
+                placeholder="XK-0000"
+                style={{ letterSpacing: '5px', textTransform: 'uppercase', animation: 'cyberSlideLeft .35s .42s both' }}
+              />
 
-            {/* Error */}
-            {connectionError && (
+              {connectionError && (
+                <div style={{
+                  padding: '10px 14px',
+                  background: `${CYBER.danger}18`,
+                  border: `1px solid ${CYBER.danger}66`,
+                  color: CYBER.danger, fontFamily: CYBER.font,
+                  fontSize: '11px', letterSpacing: '1px',
+                  animation: 'cyberShake .45s ease both',
+                }}>
+                  ⚠ {connectionError}
+                </div>
+              )}
+
               <div style={{
-                padding: '10px 14px',
-                background: `${CYBER.danger}18`,
-                border: `1px solid ${CYBER.danger}66`,
-                color: CYBER.danger, fontFamily: CYBER.font,
-                fontSize: '11px', letterSpacing: '1px',
-                animation: 'cyberShake .45s ease both',
+                display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginTop: '4px',
+                animation: 'cyberFadeUp .4s .5s ease both',
               }}>
-                ⚠ {connectionError}
+                <CyberButton primary onClick={onCreateRoom} disabled={connected || busy}>
+                  Create Room
+                </CyberButton>
+                <CyberButton onClick={onJoinRoom} disabled={connected || busy}>
+                  Join Room
+                </CyberButton>
               </div>
-            )}
 
-            {/* Buttons */}
-            <div style={{
-              display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginTop: '4px',
-              animation: 'cyberFadeUp .4s .5s ease both',
-            }}>
-              <CyberButton primary onClick={onCreateRoom} disabled={connected || busy}>
-                Create Room
-              </CyberButton>
-              <CyberButton onClick={onJoinRoom} disabled={connected || busy}>
-                Join Room
-              </CyberButton>
-            </div>
+              <CyberLine margin="16px 0 10px" />
 
-            <CyberLine margin="16px 0 10px" />
-
-            {/* Open rooms */}
-            <div style={{ animation: 'cyberFadeUp .4s .55s ease both' }}>
-              <div className="cyber-label" style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px', color: CYBER.textBright }}>
-                <span>Open Rooms</span>
-                {openRooms.length > 0 && (
-                  <span style={{ color: CYBER.textBright }}>{openRooms.length} available</span>
-                )}
-              </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
-                {openRooms.length === 0 ? (
-                  <div style={{
-                    color: CYBER.textBright, fontFamily: CYBER.font, fontSize: '11px',
-                    letterSpacing: '2px', padding: '8px 0',
-                  }}>
-                    <span className="cyber-blink">█ </span>
-                    scanning for open rooms…
-                  </div>
-                ) : (
-                  openRooms.map((room, i) => (
-                    <button
-                      key={room.code}
-                      className="cyber-btn cyber-btn-full"
-                      onClick={() => onJoinOpenRoom(room.code)}
-                      disabled={busy || room.playerCount >= 5}
-                      onMouseEnter={() => setHoveredRoom(room.code)}
-                      onMouseLeave={() => setHoveredRoom(null)}
-                      style={{
-                        display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                        letterSpacing: '1.5px', textTransform: 'none',
-                        animation: `cyberSlideLeft .3s ${0.55 + i * 0.06}s cubic-bezier(.16,1,.3,1) both`,
-                        boxShadow: hoveredRoom === room.code ? `0 0 14px ${CYBER.a}44` : undefined,
-                      }}
-                    >
-                      <span>{room.code}</span>
-                      <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <span style={{ fontSize: '9px', letterSpacing: '1px', color: CYBER.textBright }}>
-                          {room.playerCount}/5 pilots
+              <div style={{ animation: 'cyberFadeUp .4s .55s ease both' }}>
+                <div className="cyber-label" style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px', color: CYBER.textBright }}>
+                  <span>Open Rooms</span>
+                  {openRooms.length > 0 && (
+                    <span style={{ color: CYBER.textBright }}>{openRooms.length} available</span>
+                  )}
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
+                  {openRooms.length === 0 ? (
+                    <div style={{
+                      color: CYBER.textBright, fontFamily: CYBER.font, fontSize: '11px',
+                      letterSpacing: '2px', padding: '8px 0',
+                    }}>
+                      <span className="cyber-blink">█ </span>
+                      scanning for open rooms…
+                    </div>
+                  ) : (
+                    openRooms.map((room, i) => (
+                      <button
+                        key={room.code}
+                        className="cyber-btn cyber-btn-full"
+                        onClick={() => onJoinOpenRoom(room.code)}
+                        disabled={busy || room.playerCount >= 5}
+                        onMouseEnter={() => setHoveredRoom(room.code)}
+                        onMouseLeave={() => setHoveredRoom(null)}
+                        style={{
+                          display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                          letterSpacing: '1.5px', textTransform: 'none',
+                          animation: `cyberSlideLeft .3s ${0.55 + i * 0.06}s cubic-bezier(.16,1,.3,1) both`,
+                          boxShadow: hoveredRoom === room.code ? `0 0 14px ${CYBER.a}44` : undefined,
+                        }}
+                      >
+                        <span>{room.code}</span>
+                        <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <span style={{ fontSize: '9px', letterSpacing: '1px', color: CYBER.textBright }}>
+                            {room.playerCount}/5 pilots
+                          </span>
+                          <span style={{
+                            width: '6px', height: '6px', borderRadius: '50%',
+                            background: room.playerCount < 3 ? CYBER.ok : CYBER.warn,
+                            boxShadow: `0 0 5px ${room.playerCount < 3 ? CYBER.ok : CYBER.warn}`,
+                            animation: 'cyberPulse 2s ease-in-out infinite',
+                          }} />
                         </span>
-                        <span style={{
-                          width: '6px', height: '6px', borderRadius: '50%',
-                          background: room.playerCount < 3 ? CYBER.ok : CYBER.warn,
-                          boxShadow: `0 0 5px ${room.playerCount < 3 ? CYBER.ok : CYBER.warn}`,
-                          animation: 'cyberPulse 2s ease-in-out infinite',
-                        }} />
-                      </span>
-                    </button>
-                  ))
-                )}
+                      </button>
+                    ))
+                  )}
+                </div>
               </div>
-            </div>
-          </CyberPanel>
+            </CyberPanel>
+          ) : (
+            <CyberPanel style={{ padding: '22px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              <div className="cyber-label" style={{ color: CYBER.textBright }}>settings</div>
+              <CyberPanel style={{ padding: '16px', background: 'rgba(0,245,255,0.03)', marginBottom: '0' }}>
+                <div style={{ color: CYBER.a, fontSize: '9px', letterSpacing: '4px', fontFamily: CYBER.font, marginBottom: '14px' }}>
+                  SYSTEM CONFIGURATION
+                </div>
+                <div style={{ marginBottom: '16px', animation: 'cyberFadeUp .3s .05s ease both' }}>
+                  <div style={{ color: CYBER.textDim, fontSize: '9px', letterSpacing: '2px', fontFamily: CYBER.font, marginBottom: '8px', textTransform: 'uppercase' }}>
+                    Graphics Quality
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: '8px' }}>
+                    {GRAPHICS_QUALITIES.map(q => (
+                      <CyberButton
+                        key={q}
+                        small
+                        primary={graphicsQuality === q}
+                        onClick={() => onGraphicsQualityChange(q)}
+                        style={{
+                          boxShadow: graphicsQuality === q ? `0 0 12px ${CYBER.a}44` : undefined,
+                        }}
+                      >
+                        {q}
+                      </CyberButton>
+                    ))}
+                  </div>
+                </div>
+                <SettingSlider
+                  label="Look Sensitivity"
+                  value={lookSensitivity}
+                  display={`${(lookSensitivity / CAMERA_SENSITIVITY).toFixed(2)}×`}
+                  min={MIN_LOOK_SENSITIVITY}
+                  max={MAX_LOOK_SENSITIVITY}
+                  step={0.0001}
+                  onChange={onLookSensitivityChange}
+                  delay={0.1}
+                />
+                <SettingSlider
+                  label="Field of View"
+                  value={fov}
+                  display={`${Math.round(fov)}°`}
+                  min={MIN_FOV}
+                  max={MAX_FOV}
+                  step={1}
+                  onChange={onFovChange}
+                  delay={0.16}
+                />
+                <SettingSlider
+                  label="SFX Volume"
+                  value={sfxVolume}
+                  display={`${Math.round(sfxVolume * 100)}%`}
+                  min={0}
+                  max={1}
+                  step={0.01}
+                  onChange={onSfxVolumeChange}
+                  delay={0.22}
+                />
+                <SettingSlider
+                  label="Music Volume"
+                  value={musicVolume}
+                  display={`${Math.round(musicVolume * 100)}%`}
+                  min={0}
+                  max={1}
+                  step={0.01}
+                  onChange={onMusicVolumeChange}
+                  delay={0.28}
+                />
+              </CyberPanel>
+              <div style={{ marginTop: '12px', animation: 'cyberFadeUp .3s .32s ease both' }}>
+                <CyberButton primary full onClick={() => setMenuView('room')}>
+                  Done
+                </CyberButton>
+              </div>
+            </CyberPanel>
+          )}
         </div>
       </div>
+
+      {menuView === 'room' && (
+        <div
+          className="pointer-events-auto cyber-fade-up"
+          style={{ position: 'absolute', right: '24px', bottom: '52px', zIndex: 12 }}
+        >
+          <CyberButton onClick={() => setMenuView('settings')}>
+            Settings
+          </CyberButton>
+        </div>
+      )}
 
       {/* ── BOTTOM STATUS BAR ── */}
       <div

@@ -368,17 +368,6 @@ export class SpacetimeBridge {
   }
 
   private async bootstrap(connection: DbConnection, options: ConnectOptions): Promise<void> {
-    const sessionToken = readAuthSessionToken();
-    if (sessionToken) {
-      await connection.reducers
-        .loginWithSession({ sessionToken })
-        .catch(() => undefined);
-    }
-    await connection.reducers.setNickname({ nickname: options.nickname || 'Pilot' });
-    if (options.createRoom) {
-      await connection.reducers.createRoom({ roomCode: options.roomCode });
-    }
-    await connection.reducers.joinRoom({ roomCode: options.roomCode });
     this.chatBaselineTickByRoom.set(
       options.roomCode,
       this.getRoomEventBaselineTick(
@@ -393,6 +382,18 @@ export class SpacetimeBridge {
         options.roomCode
       )
     );
+
+    const sessionToken = readAuthSessionToken();
+    if (sessionToken) {
+      await connection.reducers
+        .loginWithSession({ sessionToken })
+        .catch(() => undefined);
+    }
+    await connection.reducers.setNickname({ nickname: options.nickname || 'Pilot' });
+    if (options.createRoom) {
+      await connection.reducers.createRoom({ roomCode: options.roomCode });
+    }
+    await connection.reducers.joinRoom({ roomCode: options.roomCode });
     if (options.createRoom) {
       await connection.reducers.startMatch({ roomCode: options.roomCode });
     }
@@ -562,7 +563,10 @@ export class SpacetimeBridge {
     if (!trackedRoom || row.roomCode !== trackedRoom) {
       return;
     }
-    const baselineTick = this.killFeedBaselineTickByRoom.get(trackedRoom) ?? 0;
+    const baselineTick = this.killFeedBaselineTickByRoom.get(trackedRoom);
+    if (baselineTick == null) {
+      return;
+    }
     if (row.tick <= baselineTick) {
       return;
     }
@@ -585,7 +589,10 @@ export class SpacetimeBridge {
     if (!trackedRoom || row.roomCode !== trackedRoom) {
       return;
     }
-    const baselineTick = this.chatBaselineTickByRoom.get(trackedRoom) ?? 0;
+    const baselineTick = this.chatBaselineTickByRoom.get(trackedRoom);
+    if (baselineTick == null) {
+      return;
+    }
     if (row.tick <= baselineTick) {
       return;
     }

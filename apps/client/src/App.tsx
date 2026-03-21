@@ -608,10 +608,20 @@ export default function App(): React.JSX.Element {
         authUsername={authUsername}
         authStats={authStats}
         authBusy={authBusy}
+        graphicsQuality={graphicsQuality}
+        lookSensitivity={lookSensitivity}
+        fov={fov}
+        sfxVolume={sfxVolume}
+        musicVolume={musicVolume}
         onLogin={handleLogin}
         onRegister={handleRegister}
         onLogout={handleLogout}
         onRefreshStats={() => { void refreshAuthSnapshot(); }}
+        onGraphicsQualityChange={setGraphicsQuality}
+        onLookSensitivityChange={setLookSensitivity}
+        onFovChange={setFov}
+        onSfxVolumeChange={setSfxVolume}
+        onMusicVolumeChange={setMusicVolume}
         onNicknameChange={value => { if (authLoggedIn) return; setNickname(value); }}
         onRoomCodeChange={value => setRoomCode(normalizeRoomCode(value))}
         onCreateRoom={() => connectToRoom(true)}
