@@ -30,6 +30,10 @@ interface MenuOverlayProps {
   backendPingMs: number | null;
   backendPingJitterMs: number | null;
   backendTarget: BackendTarget;
+  customBackendLabel: string;
+  customBackendHost: string;
+  customBackendPort: string;
+  customBackendSecure: boolean;
   openRooms: RoomView[];
   connectionError: string | null;
   authError: string | null;
@@ -57,6 +61,10 @@ interface MenuOverlayProps {
   onJoinRoom: () => void;
   onJoinOpenRoom: (code: string) => void;
   onBackendTargetChange: (target: BackendTarget) => void;
+  onCustomBackendHostChange: (value: string) => void;
+  onCustomBackendPortChange: (value: string) => void;
+  onCustomBackendSecureChange: (value: boolean) => void;
+  onUseCustomBackend: () => void;
 }
 
 const formatDuration = (ticks: number): string => {
@@ -146,6 +154,10 @@ export function MenuOverlay({
   backendPingMs,
   backendPingJitterMs,
   backendTarget,
+  customBackendLabel,
+  customBackendHost,
+  customBackendPort,
+  customBackendSecure,
   openRooms,
   connectionError,
   authError,
@@ -172,7 +184,11 @@ export function MenuOverlay({
   onCreateRoom,
   onJoinRoom,
   onJoinOpenRoom,
-  onBackendTargetChange
+  onBackendTargetChange,
+  onCustomBackendHostChange,
+  onCustomBackendPortChange,
+  onCustomBackendSecureChange,
+  onUseCustomBackend
 }: MenuOverlayProps): React.JSX.Element | null {
   const [authPanel, setAuthPanel] = useState<'none' | 'login' | 'register' | 'account' | 'stats'>('none');
   const [menuView, setMenuView] = useState<'room' | 'settings'>('room');
@@ -182,8 +198,12 @@ export function MenuOverlay({
   const [registerUsername, setRegisterUsername] = useState('');
   const [registerPassword, setRegisterPassword] = useState('');
   const [hoveredRoom, setHoveredRoom] = useState<string | null>(null);
-  const usingPlayitBackend = backendTarget === 'arenaapi2';
-  const nextBackendTarget: BackendTarget = usingPlayitBackend ? 'current' : 'arenaapi2';
+  const backendOptions: Array<{ target: BackendTarget; label: string }> = [
+    { target: 'current', label: 'Current' },
+    { target: 'arenaapi2', label: 'Playit' },
+    { target: 'custom', label: customBackendLabel }
+  ];
+  const customPortValid = /^\d+$/.test(customBackendPort.trim());
 
   useEffect(() => {
     if (authLoggedIn && (authPanel === 'login' || authPanel === 'register')) {
@@ -217,56 +237,42 @@ export function MenuOverlay({
       >
         {/* Connection status */}
         <div style={{ display: 'flex', gap: '14px', flexWrap: 'wrap', alignItems: 'center', fontFamily: CYBER.font, fontSize: '10px', letterSpacing: '2px' }}>
-          <button
-            type="button"
-            onClick={() => onBackendTargetChange(nextBackendTarget)}
-            disabled={busy}
-            aria-label="Toggle backend endpoint"
-            aria-checked={usingPlayitBackend}
-            role="switch"
-            style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: '8px',
-              background: 'transparent',
-              border: `1px solid ${CYBER.border}`,
-              borderRadius: '999px',
-              padding: '3px 9px 3px 5px',
-              color: CYBER.textBright,
-              fontFamily: CYBER.font,
-              fontSize: '10px',
-              letterSpacing: '1px',
-              cursor: busy ? 'not-allowed' : 'pointer',
-              opacity: busy ? 0.55 : 1,
-            }}
-          >
-            <span
-              style={{
-                width: '32px',
-                height: '16px',
-                borderRadius: '999px',
-                border: `1px solid ${usingPlayitBackend ? CYBER.a : CYBER.border}`,
-                background: usingPlayitBackend ? `${CYBER.a}22` : 'rgba(255,255,255,0.04)',
-                position: 'relative',
-                transition: 'all .2s ease',
-              }}
-            >
-              <span
+          <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+            <span style={{ color: CYBER.textDim, letterSpacing: '1px' }}>BACKEND</span>
+            {backendOptions.map(option => (
+              <button
+                key={option.target}
+                type="button"
+                onClick={() => onBackendTargetChange(option.target)}
+                disabled={busy}
                 style={{
-                  position: 'absolute',
-                  top: '1px',
-                  left: usingPlayitBackend ? '16px' : '1px',
-                  width: '12px',
-                  height: '12px',
-                  borderRadius: '50%',
-                  background: usingPlayitBackend ? CYBER.a : CYBER.textDim,
-                  boxShadow: usingPlayitBackend ? `0 0 8px ${CYBER.a}` : 'none',
-                  transition: 'all .2s ease',
+                  border: `1px solid ${
+                    backendTarget === option.target ? CYBER.a : CYBER.border
+                  }`,
+                  background:
+                    backendTarget === option.target
+                      ? `${CYBER.a}22`
+                      : 'rgba(255,255,255,0.03)',
+                  color:
+                    backendTarget === option.target ? CYBER.a : CYBER.textBright,
+                  padding: '3px 8px',
+                  borderRadius: '999px',
+                  fontFamily: CYBER.font,
+                  fontSize: '10px',
+                  letterSpacing: '1px',
+                  cursor: busy ? 'not-allowed' : 'pointer',
+                  opacity: busy ? 0.55 : 1,
+                  maxWidth: option.target === 'custom' ? '180px' : undefined,
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap'
                 }}
-              />
-            </span>
-            <span>{usingPlayitBackend ? 'arenaapi2.playit.plus' : 'Current'}</span>
-          </button>
+                title={option.target === 'custom' ? customBackendLabel : undefined}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
           {/* Status dot */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
             <div style={{
@@ -627,6 +633,98 @@ export function MenuOverlay({
                   onChange={onMusicVolumeChange}
                   delay={0.28}
                 />
+
+                <CyberLine margin="14px 0 12px" />
+
+                <div style={{ animation: 'cyberFadeUp .3s .32s ease both' }}>
+                  <div
+                    style={{
+                      color: CYBER.a,
+                      fontSize: '9px',
+                      letterSpacing: '3px',
+                      fontFamily: CYBER.font,
+                      marginBottom: '10px'
+                    }}
+                  >
+                    NETWORK OVERRIDE (TESTING)
+                  </div>
+                  <div
+                    style={{
+                      color: CYBER.textDim,
+                      fontSize: '10px',
+                      letterSpacing: '1px',
+                      fontFamily: CYBER.font,
+                      marginBottom: '8px'
+                    }}
+                  >
+                    Custom host / IP
+                  </div>
+                  <input
+                    className="cyber-input"
+                    value={customBackendHost}
+                    onChange={e => onCustomBackendHostChange(e.target.value)}
+                    placeholder="127.0.0.1"
+                  />
+                  <div
+                    style={{
+                      color: CYBER.textDim,
+                      fontSize: '10px',
+                      letterSpacing: '1px',
+                      fontFamily: CYBER.font,
+                      marginTop: '8px',
+                      marginBottom: '8px'
+                    }}
+                  >
+                    Port
+                  </div>
+                  <input
+                    className="cyber-input"
+                    inputMode="numeric"
+                    value={customBackendPort}
+                    onChange={e => onCustomBackendPortChange(e.target.value)}
+                    placeholder="4789"
+                  />
+                  <label
+                    style={{
+                      marginTop: '10px',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '8px',
+                      color: CYBER.textBright,
+                      fontFamily: CYBER.font,
+                      fontSize: '10px',
+                      letterSpacing: '1px',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={customBackendSecure}
+                      onChange={e => onCustomBackendSecureChange(e.target.checked)}
+                    />
+                    Use secure WebSocket (`wss://`)
+                  </label>
+                  <div
+                    style={{
+                      marginTop: '10px',
+                      color: CYBER.textDim,
+                      fontFamily: CYBER.font,
+                      fontSize: '10px',
+                      letterSpacing: '1px'
+                    }}
+                  >
+                    Current custom endpoint: {customBackendLabel}
+                  </div>
+                  <div style={{ marginTop: '10px' }}>
+                    <CyberButton
+                      full
+                      onClick={onUseCustomBackend}
+                      disabled={!customBackendHost.trim() || !customPortValid}
+                    >
+                      Use Custom Backend
+                    </CyberButton>
+                  </div>
+                </div>
               </CyberPanel>
               <div style={{ marginTop: '12px', animation: 'cyberFadeUp .3s .32s ease both' }}>
                 <CyberButton primary full onClick={() => setMenuView('room')}>

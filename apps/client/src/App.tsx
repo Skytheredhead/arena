@@ -10,7 +10,10 @@ import { GameRuntime } from './app/GameRuntime';
 import { normalizeRoomCode } from './utils/roomCode';
 import {
   getBackendTarget,
+  getCustomBackendSettings,
   setBackendTarget,
+  setCustomBackendSettings,
+  type CustomBackendSettings,
   type BackendTarget
 } from './utils/env';
 import { CyberGlobalStyles, CyberScanFx } from './ui/cyberTheme';
@@ -44,8 +47,13 @@ export default function App(): React.JSX.Element {
   const [authBusy, setAuthBusy] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
   const [backendTarget, setBackendTargetState] = useState<BackendTarget>(() => getBackendTarget());
+  const [customBackendSettings, setCustomBackendSettingsState] =
+    useState<CustomBackendSettings>(() => getCustomBackendSettings());
   const connectionStatus = useGameStore(state => state.connectionStatus);
   const connectionError = useGameStore(state => state.connectionError);
+  const networkReconnecting = useGameStore(state => state.networkReconnecting);
+  const networkReconnectAttempt = useGameStore(state => state.networkReconnectAttempt);
+  const networkReconnectStartedAtMs = useGameStore(state => state.networkReconnectStartedAtMs);
   const nickname = useGameStore(state => state.nickname);
   const roomCode = useGameStore(state => state.roomCode);
   const match = useGameStore(state => state.match);
@@ -185,6 +193,14 @@ export default function App(): React.JSX.Element {
     return trimmed.slice(0, 16);
   }, [authUsername]);
   const effectiveNickname = authLoggedIn && authCallsign ? authCallsign : nickname;
+  const customBackendLabel = useMemo(() => {
+    const host = customBackendSettings.host.trim();
+    const port = customBackendSettings.port.trim();
+    if (!host || !port) {
+      return 'Custom';
+    }
+    return `${host}:${port}`;
+  }, [customBackendSettings.host, customBackendSettings.port]);
 
   const refreshAuthSnapshot = useCallback(async (): Promise<void> => {
     try {
@@ -477,6 +493,9 @@ export default function App(): React.JSX.Element {
       scoped,
       selectedWeaponSlot,
       sniperCooldownRemainingMs,
+      networkReconnecting,
+      networkReconnectAttempt,
+      networkReconnectStartedAtMs,
       paused,
       chatOpen,
       chatDraft,
@@ -493,7 +512,7 @@ export default function App(): React.JSX.Element {
       localPlayer.health, localPlayer.ammo,
       localMeta?.deaths, localMeta?.kills,
       localPingMs, localPingJitterMs,
-      match, paused, selectedWeaponSlot, sendChat, sniperCooldownRemainingMs, scoped, scoreboard, scoreboardOpen,
+      match, networkReconnecting, networkReconnectAttempt, networkReconnectStartedAtMs, paused, selectedWeaponSlot, sendChat, sniperCooldownRemainingMs, scoped, scoreboard, scoreboardOpen,
     ]
   );
 
@@ -586,6 +605,35 @@ export default function App(): React.JSX.Element {
     });
   }, []);
 
+  const updateCustomBackendSettings = useCallback(
+    (next: CustomBackendSettings): void => {
+      setCustomBackendSettingsState(next);
+      setCustomBackendSettings(next);
+    },
+    []
+  );
+
+  const handleCustomBackendHostChange = useCallback(
+    (host: string): void => {
+      updateCustomBackendSettings({ ...customBackendSettings, host });
+    },
+    [customBackendSettings, updateCustomBackendSettings]
+  );
+
+  const handleCustomBackendPortChange = useCallback(
+    (port: string): void => {
+      updateCustomBackendSettings({ ...customBackendSettings, port });
+    },
+    [customBackendSettings, updateCustomBackendSettings]
+  );
+
+  const handleCustomBackendSecureChange = useCallback(
+    (secure: boolean): void => {
+      updateCustomBackendSettings({ ...customBackendSettings, secure });
+    },
+    [customBackendSettings, updateCustomBackendSettings]
+  );
+
   return (
     <div className="cyber-root relative h-full w-full overflow-hidden bg-[#020b14]">
       <CyberGlobalStyles />
@@ -601,6 +649,10 @@ export default function App(): React.JSX.Element {
         backendPingMs={backendPingMs}
         backendPingJitterMs={localPingJitterMs}
         backendTarget={backendTarget}
+        customBackendLabel={customBackendLabel}
+        customBackendHost={customBackendSettings.host}
+        customBackendPort={customBackendSettings.port}
+        customBackendSecure={customBackendSettings.secure}
         openRooms={openRooms}
         connectionError={runtimeError ?? connectionError}
         authError={authError}
@@ -628,6 +680,10 @@ export default function App(): React.JSX.Element {
         onJoinRoom={() => connectToRoom(false)}
         onJoinOpenRoom={code => connectToRoom(false, code)}
         onBackendTargetChange={handleBackendTargetChange}
+        onCustomBackendHostChange={handleCustomBackendHostChange}
+        onCustomBackendPortChange={handleCustomBackendPortChange}
+        onCustomBackendSecureChange={handleCustomBackendSecureChange}
+        onUseCustomBackend={() => handleBackendTargetChange('custom')}
       />
       <LoadingOverlay
         visible={connecting}

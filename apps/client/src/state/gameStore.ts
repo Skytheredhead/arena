@@ -44,6 +44,9 @@ export interface RoomView {
 interface SessionState {
   connectionStatus: ConnectionStatus;
   connectionError: string | null;
+  networkReconnecting: boolean;
+  networkReconnectAttempt: number;
+  networkReconnectStartedAtMs: number | null;
   nickname: string;
   roomCode: string;
   connectedRoomCode: string | null;
@@ -77,6 +80,11 @@ interface SessionState {
   selectedWeaponSlot: WeaponSlot;
   sniperCooldownRemainingMs: number;
   setConnection: (status: ConnectionStatus, error?: string | null) => void;
+  setNetworkReconnectState: (
+    reconnecting: boolean,
+    attempt: number,
+    startedAtMs: number | null
+  ) => void;
   setNickname: (nickname: string) => void;
   setRoomCode: (roomCode: string) => void;
   setConnectedRoomCode: (roomCode: string | null) => void;
@@ -137,6 +145,9 @@ const initialNickname = generateDefaultCallsign();
 export const useGameStore = create<SessionState>(set => ({
   connectionStatus: 'disconnected',
   connectionError: null,
+  networkReconnecting: false,
+  networkReconnectAttempt: 0,
+  networkReconnectStartedAtMs: null,
   nickname: initialNickname,
   roomCode: DEFAULT_ROOM_CODE,
   connectedRoomCode: null,
@@ -171,6 +182,17 @@ export const useGameStore = create<SessionState>(set => ({
   sniperCooldownRemainingMs: 0,
   setConnection: (connectionStatus, connectionError = null) =>
     set({ connectionStatus, connectionError }),
+  setNetworkReconnectState: (networkReconnecting, networkReconnectAttempt, networkReconnectStartedAtMs) =>
+    set(state => {
+      if (
+        state.networkReconnecting === networkReconnecting &&
+        state.networkReconnectAttempt === networkReconnectAttempt &&
+        state.networkReconnectStartedAtMs === networkReconnectStartedAtMs
+      ) {
+        return state;
+      }
+      return { networkReconnecting, networkReconnectAttempt, networkReconnectStartedAtMs };
+    }),
   setNickname: nickname => set({ nickname }),
   setRoomCode: roomCode => set({ roomCode }),
   setConnectedRoomCode: connectedRoomCode => set({ connectedRoomCode }),
@@ -226,6 +248,9 @@ export const useGameStore = create<SessionState>(set => ({
       killFeed: [],
       predictionDebug: initialPredictionDebug,
       rejectedShots: 0,
+      networkReconnecting: false,
+      networkReconnectAttempt: 0,
+      networkReconnectStartedAtMs: null,
       localPingMs: null,
       localPingJitterMs: null,
       playerPings: {},

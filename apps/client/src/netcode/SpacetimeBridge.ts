@@ -39,6 +39,8 @@ import WeaponStateTable from '../generated/module_bindings/weapon_state_table';
 import type { Infer } from 'spacetimedb';
 
 const TOKEN_STORAGE_KEY = 'vector-drift-token';
+const RECONNECT_RETRY_INTERVAL_MS = 500;
+const RECONNECT_WINDOW_MS = 10_000;
 const normalizeError = (error: unknown): Error =>
   error instanceof Error ? error : new Error(String(error));
 
@@ -68,6 +70,11 @@ interface BridgeCallbacks {
   onImpactMarkRemoved: (id: number) => void;
   onServerTick: (serverTimeMs: number) => void;
   onWeaponAmmo: (ammo: number) => void;
+  onReconnectStateChange: (state: {
+    reconnecting: boolean;
+    attempt: number;
+    startedAtMs: number | null;
+  }) => void;
   onDisconnected: (reason?: string) => void;
 }
 
@@ -84,12 +91,69 @@ export class SpacetimeBridge {
   private readonly remoteArrivalOffsetMs = new Map<string, number>();
   private readonly chatBaselineTickByRoom = new Map<string, number>();
   private readonly killFeedBaselineTickByRoom = new Map<string, number>();
+  private autoReconnectEnabled = false;
+  private reconnectLoopId = 0;
+  private lastConnectOptions: ConnectOptions | null = null;
 
   constructor(private readonly callbacks: BridgeCallbacks) {}
 
   async connect(options: ConnectOptions): Promise<void> {
+    this.autoReconnectEnabled = true;
+    this.reconnectLoopId += 1;
+    this.lastConnectOptions = {
+      nickname: options.nickname,
+      roomCode: options.roomCode,
+      createRoom: false
+    };
+    this.callbacks.onReconnectStateChange({
+      reconnecting: false,
+      attempt: 0,
+      startedAtMs: null
+    });
+    await this.connectInternal(options, { setConnectingStatus: true, setErrorStatusOnFailure: true });
+  }
+
+  disconnect(): void {
+    this.autoReconnectEnabled = false;
+    this.reconnectLoopId += 1;
+    this.lastConnectOptions = null;
+    this.callbacks.onReconnectStateChange({
+      reconnecting: false,
+      attempt: 0,
+      startedAtMs: null
+    });
+    if (this.connection) {
+      this.suppressDisconnectEvents = true;
+      this.connection.disconnect();
+      this.suppressDisconnectEvents = false;
+    }
+    this.connection = null;
+    this.localIdentity = '';
+    this.activeRoomCode = null;
+    this.latestWeaponTick = -1;
+    this.latestWeaponAmmo = -1;
+    this.latestLocalState = null;
+    this.localArrivalOffsetMs = 0;
+    this.localArrivalOffsetInitialized = false;
+    this.remoteArrivalOffsetMs.clear();
+    this.chatBaselineTickByRoom.clear();
+    this.killFeedBaselineTickByRoom.clear();
+  }
+
+  private async connectInternal(
+    options: ConnectOptions,
+    {
+      setConnectingStatus,
+      setErrorStatusOnFailure
+    }: {
+      setConnectingStatus: boolean;
+      setErrorStatusOnFailure: boolean;
+    }
+  ): Promise<void> {
     const store = useGameStore.getState();
-    store.setConnection('connecting', null);
+    if (setConnectingStatus) {
+      store.setConnection('connecting', null);
+    }
     this.activeRoomCode = options.roomCode;
     this.latestWeaponTick = -1;
     this.latestWeaponAmmo = -1;
@@ -109,23 +173,10 @@ export class SpacetimeBridge {
     }
 
     const message = `Unable to connect to backend. Tried: ${failures.join(' -> ')}`;
-    store.setConnection('error', message);
+    if (setErrorStatusOnFailure) {
+      store.setConnection('error', message);
+    }
     throw new Error(message);
-  }
-
-  disconnect(): void {
-    this.connection?.disconnect();
-    this.connection = null;
-    this.localIdentity = '';
-    this.activeRoomCode = null;
-    this.latestWeaponTick = -1;
-    this.latestWeaponAmmo = -1;
-    this.latestLocalState = null;
-    this.localArrivalOffsetMs = 0;
-    this.localArrivalOffsetInitialized = false;
-    this.remoteArrivalOffsetMs.clear();
-    this.chatBaselineTickByRoom.clear();
-    this.killFeedBaselineTickByRoom.clear();
   }
 
   async submitInput(command: InputCommand): Promise<void> {
@@ -238,6 +289,7 @@ export class SpacetimeBridge {
     await new Promise<void>((resolve, reject) => {
       let settled = false;
       let established = false;
+      let connectedRef: DbConnection | null = null;
       const fail = (error: unknown): void => {
         if (settled) {
           return;
@@ -260,6 +312,7 @@ export class SpacetimeBridge {
         .withToken(token)
         .onConnect((connection, identity, token) => {
           established = true;
+          connectedRef = connection;
           this.connection = connection;
           this.localIdentity = identityToString(identity);
           this.setStoredToken(token);
@@ -307,14 +360,17 @@ export class SpacetimeBridge {
           fail(error);
         })
         .onDisconnect((_ctx, error) => {
-          if (!established || this.suppressDisconnectEvents) {
+          if (
+            !established ||
+            this.suppressDisconnectEvents ||
+            !this.autoReconnectEnabled ||
+            !connectedRef ||
+            this.connection !== connectedRef
+          ) {
             return;
           }
-          useGameStore.getState().setConnection(
-            error ? 'error' : 'disconnected',
-            error?.message ?? null
-          );
-          this.callbacks.onDisconnected(error?.message);
+          this.connection = null;
+          void this.handleUnexpectedDisconnect(error?.message);
         });
 
       try {
@@ -323,6 +379,73 @@ export class SpacetimeBridge {
         fail(error);
       }
     });
+  }
+
+  private async handleUnexpectedDisconnect(reason?: string): Promise<void> {
+    if (!this.autoReconnectEnabled) {
+      return;
+    }
+    const reconnectOptions = this.lastConnectOptions;
+    if (!reconnectOptions) {
+      useGameStore.getState().setConnection(reason ? 'error' : 'disconnected', reason ?? null);
+      this.callbacks.onDisconnected(reason);
+      return;
+    }
+
+    const loopId = ++this.reconnectLoopId;
+    const startedAtMs = performance.now();
+    let attempt = 0;
+    this.callbacks.onReconnectStateChange({
+      reconnecting: true,
+      attempt,
+      startedAtMs
+    });
+
+    while (this.autoReconnectEnabled && loopId === this.reconnectLoopId) {
+      if (performance.now() - startedAtMs >= RECONNECT_WINDOW_MS) {
+        break;
+      }
+      attempt += 1;
+      this.callbacks.onReconnectStateChange({
+        reconnecting: true,
+        attempt,
+        startedAtMs
+      });
+      try {
+        await this.connectInternal(reconnectOptions, {
+          setConnectingStatus: false,
+          setErrorStatusOnFailure: false
+        });
+        if (!this.autoReconnectEnabled || loopId !== this.reconnectLoopId) {
+          return;
+        }
+        this.callbacks.onReconnectStateChange({
+          reconnecting: false,
+          attempt: 0,
+          startedAtMs: null
+        });
+        return;
+      } catch {
+        if (performance.now() - startedAtMs >= RECONNECT_WINDOW_MS) {
+          break;
+        }
+        await new Promise(resolve => window.setTimeout(resolve, RECONNECT_RETRY_INTERVAL_MS));
+      }
+    }
+
+    if (!this.autoReconnectEnabled || loopId !== this.reconnectLoopId) {
+      return;
+    }
+    this.callbacks.onReconnectStateChange({
+      reconnecting: false,
+      attempt: 0,
+      startedAtMs: null
+    });
+    const message = reason
+      ? `Disconnected from server (${reason}). Unable to reconnect.`
+      : 'Disconnected from server. Unable to reconnect.';
+    useGameStore.getState().setConnection('error', message);
+    this.callbacks.onDisconnected(message);
   }
 
   private installListeners(connection: DbConnection): void {

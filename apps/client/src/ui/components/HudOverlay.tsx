@@ -38,6 +38,9 @@ interface HudOverlayProps {
   scoped: boolean;
   selectedWeaponSlot: WeaponSlot;
   sniperCooldownRemainingMs: number;
+  networkReconnecting: boolean;
+  networkReconnectAttempt: number;
+  networkReconnectStartedAtMs: number | null;
   paused: boolean;
   chatOpen: boolean;
   chatDraft: string;
@@ -104,6 +107,9 @@ export function HudOverlay({
   scoped,
   selectedWeaponSlot,
   sniperCooldownRemainingMs,
+  networkReconnecting,
+  networkReconnectAttempt,
+  networkReconnectStartedAtMs,
   paused,
   chatOpen,
   chatDraft,
@@ -150,6 +156,10 @@ export function HudOverlay({
     0,
     Math.min(1, 1 - sniperCooldownRemainingMs / sniperCooldownWindowMs)
   );
+  const reconnectElapsedSeconds =
+    networkReconnecting && networkReconnectStartedAtMs != null
+      ? Math.max(0, (nowMs - networkReconnectStartedAtMs) / 1000)
+      : 0;
 
   return (
     <div className="pointer-events-none absolute inset-0" style={{ zIndex: paused ? 40 : 20 }}>
@@ -281,9 +291,71 @@ export function HudOverlay({
       )}
 
       {!paused && (
+        networkReconnecting && (
+          <div
+            className="cyber-fade-up"
+            style={{ position: 'absolute', top: '14px', left: '14px', zIndex: 18 }}
+          >
+            <CyberPanel
+              style={{
+                padding: '8px 12px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '10px',
+                border: `1px solid ${CYBER.warn}`,
+                background: 'rgba(30,18,0,0.78)',
+                boxShadow: `0 0 16px ${CYBER.warn}44`
+              }}
+            >
+              <div
+                aria-hidden
+                style={{
+                  width: '14px',
+                  height: '14px',
+                  borderRadius: '50%',
+                  border: `2px solid ${CYBER.warn}66`,
+                  borderTopColor: CYBER.warn,
+                  animation: 'cyberSpin 0.85s linear infinite'
+                }}
+              />
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                <span
+                  style={{
+                    color: CYBER.warn,
+                    fontFamily: "'Orbitron',var(--font)",
+                    fontSize: '11px',
+                    letterSpacing: '1px',
+                    textTransform: 'uppercase'
+                  }}
+                >
+                  Disconnected
+                </span>
+                <span
+                  style={{
+                    color: CYBER.textBright,
+                    fontFamily: CYBER.font,
+                    fontSize: '9px',
+                    letterSpacing: '2px',
+                    textTransform: 'uppercase'
+                  }}
+                >
+                  Retrying... ({reconnectElapsedSeconds.toFixed(1)}s / attempt {Math.max(1, networkReconnectAttempt)})
+                </span>
+              </div>
+            </CyberPanel>
+          </div>
+        )
+      )}
+
+      {!paused && (
         <div
           className="cyber-fade-up"
-          style={{ position: 'absolute', top: '14px', left: '14px', zIndex: 10 }}
+          style={{
+            position: 'absolute',
+            top: networkReconnecting ? '70px' : '14px',
+            left: '14px',
+            zIndex: 10
+          }}
         >
           <CyberPanel style={{
             padding: '8px 24px',

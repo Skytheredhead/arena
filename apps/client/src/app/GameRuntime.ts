@@ -197,6 +197,7 @@ export class GameRuntime {
   async connect(options: ConnectOptions): Promise<void> {
     this.disconnect();
     useGameStore.getState().resetRuntime();
+    useGameStore.getState().setNetworkReconnectState(false, 0, null);
     useGameStore.getState().setNickname(options.nickname);
     useGameStore.getState().setRoomCode(options.roomCode);
 
@@ -208,6 +209,10 @@ export class GameRuntime {
       onImpactMarkRemoved: id => this.impactMarks.delete(id),
       onServerTick: serverTimeMs => this.observeServerTime(serverTimeMs),
       onWeaponAmmo: ammo => this.syncAuthoritativeAmmo(ammo),
+      onReconnectStateChange: state =>
+        useGameStore
+          .getState()
+          .setNetworkReconnectState(state.reconnecting, state.attempt, state.startedAtMs),
       onDisconnected: () => this.disconnect(false)
     });
 
@@ -254,6 +259,7 @@ export class GameRuntime {
     this.sniperCooldownEndsAt = 0;
     useGameStore.getState().setSniperCooldownRemainingMs(0);
     useGameStore.getState().setSelectedWeaponSlot(WEAPON_SLOT_RIFLE);
+    useGameStore.getState().setNetworkReconnectState(false, 0, null);
     this.applyDisplayedAmmo();
   }
 
@@ -600,8 +606,8 @@ export class GameRuntime {
           : Math.min(36, 20 + speed * 3.2)
         : frameInput.weaponSlot === WEAPON_SLOT_SHOTGUN
           ? frameInput.scoped
-            ? Math.min(18, 8 + speed * 1.45)
-            : Math.min(30, 14 + speed * 2.5)
+            ? Math.min(24, 11 + speed * 1.85)
+            : Math.min(38, 18 + speed * 3.05)
           : frameInput.scoped
             ? Math.min(12, speed * 1.2)
             : Math.min(20, speed * 2.4);
@@ -779,7 +785,8 @@ export class GameRuntime {
       !this.prediction ||
       !this.bridge ||
       this.paused ||
-      useGameStore.getState().connectionStatus !== 'connected'
+      useGameStore.getState().connectionStatus !== 'connected' ||
+      useGameStore.getState().networkReconnecting
     ) {
       return;
     }
