@@ -285,9 +285,9 @@ export default function App(): React.JSX.Element {
             now - lastLobbyLowsUpdateRef.current >= 5_000
           ) {
             lastLobbyLowsUpdateRef.current = now;
-            const pingOnePercentLow = percentile(rttValues, 0.99);
+            const pingOnePercentLow = percentile(rttValues, 0.01);
             const serverValues = lobbyServerSamplesRef.current.map(sample => sample.pipelineMs);
-            const serverOnePercentLow = percentile(serverValues, 0.99);
+            const serverOnePercentLow = percentile(serverValues, 0.01);
             setLocalPingLow(Math.max(1, Math.round(pingOnePercentLow)));
             setServerPipelineLow(Math.max(0, Math.round(serverOnePercentLow)));
           }

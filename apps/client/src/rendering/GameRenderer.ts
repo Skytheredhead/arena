@@ -90,6 +90,7 @@ export class GameRenderer {
   private readonly shotgunWeaponModel: THREE.Group;
   private readonly smoothedCameraPosition = new THREE.Vector3();
   private readonly targetCameraPosition = new THREE.Vector3();
+  private readonly drawingBufferSize = new THREE.Vector2();
   private readonly decalUp = new THREE.Vector3(0, 0, 1);
   private readonly deathTintColor = new THREE.Color('#ff2e3f');
   private readonly scratchColor = new THREE.Color();
@@ -748,8 +749,12 @@ export class GameRenderer {
     this.rifleWeaponModel.visible = frame.weaponSlot === WEAPON_SLOT_RIFLE;
     this.sniperWeaponModel.visible = frame.weaponSlot === WEAPON_SLOT_SNIPER;
     this.shotgunWeaponModel.visible = frame.weaponSlot === WEAPON_SLOT_SHOTGUN;
+    const hipFireBaseX =
+      frame.weaponSlot === WEAPON_SLOT_SNIPER ? 0.22 : frame.weaponSlot === WEAPON_SLOT_SHOTGUN ? 0.2 : 0.26;
+    const scopedBaseX = 0;
+    const muzzleFlashX = frame.scoped ? 0 : hipFireBaseX * 0.35;
     this.muzzleFlash.position.set(
-      0,
+      muzzleFlashX,
       frame.weaponSlot === WEAPON_SLOT_SNIPER ? 0.02 : 0.04,
       frame.weaponSlot === WEAPON_SLOT_SNIPER ? -1.18 : frame.weaponSlot === WEAPON_SLOT_SHOTGUN ? -0.86 : -0.92
     );
@@ -758,16 +763,14 @@ export class GameRenderer {
     const walkSwayY = Math.cos(frame.walkPhase * 2) * frame.walkIntensity * 0.014;
     const reloadTilt = frame.reloadProgress * 0.22;
     const reloadDrop = frame.reloadProgress * 0.08;
-    const scopedBaseX = 0;
-    const unscopedBaseX = 0;
     this.weaponRig.rotation.x =
       (frame.scoped ? -0.02 : -0.08) +
       frame.recoil * (frame.scoped ? 0.6 : 1.4) +
       walkSwayY +
       reloadTilt * 0.35;
-    this.weaponRig.rotation.y = -frame.recoil * 0.22 - walkSwayX * 0.35;
+    this.weaponRig.rotation.y = (frame.scoped ? 0 : -0.035) - frame.recoil * 0.22 - walkSwayX * 0.35;
     this.weaponRig.rotation.z = reloadTilt;
-    this.weaponRig.position.x = (frame.scoped ? scopedBaseX : unscopedBaseX) + idleSway + walkSwayX;
+    this.weaponRig.position.x = (frame.scoped ? scopedBaseX : hipFireBaseX) + idleSway + walkSwayX;
     this.weaponRig.position.y =
       (frame.scoped ? -0.18 : -0.28) +
       frame.recoil * 0.08 +
@@ -1006,12 +1009,12 @@ export class GameRenderer {
     }
 
     if (frame.scoped && frame.weaponSlot === WEAPON_SLOT_SNIPER) {
-      const canvas = this.renderer.domElement;
-      const fullWidth = canvas.width;
-      const fullHeight = canvas.height;
-      const scopeSize = Math.floor(Math.min(fullWidth, fullHeight) * 0.62);
-      const scopeLeft = Math.floor((fullWidth - scopeSize) * 0.5);
-      const scopeBottom = Math.floor((fullHeight - scopeSize) * 0.5);
+      this.renderer.getDrawingBufferSize(this.drawingBufferSize);
+      const fullWidth = this.drawingBufferSize.x;
+      const fullHeight = this.drawingBufferSize.y;
+      const scopeSize = Math.round(Math.min(fullWidth, fullHeight) * 0.62);
+      const scopeLeft = Math.round((fullWidth - scopeSize) * 0.5);
+      const scopeBottom = Math.round((fullHeight - scopeSize) * 0.5);
       const basePassFov = this.camera.fov;
       const basePassAspect = this.camera.aspect;
       const zoomedFov = Math.max(10, this.baseFov * 0.25);
@@ -1035,7 +1038,8 @@ export class GameRenderer {
       this.camera.updateProjectionMatrix();
     } else {
       this.renderer.setScissorTest(false);
-      this.renderer.setViewport(0, 0, this.renderer.domElement.width, this.renderer.domElement.height);
+      this.renderer.getDrawingBufferSize(this.drawingBufferSize);
+      this.renderer.setViewport(0, 0, this.drawingBufferSize.x, this.drawingBufferSize.y);
       this.renderer.render(this.scene, this.camera);
     }
   }

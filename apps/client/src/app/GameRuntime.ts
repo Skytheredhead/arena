@@ -971,7 +971,7 @@ export class GameRuntime {
         return acc + delta * delta;
       }, 0) / sampleSet.length;
     const jitterMs = Math.sqrt(variance);
-    const pingOnePercentLowMs = percentile(rttValues, 0.99);
+    const pingOnePercentLowMs = percentile(rttValues, 0.01);
 
     const roundedPingMs = Math.max(1, Math.round(averagePing));
     const roundedPingOnePercentLowMs = Math.max(1, Math.round(pingOnePercentLowMs));
@@ -989,7 +989,7 @@ export class GameRuntime {
       this.serverPipelineSamples.shift();
     }
     const pipelineValues = this.serverPipelineSamples.map(sample => sample.pipelineMs);
-    const serverOnePercentLowMs = percentile(pipelineValues, 0.99);
+    const serverOnePercentLowMs = percentile(pipelineValues, 0.01);
 
     const shouldUpdatePing =
       this.lastPingUiUpdateAt === 0 ||
