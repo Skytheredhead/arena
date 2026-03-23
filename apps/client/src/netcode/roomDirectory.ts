@@ -1,6 +1,11 @@
 import { DbConnection, tables } from '../generated/module_bindings';
 import RoomTable from '../generated/module_bindings/room_table';
-import { SPACETIMEDB_DATABASE, getSpacetimeUriCandidates } from '../utils/env';
+import {
+  SPACETIMEDB_DATABASE,
+  getSpacetimeUriCandidates,
+  getSpacetimeUriForTarget,
+  type BackendTarget
+} from '../utils/env';
 import type { Infer } from 'spacetimedb';
 
 type RoomRow = Infer<typeof RoomTable>;
@@ -84,8 +89,12 @@ const fetchSnapshotFromUri = async (uri: string): Promise<RoomDirectoryEntry[]> 
   });
 };
 
-export const fetchOpenRoomsSnapshot = async (): Promise<RoomDirectoryEntry[]> => {
-  const endpointCandidates = getSpacetimeUriCandidates();
+export const fetchOpenRoomsSnapshot = async (
+  preferredTarget?: BackendTarget
+): Promise<RoomDirectoryEntry[]> => {
+  const endpointCandidates = preferredTarget
+    ? [getSpacetimeUriForTarget(preferredTarget)]
+    : getSpacetimeUriCandidates();
   let lastError: Error | null = null;
   for (const uri of endpointCandidates) {
     try {

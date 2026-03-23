@@ -134,10 +134,10 @@ export class GameRenderer {
       new THREE.BoxGeometry(0.15, 0.15, 0.35),
       new THREE.MeshBasicMaterial({ color: '#ff9f67' })
     );
-    this.muzzleFlash.position.set(0.22, -0.18, -0.65);
+    this.muzzleFlash.position.set(0, -0.18, -0.65);
     this.muzzleFlash.visible = false;
     this.weaponRig = new THREE.Group();
-    this.weaponRig.position.set(0.26, -0.27, -0.58);
+    this.weaponRig.position.set(0, -0.27, -0.58);
     this.rifleWeaponModel = this.createRifleWeaponModel();
     this.sniperWeaponModel = this.createSniperWeaponModel();
     this.shotgunWeaponModel = this.createShotgunWeaponModel();
@@ -735,7 +735,7 @@ export class GameRenderer {
     this.sniperWeaponModel.visible = frame.weaponSlot === WEAPON_SLOT_SNIPER;
     this.shotgunWeaponModel.visible = frame.weaponSlot === WEAPON_SLOT_SHOTGUN;
     this.muzzleFlash.position.set(
-      frame.weaponSlot === WEAPON_SLOT_SNIPER ? 0 : frame.weaponSlot === WEAPON_SLOT_SHOTGUN ? -0.02 : 0.02,
+      0,
       frame.weaponSlot === WEAPON_SLOT_SNIPER ? 0.02 : 0.04,
       frame.weaponSlot === WEAPON_SLOT_SNIPER ? -1.18 : frame.weaponSlot === WEAPON_SLOT_SHOTGUN ? -0.86 : -0.92
     );
@@ -744,16 +744,14 @@ export class GameRenderer {
     const walkSwayY = Math.cos(frame.walkPhase * 2) * frame.walkIntensity * 0.014;
     const reloadTilt = frame.reloadProgress * 0.22;
     const reloadDrop = frame.reloadProgress * 0.08;
-    const scopedBaseX =
-      frame.weaponSlot === WEAPON_SLOT_SNIPER ? 0 : frame.weaponSlot === WEAPON_SLOT_SHOTGUN ? -0.01 : 0;
-    const unscopedBaseX =
-      frame.weaponSlot === WEAPON_SLOT_SNIPER ? 0.24 : frame.weaponSlot === WEAPON_SLOT_SHOTGUN ? 0.2 : 0.28;
+    const scopedBaseX = 0;
+    const unscopedBaseX = 0;
     this.weaponRig.rotation.x =
       (frame.scoped ? -0.02 : -0.08) +
       frame.recoil * (frame.scoped ? 0.6 : 1.4) +
       walkSwayY +
       reloadTilt * 0.35;
-    this.weaponRig.rotation.y = (frame.scoped ? 0 : -0.04) - frame.recoil * 0.3 - walkSwayX * 0.55;
+    this.weaponRig.rotation.y = -frame.recoil * 0.22 - walkSwayX * 0.35;
     this.weaponRig.rotation.z = reloadTilt;
     this.weaponRig.position.x = (frame.scoped ? scopedBaseX : unscopedBaseX) + idleSway + walkSwayX;
     this.weaponRig.position.y =

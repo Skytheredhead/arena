@@ -233,6 +233,8 @@ export default function App(): React.JSX.Element {
     let cancelled = false;
     let timeoutId: number | null = null;
     let inFlight = false;
+    setLocalPing(null);
+    setLocalPingJitter(null);
     const computeDelayMs = (): number => {
       const focused = document.visibilityState === 'visible' && document.hasFocus();
       if (!focused) return 60_000;
@@ -248,7 +250,7 @@ export default function App(): React.JSX.Element {
       inFlight = true;
       const startedAt = performance.now();
       try {
-        const snapshot = await fetchOpenRoomsSnapshot();
+        const snapshot = await fetchOpenRoomsSnapshot(backendTarget);
         if (!cancelled) {
           setRoomDirectory(snapshot);
           const now = performance.now();
@@ -267,7 +269,7 @@ export default function App(): React.JSX.Element {
     };
     void refreshRooms();
     return () => { cancelled = true; if (timeoutId !== null) window.clearTimeout(timeoutId); };
-  }, [connected, setLocalPing, setLocalPingJitter, setRoomDirectory]);
+  }, [backendTarget, connected, setLocalPing, setLocalPingJitter, setRoomDirectory]);
 
   useEffect(() => {
     const runtime = runtimeRef.current;
@@ -528,7 +530,7 @@ export default function App(): React.JSX.Element {
       try {
         if (createRoom) {
           try {
-            const snapshot = await fetchOpenRoomsSnapshot();
+            const snapshot = await fetchOpenRoomsSnapshot(backendTarget);
             setRoomDirectory(snapshot);
             if (snapshot.some(room => normalizeRoomCode(room.code) === targetRoomCode)) {
               useGameStore
@@ -601,9 +603,11 @@ export default function App(): React.JSX.Element {
     setBackendTargetState(current => {
       if (current === target) return current;
       setBackendTarget(target);
+      setLocalPing(null);
+      setLocalPingJitter(null);
       return target;
     });
-  }, []);
+  }, [setLocalPing, setLocalPingJitter]);
 
   const updateCustomBackendSettings = useCallback(
     (next: CustomBackendSettings): void => {
