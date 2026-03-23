@@ -76,7 +76,11 @@ export default function App(): React.JSX.Element {
   const sfxVolume = useGameStore(state => state.sfxVolume);
   const musicVolume = useGameStore(state => state.musicVolume);
   const localPingMs = useGameStore(state => state.localPingMs);
+  const localPingLowMs = useGameStore(state => state.localPingLowMs);
   const localPingJitterMs = useGameStore(state => state.localPingJitterMs);
+  const serverPipelineMs = useGameStore(state => state.serverPipelineMs);
+  const serverPipelineLowMs = useGameStore(state => state.serverPipelineLowMs);
+  const nerdPingsEnabled = useGameStore(state => state.nerdPingsEnabled);
   const playerPings = useGameStore(state => state.playerPings);
   const setNickname = useGameStore(state => state.setNickname);
   const setRoomCode = useGameStore(state => state.setRoomCode);
@@ -87,7 +91,11 @@ export default function App(): React.JSX.Element {
   const setMusicVolume = useGameStore(state => state.setMusicVolume);
   const setRoomDirectory = useGameStore(state => state.setRoomDirectory);
   const setLocalPing = useGameStore(state => state.setLocalPing);
+  const setLocalPingLow = useGameStore(state => state.setLocalPingLow);
   const setLocalPingJitter = useGameStore(state => state.setLocalPingJitter);
+  const setServerPipeline = useGameStore(state => state.setServerPipeline);
+  const setServerPipelineLow = useGameStore(state => state.setServerPipelineLow);
+  const setNerdPingsEnabled = useGameStore(state => state.setNerdPingsEnabled);
   const lastRoomListActivityRef = useRef(performance.now());
   const lastLobbyPingMeasurementRef = useRef(0);
 
@@ -234,7 +242,10 @@ export default function App(): React.JSX.Element {
     let timeoutId: number | null = null;
     let inFlight = false;
     setLocalPing(null);
+    setLocalPingLow(null);
     setLocalPingJitter(null);
+    setServerPipeline(null);
+    setServerPipelineLow(null);
     const computeDelayMs = (): number => {
       const focused = document.visibilityState === 'visible' && document.hasFocus();
       if (!focused) return 60_000;
@@ -256,12 +267,22 @@ export default function App(): React.JSX.Element {
           const now = performance.now();
           if (now - lastLobbyPingMeasurementRef.current >= 2_000) {
             lastLobbyPingMeasurementRef.current = now;
-            setLocalPing(Math.max(1, Math.round(now - startedAt)));
+            const measuredLobbyPing = Math.max(1, Math.round(now - startedAt));
+            setLocalPing(measuredLobbyPing);
+            setLocalPingLow(measuredLobbyPing);
             setLocalPingJitter(null);
+            setServerPipeline(null);
+            setServerPipelineLow(null);
           }
         }
       } catch {
-        if (!cancelled) { setLocalPing(null); setLocalPingJitter(null); }
+        if (!cancelled) {
+          setLocalPing(null);
+          setLocalPingLow(null);
+          setLocalPingJitter(null);
+          setServerPipeline(null);
+          setServerPipelineLow(null);
+        }
       } finally {
         inFlight = false;
         scheduleNext(computeDelayMs());
@@ -269,7 +290,16 @@ export default function App(): React.JSX.Element {
     };
     void refreshRooms();
     return () => { cancelled = true; if (timeoutId !== null) window.clearTimeout(timeoutId); };
-  }, [backendTarget, connected, setLocalPing, setLocalPingJitter, setRoomDirectory]);
+  }, [
+    backendTarget,
+    connected,
+    setLocalPing,
+    setLocalPingLow,
+    setLocalPingJitter,
+    setServerPipeline,
+    setServerPipelineLow,
+    setRoomDirectory
+  ]);
 
   useEffect(() => {
     const runtime = runtimeRef.current;
@@ -488,7 +518,11 @@ export default function App(): React.JSX.Element {
       scoreboardOpen,
       connected,
       pingMs: localPingMs,
+      pingLowMs: localPingLowMs,
       pingJitterMs: localPingJitterMs,
+      serverPipelineMs,
+      serverPipelineLowMs,
+      nerdPingsEnabled,
       hitmarkerVisible,
       damageFlashToken,
       crosshairSpread,
@@ -513,7 +547,7 @@ export default function App(): React.JSX.Element {
       hitmarkerVisible, killFeed, localIdentity,
       localPlayer.health, localPlayer.ammo,
       localMeta?.deaths, localMeta?.kills,
-      localPingMs, localPingJitterMs,
+      localPingMs, localPingLowMs, localPingJitterMs, serverPipelineMs, serverPipelineLowMs, nerdPingsEnabled,
       match, networkReconnecting, networkReconnectAttempt, networkReconnectStartedAtMs, paused, selectedWeaponSlot, sendChat, sniperCooldownRemainingMs, scoped, scoreboard, scoreboardOpen,
     ]
   );
@@ -604,10 +638,13 @@ export default function App(): React.JSX.Element {
       if (current === target) return current;
       setBackendTarget(target);
       setLocalPing(null);
+      setLocalPingLow(null);
       setLocalPingJitter(null);
+      setServerPipeline(null);
+      setServerPipelineLow(null);
       return target;
     });
-  }, [setLocalPing, setLocalPingJitter]);
+  }, [setLocalPing, setLocalPingLow, setLocalPingJitter, setServerPipeline, setServerPipelineLow]);
 
   const updateCustomBackendSettings = useCallback(
     (next: CustomBackendSettings): void => {
@@ -651,7 +688,11 @@ export default function App(): React.JSX.Element {
         roomCode={roomCode}
         backendConnected={backendConnected}
         backendPingMs={backendPingMs}
+        backendPingLowMs={localPingLowMs}
         backendPingJitterMs={localPingJitterMs}
+        backendServerPipelineMs={serverPipelineMs}
+        backendServerPipelineLowMs={serverPipelineLowMs}
+        nerdPingsEnabled={nerdPingsEnabled}
         backendTarget={backendTarget}
         customBackendLabel={customBackendLabel}
         customBackendHost={customBackendSettings.host}
@@ -678,6 +719,7 @@ export default function App(): React.JSX.Element {
         onFovChange={setFov}
         onSfxVolumeChange={setSfxVolume}
         onMusicVolumeChange={setMusicVolume}
+        onNerdPingsChange={setNerdPingsEnabled}
         onNicknameChange={value => { if (authLoggedIn) return; setNickname(value); }}
         onRoomCodeChange={value => setRoomCode(normalizeRoomCode(value))}
         onCreateRoom={() => connectToRoom(true)}
@@ -706,11 +748,13 @@ export default function App(): React.JSX.Element {
         fov={fov}
         sfxVolume={sfxVolume}
         musicVolume={musicVolume}
+        nerdPingsEnabled={nerdPingsEnabled}
         onGraphicsQualityChange={setGraphicsQuality}
         onLookSensitivityChange={setLookSensitivity}
         onFovChange={setFov}
         onSfxVolumeChange={setSfxVolume}
         onMusicVolumeChange={setMusicVolume}
+        onNerdPingsChange={setNerdPingsEnabled}
         onOpenSettings={() => setPauseView('settings')}
         onCloseSettings={() => setPauseView('pause')}
         onResume={resumeFromPause}

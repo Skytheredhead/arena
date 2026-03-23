@@ -625,12 +625,22 @@ const pingColor = (ping: number | null, jitter: number | null): string => {
 
 export function PingLabel({
   ping,
-  jitter
+  jitter,
+  showNerd,
+  pingLowMs,
+  serverPipelineMs,
+  serverPipelineLowMs
 }: {
   ping: number | null;
   jitter?: number | null;
+  showNerd?: boolean;
+  pingLowMs?: number | null;
+  serverPipelineMs?: number | null;
+  serverPipelineLowMs?: number | null;
 }): React.JSX.Element {
   const color = pingColor(ping, jitter ?? null);
+  const formatMs = (value: number | null | undefined): string =>
+    value == null ? 'N/A' : `${Math.round(value)}ms`;
   return (
     <span style={{ color, fontSize: '11px', fontFamily: CYBER.font, display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
       <span aria-hidden style={{ display: 'inline-flex', alignItems: 'flex-end', gap: '1px', height: '9px' }}>
@@ -646,7 +656,16 @@ export function PingLabel({
           }} />
         ))}
       </span>
-      <span>{ping == null ? 'N/A' : `${ping}ms`}</span>
+      {showNerd ? (
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', letterSpacing: '0.8px' }}>
+          <span>{formatMs(ping)}</span>
+          <span>{formatMs(pingLowMs ?? null)}</span>
+          <span>{formatMs(serverPipelineMs ?? null)}</span>
+          <span>{formatMs(serverPipelineLowMs ?? null)}</span>
+        </span>
+      ) : (
+        <span>{formatMs(ping)}</span>
+      )}
     </span>
   );
 }

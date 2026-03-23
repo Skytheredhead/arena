@@ -18,11 +18,13 @@ interface PauseOverlayProps {
   fov: number;
   sfxVolume: number;
   musicVolume: number;
+  nerdPingsEnabled: boolean;
   onGraphicsQualityChange: (value: GraphicsQuality) => void;
   onLookSensitivityChange: (value: number) => void;
   onFovChange: (value: number) => void;
   onSfxVolumeChange: (value: number) => void;
   onMusicVolumeChange: (value: number) => void;
+  onNerdPingsChange: (enabled: boolean) => void;
   onOpenSettings: () => void;
   onCloseSettings: () => void;
   onResume: () => void;
@@ -111,11 +113,13 @@ export function PauseOverlay({
   fov,
   sfxVolume,
   musicVolume,
+  nerdPingsEnabled,
   onGraphicsQualityChange,
   onLookSensitivityChange,
   onFovChange,
   onSfxVolumeChange,
   onMusicVolumeChange,
+  onNerdPingsChange,
   onOpenSettings,
   onCloseSettings,
   onResume,
@@ -242,6 +246,27 @@ export function PauseOverlay({
                   onChange={onMusicVolumeChange}
                   delay={0.28}
                 />
+                <label
+                  style={{
+                    marginTop: '12px',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    color: CYBER.textBright,
+                    fontFamily: CYBER.font,
+                    fontSize: '10px',
+                    letterSpacing: '1px',
+                    cursor: 'pointer',
+                    animation: 'cyberFadeUp .3s .3s ease both'
+                  }}
+                >
+                  <input
+                    type="checkbox"
+                    checked={nerdPingsEnabled}
+                    onChange={e => onNerdPingsChange(e.target.checked)}
+                  />
+                  Nerd pings
+                </label>
               </CyberPanel>
 
               <div style={{ marginTop: '12px', animation: 'cyberFadeUp .3s .32s ease both' }}>

@@ -1,6 +1,5 @@
 import {
   MAX_PITCH,
-  REMOTE_INTERPOLATION_DELAY_MS,
   RIFLE_CLIP_SIZE,
   RIFLE_CARRY_CAPACITY,
   SERVER_TICK_MS,
@@ -31,13 +30,27 @@ declare global {
   interface Window {
     __vectorDriftDebug?: {
       estimatedServerTimeMs: number;
+      interpolationDelayMs: number;
       prediction: ReturnType<PredictionController['getDebugState']> | null;
       rejectedShots: number;
+      pingMs: number | null;
+      pingOnePercentLowMs: number | null;
+      serverPipelineMs: number | null;
+      serverOnePercentLowMs: number | null;
       remoteBuffers: Record<string, number>;
       spamFire: (count?: number) => Promise<void>;
     };
   }
 }
+
+const percentile = (values: number[], p: number): number => {
+  if (values.length === 0) {
+    return 0;
+  }
+  const sorted = [...values].sort((a, b) => a - b);
+  const index = Math.max(0, Math.min(sorted.length - 1, Math.floor(p * (sorted.length - 1))));
+  return sorted[index] ?? 0;
+};
 
 export class GameRuntime {
   private static readonly MOBILE_LOOK_SPEED = 2.8;
@@ -47,7 +60,11 @@ export class GameRuntime {
   private static readonly REMOTE_FOOTSTEP_MIN_INTERVAL_MS = 300;
   private static readonly REMOTE_FOOTSTEP_MAX_DISTANCE = 24;
   private static readonly PING_AVERAGE_WINDOW_MS = 5_000;
+  private static readonly SERVER_PIPELINE_WINDOW_MS = 5_000;
   private static readonly REMOTE_BUFFER_STALE_MS = 1_800;
+  private static readonly MIN_REMOTE_INTERPOLATION_DELAY_MS = 32;
+  private static readonly MAX_REMOTE_INTERPOLATION_DELAY_MS = 90;
+  private static readonly BASE_REMOTE_INTERPOLATION_DELAY_MS = 42;
   private readonly renderer: GameRenderer;
   private readonly input: InputController;
   private readonly rifle = new RifleController();
@@ -84,6 +101,9 @@ export class GameRuntime {
   private smoothedPingMs = 48;
   private readonly pendingInputSentAt = new Map<number, number>();
   private readonly pingSamples: Array<{ at: number; rttMs: number }> = [];
+  private readonly serverPipelineSamples: Array<{ at: number; pipelineMs: number }> = [];
+  private smoothedServerPipelineMs = 0;
+  private adaptiveInterpolationDelayMs = GameRuntime.BASE_REMOTE_INTERPOLATION_DELAY_MS;
   private walkPhase = 0;
   private walkIntensity = 0;
   private walkStrideDistance = 0;
@@ -249,6 +269,9 @@ export class GameRuntime {
     this.pendingInputSentAt.clear();
     this.smoothedPingMs = 48;
     this.pingSamples.length = 0;
+    this.serverPipelineSamples.length = 0;
+    this.smoothedServerPipelineMs = 0;
+    this.adaptiveInterpolationDelayMs = GameRuntime.BASE_REMOTE_INTERPOLATION_DELAY_MS;
     this.cancelReload();
     this.walkPhase = 0;
     this.walkIntensity = 0;
@@ -525,10 +548,8 @@ export class GameRuntime {
       this.accumulatorMs -= SERVER_TICK_MS;
     }
 
-    const renderServerTimeMs = Math.max(
-      0,
-      this.estimateServerTimeMs(now) - REMOTE_INTERPOLATION_DELAY_MS
-    );
+    const renderDelayMs = this.getAdaptiveInterpolationDelayMs();
+    const renderServerTimeMs = Math.max(0, this.estimateServerTimeMs(now) - renderDelayMs);
     const connectedRoomCode = useGameStore.getState().connectedRoomCode;
     const remotePlayers: RemotePlayerState[] = [];
     for (const [identity, buffer] of this.remoteBuffers) {
@@ -897,6 +918,23 @@ export class GameRuntime {
     return this.latestServerTimeMs + (now - this.latestServerObservedAt);
   }
 
+  private getAdaptiveInterpolationDelayMs(): number {
+    const store = useGameStore.getState();
+    const ping = store.localPingMs ?? this.smoothedPingMs;
+    const jitter = store.localPingJitterMs ?? 0;
+    const reconnectPenalty = store.networkReconnecting ? 8 : 0;
+    const targetDelay = Math.max(
+      GameRuntime.MIN_REMOTE_INTERPOLATION_DELAY_MS,
+      Math.min(
+        GameRuntime.MAX_REMOTE_INTERPOLATION_DELAY_MS,
+        24 + ping * 0.18 + jitter * 1.4 + reconnectPenalty
+      )
+    );
+    this.adaptiveInterpolationDelayMs =
+      this.adaptiveInterpolationDelayMs * 0.85 + targetDelay * 0.15;
+    return this.adaptiveInterpolationDelayMs;
+  }
+
   private updateMeasuredPing(lastProcessedInput: number): void {
     if (lastProcessedInput <= 0) {
       return;
@@ -915,12 +953,13 @@ export class GameRuntime {
     const measuredRttMs = Math.max(1, Math.min(999, now - sentAt));
     this.smoothedPingMs = this.smoothedPingMs * 0.8 + measuredRttMs * 0.2;
     this.pingSamples.push({ at: now, rttMs: measuredRttMs });
-    const cutoff = now - GameRuntime.PING_AVERAGE_WINDOW_MS;
-    while ((this.pingSamples.at(0)?.at ?? Number.POSITIVE_INFINITY) < cutoff) {
+    const pingCutoff = now - GameRuntime.PING_AVERAGE_WINDOW_MS;
+    while ((this.pingSamples.at(0)?.at ?? Number.POSITIVE_INFINITY) < pingCutoff) {
       this.pingSamples.shift();
     }
 
     const sampleSet = this.pingSamples.length > 0 ? this.pingSamples : [{ at: now, rttMs: this.smoothedPingMs }];
+    const rttValues = sampleSet.map(sample => sample.rttMs);
     const averagePing =
       sampleSet.reduce((acc, sample) => acc + sample.rttMs, 0) / sampleSet.length;
     const variance =
@@ -929,21 +968,47 @@ export class GameRuntime {
         return acc + delta * delta;
       }, 0) / sampleSet.length;
     const jitterMs = Math.sqrt(variance);
+    const pingOnePercentLowMs = percentile(rttValues, 0.99);
 
     const roundedPingMs = Math.max(1, Math.round(averagePing));
+    const roundedPingOnePercentLowMs = Math.max(1, Math.round(pingOnePercentLowMs));
     const store = useGameStore.getState();
     store.setLocalPing(roundedPingMs);
+    store.setLocalPingLow(roundedPingOnePercentLowMs);
     store.setLocalPingJitter(Math.max(0, Math.round(jitterMs)));
     if (store.localIdentity) {
       store.setPlayerPing(store.localIdentity, roundedPingMs);
     }
+
+    const baselineRttMs = percentile(rttValues, 0.05);
+    const estimatedServerPipelineMs = Math.max(0, measuredRttMs - baselineRttMs);
+    this.smoothedServerPipelineMs =
+      this.smoothedServerPipelineMs * 0.8 + estimatedServerPipelineMs * 0.2;
+    this.serverPipelineSamples.push({
+      at: now,
+      pipelineMs: this.smoothedServerPipelineMs
+    });
+    const serverCutoff = now - GameRuntime.SERVER_PIPELINE_WINDOW_MS;
+    while ((this.serverPipelineSamples.at(0)?.at ?? Number.POSITIVE_INFINITY) < serverCutoff) {
+      this.serverPipelineSamples.shift();
+    }
+    const pipelineValues = this.serverPipelineSamples.map(sample => sample.pipelineMs);
+    const serverOnePercentLowMs = percentile(pipelineValues, 0.99);
+    store.setServerPipeline(Math.max(0, Math.round(this.smoothedServerPipelineMs)));
+    store.setServerPipelineLow(Math.max(0, Math.round(serverOnePercentLowMs)));
   }
 
   private publishDebug(now: number): void {
+    const store = useGameStore.getState();
     window.__vectorDriftDebug = {
       estimatedServerTimeMs: this.estimateServerTimeMs(now),
+      interpolationDelayMs: this.adaptiveInterpolationDelayMs,
       prediction: this.prediction?.getDebugState() ?? null,
       rejectedShots: useGameStore.getState().rejectedShots,
+      pingMs: store.localPingMs,
+      pingOnePercentLowMs: store.localPingLowMs,
+      serverPipelineMs: store.serverPipelineMs,
+      serverOnePercentLowMs: store.serverPipelineLowMs,
       remoteBuffers: Object.fromEntries(
         Array.from(this.remoteBuffers.entries()).map(([identity, buffer]) => [
           identity,

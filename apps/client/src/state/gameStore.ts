@@ -69,7 +69,11 @@ interface SessionState {
   sfxVolume: number;
   musicVolume: number;
   localPingMs: number | null;
+  localPingLowMs: number | null;
   localPingJitterMs: number | null;
+  serverPipelineMs: number | null;
+  serverPipelineLowMs: number | null;
+  nerdPingsEnabled: boolean;
   playerPings: Record<string, number | null>;
   scoreboardOpen: boolean;
   crosshairSpread: number;
@@ -115,7 +119,11 @@ interface SessionState {
   setSfxVolume: (value: number) => void;
   setMusicVolume: (value: number) => void;
   setLocalPing: (pingMs: number | null) => void;
+  setLocalPingLow: (pingMs: number | null) => void;
   setLocalPingJitter: (jitterMs: number | null) => void;
+  setServerPipeline: (pipelineMs: number | null) => void;
+  setServerPipelineLow: (pipelineMs: number | null) => void;
+  setNerdPingsEnabled: (enabled: boolean) => void;
   setPlayerPing: (identity: string, pingMs: number | null) => void;
   consumeNearestAmmoPack: (
     roomCode: string | null,
@@ -170,7 +178,11 @@ export const useGameStore = create<SessionState>(set => ({
   sfxVolume: 0.85,
   musicVolume: 0.35,
   localPingMs: null,
+  localPingLowMs: null,
   localPingJitterMs: null,
+  serverPipelineMs: null,
+  serverPipelineLowMs: null,
+  nerdPingsEnabled: false,
   playerPings: {},
   scoreboardOpen: false,
   crosshairSpread: 0,
@@ -252,7 +264,10 @@ export const useGameStore = create<SessionState>(set => ({
       networkReconnectAttempt: 0,
       networkReconnectStartedAtMs: null,
       localPingMs: null,
+      localPingLowMs: null,
       localPingJitterMs: null,
+      serverPipelineMs: null,
+      serverPipelineLowMs: null,
       playerPings: {},
       scoreboardOpen: false,
       crosshairSpread: 0,
@@ -432,6 +447,13 @@ export const useGameStore = create<SessionState>(set => ({
       }
       return { localPingMs };
     }),
+  setLocalPingLow: localPingLowMs =>
+    set(state => {
+      if (state.localPingLowMs === localPingLowMs) {
+        return state;
+      }
+      return { localPingLowMs };
+    }),
   setLocalPingJitter: localPingJitterMs =>
     set(state => {
       if (state.localPingJitterMs === localPingJitterMs) {
@@ -439,6 +461,22 @@ export const useGameStore = create<SessionState>(set => ({
       }
       return { localPingJitterMs };
     }),
+  setServerPipeline: serverPipelineMs =>
+    set(state => {
+      if (state.serverPipelineMs === serverPipelineMs) {
+        return state;
+      }
+      return { serverPipelineMs };
+    }),
+  setServerPipelineLow: serverPipelineLowMs =>
+    set(state => {
+      if (state.serverPipelineLowMs === serverPipelineLowMs) {
+        return state;
+      }
+      return { serverPipelineLowMs };
+    }),
+  setNerdPingsEnabled: nerdPingsEnabled =>
+    set(state => (state.nerdPingsEnabled === nerdPingsEnabled ? state : { nerdPingsEnabled })),
   setPlayerPing: (identity, pingMs) =>
     set(state => {
       if (state.playerPings[identity] === pingMs) {

@@ -31,7 +31,11 @@ interface HudOverlayProps {
   scoreboardOpen: boolean;
   connected: boolean;
   pingMs: number | null;
+  pingLowMs: number | null;
   pingJitterMs: number | null;
+  serverPipelineMs: number | null;
+  serverPipelineLowMs: number | null;
+  nerdPingsEnabled: boolean;
   hitmarkerVisible: boolean;
   damageFlashToken: number;
   crosshairSpread: number;
@@ -100,7 +104,11 @@ export function HudOverlay({
   scoreboardOpen,
   connected,
   pingMs,
+  pingLowMs,
   pingJitterMs,
+  serverPipelineMs,
+  serverPipelineLowMs,
+  nerdPingsEnabled,
   hitmarkerVisible,
   damageFlashToken,
   crosshairSpread,
@@ -559,7 +567,14 @@ export function HudOverlay({
             </span>
             <div style={{ display: 'flex', gap: '24px' }}>
               <span style={{ color: CYBER.ok }}>{connected ? 'US-WEST' : 'OFFLINE'}</span>
-              <PingLabel ping={pingMs} jitter={pingJitterMs} />
+              <PingLabel
+                ping={pingMs}
+                jitter={pingJitterMs}
+                showNerd={nerdPingsEnabled}
+                pingLowMs={pingLowMs}
+                serverPipelineMs={serverPipelineMs}
+                serverPipelineLowMs={serverPipelineLowMs}
+              />
               <span style={{ color: CYBER.textBright }}>{pilotCount} PILOTS</span>
             </div>
             <span style={{ color: CYBER.a, textShadow: `0 0 6px ${CYBER.a}88` }}>

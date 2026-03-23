@@ -4,10 +4,9 @@ mod generated_collision;
 
 use generated_collision::ARENA_BLOCKS;
 
-const SERVER_TICK_RATE: u32 = 40;
-const SERVER_TICK_MS: u32 = 1000 / SERVER_TICK_RATE;
-const REMOTE_INTERPOLATION_DELAY_MS: u32 = 100;
-const SERVER_TICK_INTERVAL_US: i64 = (SERVER_TICK_MS as i64) * 1000;
+const SERVER_TICK_RATE: u32 = 60;
+const REMOTE_INTERPOLATION_DELAY_MS: u32 = 60;
+const SERVER_TICK_INTERVAL_US: i64 = 1_000_000 / SERVER_TICK_RATE as i64;
 const INPUT_STALE_TICKS: u32 = 4;
 const SIM_TICK_SCHEDULE_ID: u64 = 1;
 const MAX_OPEN_ROOMS: usize = 5;
@@ -590,7 +589,7 @@ pub fn init(ctx: &ReducerContext) {
     if ctx.db.sim_tick_schedule().count() == 0 {
         ctx.db.sim_tick_schedule().insert(SimTickSchedule {
             scheduled_id: SIM_TICK_SCHEDULE_ID,
-            // Fixed authoritative server cadence: one recurring reducer every 25ms (40Hz).
+            // Fixed authoritative server cadence (60Hz).
             scheduled_at: ScheduleAt::Interval(TimeDuration::from_micros(SERVER_TICK_INTERVAL_US)),
         });
     }
@@ -3240,8 +3239,12 @@ fn point_distance_sq_2d(ax: f32, az: f32, bx: f32, bz: f32) -> f32 {
 }
 
 fn estimate_hit_rewind_ticks(shooter_input: &PlayerInput, tick: u32) -> u32 {
-    let interpolation_ticks =
-        ((REMOTE_INTERPOLATION_DELAY_MS + SERVER_TICK_MS - 1) / SERVER_TICK_MS).max(1);
+    let tick_interval_us = (SERVER_TICK_INTERVAL_US as u32).max(1);
+    let interpolation_delay_us = REMOTE_INTERPOLATION_DELAY_MS.saturating_mul(1000);
+    let interpolation_ticks = interpolation_delay_us
+        .saturating_add(tick_interval_us.saturating_sub(1))
+        / tick_interval_us;
+    let interpolation_ticks = interpolation_ticks.max(1);
     let network_ticks = tick.saturating_sub(shooter_input.last_received_tick);
     interpolation_ticks
         .saturating_add(network_ticks)

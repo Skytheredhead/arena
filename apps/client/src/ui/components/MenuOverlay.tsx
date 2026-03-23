@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { CAMERA_SENSITIVITY } from '@arena/shared';
+import { CAMERA_SENSITIVITY, SERVER_TICK_RATE } from '@arena/shared';
 import { normalizeRoomCode } from '../../utils/roomCode';
 import type { BackendTarget } from '../../utils/env';
 import type { RoomView } from '../../state/gameStore';
@@ -28,7 +28,11 @@ interface MenuOverlayProps {
   roomCode: string;
   backendConnected: boolean;
   backendPingMs: number | null;
+  backendPingLowMs: number | null;
   backendPingJitterMs: number | null;
+  backendServerPipelineMs: number | null;
+  backendServerPipelineLowMs: number | null;
+  nerdPingsEnabled: boolean;
   backendTarget: BackendTarget;
   customBackendLabel: string;
   customBackendHost: string;
@@ -55,6 +59,7 @@ interface MenuOverlayProps {
   onFovChange: (value: number) => void;
   onSfxVolumeChange: (value: number) => void;
   onMusicVolumeChange: (value: number) => void;
+  onNerdPingsChange: (enabled: boolean) => void;
   onNicknameChange: (value: string) => void;
   onRoomCodeChange: (value: string) => void;
   onCreateRoom: () => void;
@@ -68,7 +73,7 @@ interface MenuOverlayProps {
 }
 
 const formatDuration = (ticks: number): string => {
-  const seconds = Math.floor(ticks / 40);
+  const seconds = Math.floor(ticks / SERVER_TICK_RATE);
   if (seconds < 60) return `${seconds}s`;
   const minutes = Math.floor(seconds / 60);
   const hours = Math.floor(minutes / 60);
@@ -152,7 +157,11 @@ export function MenuOverlay({
   roomCode,
   backendConnected,
   backendPingMs,
+  backendPingLowMs,
   backendPingJitterMs,
+  backendServerPipelineMs,
+  backendServerPipelineLowMs,
+  nerdPingsEnabled,
   backendTarget,
   customBackendLabel,
   customBackendHost,
@@ -179,6 +188,7 @@ export function MenuOverlay({
   onFovChange,
   onSfxVolumeChange,
   onMusicVolumeChange,
+  onNerdPingsChange,
   onNicknameChange,
   onRoomCodeChange,
   onCreateRoom,
@@ -286,7 +296,14 @@ export function MenuOverlay({
             </span>
           </div>
           <span style={{ color: CYBER.textDim, letterSpacing: '1px' }}>
-            <PingLabel ping={backendPingMs} jitter={backendPingJitterMs} />
+            <PingLabel
+              ping={backendPingMs}
+              jitter={backendPingJitterMs}
+              showNerd={nerdPingsEnabled}
+              pingLowMs={backendPingLowMs}
+              serverPipelineMs={backendServerPipelineMs}
+              serverPipelineLowMs={backendServerPipelineLowMs}
+            />
           </span>
         </div>
 
@@ -633,6 +650,28 @@ export function MenuOverlay({
                   onChange={onMusicVolumeChange}
                   delay={0.28}
                 />
+
+                <label
+                  style={{
+                    marginTop: '12px',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    color: CYBER.textBright,
+                    fontFamily: CYBER.font,
+                    fontSize: '10px',
+                    letterSpacing: '1px',
+                    cursor: 'pointer',
+                    animation: 'cyberFadeUp .3s .3s ease both'
+                  }}
+                >
+                  <input
+                    type="checkbox"
+                    checked={nerdPingsEnabled}
+                    onChange={e => onNerdPingsChange(e.target.checked)}
+                  />
+                  Nerd pings
+                </label>
 
                 <CyberLine margin="14px 0 12px" />
 

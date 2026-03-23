@@ -64,6 +64,7 @@ export class GameRenderer {
   private readonly renderer: THREE.WebGLRenderer;
   private readonly scene: THREE.Scene;
   private readonly camera: THREE.PerspectiveCamera;
+  private readonly resizeObserver: ResizeObserver | null;
   private static readonly IMPACT_MARK_LIFETIME_MS = 20_000;
   private static readonly IMPACT_MARK_FADE_WINDOW_MS = 2_000;
   private static readonly REMOTE_DEATH_DURATION_MS = 540;
@@ -102,7 +103,7 @@ export class GameRenderer {
       powerPreference: 'high-performance'
     });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.2));
-    this.renderer.setSize(mount.clientWidth, mount.clientHeight);
+    this.renderer.setSize(mount.clientWidth, mount.clientHeight, false);
     this.renderer.shadowMap.enabled = false;
     this.renderer.domElement.tabIndex = 0;
     this.renderer.domElement.style.width = '100%';
@@ -146,11 +147,21 @@ export class GameRenderer {
     this.camera.add(this.muzzleFlash);
     this.scene.add(this.camera);
 
+    if (typeof ResizeObserver !== 'undefined') {
+      this.resizeObserver = new ResizeObserver(() => {
+        this.handleResize();
+      });
+      this.resizeObserver.observe(this.mount);
+    } else {
+      this.resizeObserver = null;
+    }
+
     window.addEventListener('resize', this.handleResize);
   }
 
   dispose(): void {
     window.removeEventListener('resize', this.handleResize);
+    this.resizeObserver?.disconnect();
     this.renderer.dispose();
     if (this.mount.contains(this.renderer.domElement)) {
       this.mount.removeChild(this.renderer.domElement);
@@ -175,7 +186,7 @@ export class GameRenderer {
       : quality === 'medium'
         ? new THREE.Fog('#07111c', 18, 42)
         : new THREE.Fog('#07111c', 20, 52);
-    this.renderer.setSize(this.mount.clientWidth, this.mount.clientHeight);
+    this.renderer.setSize(this.mount.clientWidth, this.mount.clientHeight, false);
   }
 
   setFov(fov: number): void {
@@ -189,9 +200,12 @@ export class GameRenderer {
   private readonly handleResize = (): void => {
     const width = this.mount.clientWidth;
     const height = this.mount.clientHeight;
+    if (width <= 0 || height <= 0) {
+      return;
+    }
     this.camera.aspect = width / height;
     this.camera.updateProjectionMatrix();
-    this.renderer.setSize(width, height);
+    this.renderer.setSize(width, height, false);
   };
 
   private createRifleWeaponModel(): THREE.Group {

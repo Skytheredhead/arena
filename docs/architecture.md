@@ -50,7 +50,7 @@ This slice proves four things without overbuilding:
 
 ## Authoritative tick
 
-- The server runs simulation at `40Hz` (`25ms` per tick).
+- The server runs simulation at `60Hz` (`16.67ms` per tick).
 - A single `sim_tick_schedule` row is inserted at init with `ScheduleAt::Interval(...)`, so SpacetimeDB drives `sim_tick` on a recurring cadence rather than relying on client traffic.
 - `sim_tick` increments the authoritative world tick, advances matches, applies the latest accepted input for each player, and writes `player_state.server_tick`.
 - The browser converts `player_state.server_tick` into `serverTimeMs` and uses that for reconciliation timing and remote interpolation.
