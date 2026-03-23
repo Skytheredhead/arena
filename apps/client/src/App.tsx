@@ -291,12 +291,12 @@ export default function App(): React.JSX.Element {
           setServerPipeline(Math.max(0, Math.round(serverAverageMs)));
           setLocalPingLow(
             Math.max(1, Math.round(
-              pingLowWindowValues.length === 0 ? avgPing : Math.min(...pingLowWindowValues)
+              pingLowWindowValues.length === 0 ? avgPing : Math.max(...pingLowWindowValues)
             ))
           );
           setServerPipelineLow(
             Math.max(0, Math.round(
-              serverLowWindowValues.length === 0 ? serverAverageMs : Math.min(...serverLowWindowValues)
+              serverLowWindowValues.length === 0 ? serverAverageMs : Math.max(...serverLowWindowValues)
             ))
           );
         },

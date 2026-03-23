@@ -990,7 +990,7 @@ export class GameRuntime {
     const jitterMs = Math.sqrt(variance);
     const pingLowWindowValues = this.pingSamples.map(sample => sample.rttMs);
     const pingOnePercentLowMs =
-      pingLowWindowValues.length === 0 ? averagePing : Math.min(...pingLowWindowValues);
+      pingLowWindowValues.length === 0 ? averagePing : Math.max(...pingLowWindowValues);
 
     const roundedPingMs = Math.max(1, Math.round(averagePing));
     const roundedPingOnePercentLowMs = Math.max(1, Math.round(pingOnePercentLowMs));
@@ -1012,7 +1012,7 @@ export class GameRuntime {
       .map(sample => sample.pipelineMs);
     const serverLowWindowValues = this.serverPipelineSamples.map(sample => sample.pipelineMs);
     const serverOnePercentLowMs =
-      serverLowWindowValues.length === 0 ? 0 : Math.min(...serverLowWindowValues);
+      serverLowWindowValues.length === 0 ? 0 : Math.max(...serverLowWindowValues);
 
     const shouldUpdatePing =
       this.lastPingUiUpdateAt === 0 ||
