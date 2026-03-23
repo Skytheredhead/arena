@@ -61,6 +61,8 @@ export class GameRuntime {
   private static readonly REMOTE_FOOTSTEP_MAX_DISTANCE = 24;
   private static readonly PING_AVERAGE_WINDOW_MS = 5_000;
   private static readonly SERVER_PIPELINE_WINDOW_MS = 5_000;
+  private static readonly PING_UI_UPDATE_INTERVAL_MS = 250;
+  private static readonly LOWS_UPDATE_INTERVAL_MS = 5_000;
   private static readonly REMOTE_BUFFER_STALE_MS = 1_800;
   private static readonly MIN_REMOTE_INTERPOLATION_DELAY_MS = 32;
   private static readonly MAX_REMOTE_INTERPOLATION_DELAY_MS = 90;
@@ -104,6 +106,8 @@ export class GameRuntime {
   private readonly serverPipelineSamples: Array<{ at: number; pipelineMs: number }> = [];
   private smoothedServerPipelineMs = 0;
   private adaptiveInterpolationDelayMs = GameRuntime.BASE_REMOTE_INTERPOLATION_DELAY_MS;
+  private lastPingUiUpdateAt = 0;
+  private lastLowsUpdateAt = 0;
   private walkPhase = 0;
   private walkIntensity = 0;
   private walkStrideDistance = 0;
@@ -272,6 +276,8 @@ export class GameRuntime {
     this.serverPipelineSamples.length = 0;
     this.smoothedServerPipelineMs = 0;
     this.adaptiveInterpolationDelayMs = GameRuntime.BASE_REMOTE_INTERPOLATION_DELAY_MS;
+    this.lastPingUiUpdateAt = 0;
+    this.lastLowsUpdateAt = 0;
     this.cancelReload();
     this.walkPhase = 0;
     this.walkIntensity = 0;
@@ -288,7 +294,7 @@ export class GameRuntime {
 
   private handleAuthoritativeLocalState(state: LocalPlayerState): void {
     this.observeServerTime(state.serverTimeMs);
-    this.updateMeasuredPing(state.lastProcessedInput);
+    this.updateMeasuredPing(state.lastProcessedInput, state.serverTimeMs);
     this.sequence = Math.max(this.sequence, state.lastProcessedInput);
     if (!this.prediction) {
       this.prediction = new PredictionController(state);
@@ -935,22 +941,19 @@ export class GameRuntime {
     return this.adaptiveInterpolationDelayMs;
   }
 
-  private updateMeasuredPing(lastProcessedInput: number): void {
-    if (lastProcessedInput <= 0) {
-      return;
-    }
-    const sentAt = this.pendingInputSentAt.get(lastProcessedInput);
+  private updateMeasuredPing(lastProcessedInput: number, serverTimeMs: number): void {
+    const now = performance.now();
+    const sentAt =
+      lastProcessedInput > 0 ? this.pendingInputSentAt.get(lastProcessedInput) : undefined;
     for (const sequence of Array.from(this.pendingInputSentAt.keys())) {
       if (sequence <= lastProcessedInput) {
         this.pendingInputSentAt.delete(sequence);
       }
     }
-    if (sentAt === undefined) {
-      return;
-    }
-
-    const now = performance.now();
-    const measuredRttMs = Math.max(1, Math.min(999, now - sentAt));
+    const fallbackArrivalMs = serverTimeMs > 0 ? Math.max(0, now - serverTimeMs) : this.smoothedPingMs * 0.5;
+    const measuredRttMs = sentAt === undefined
+      ? Math.max(1, Math.min(999, fallbackArrivalMs * 2))
+      : Math.max(1, Math.min(999, now - sentAt));
     this.smoothedPingMs = this.smoothedPingMs * 0.8 + measuredRttMs * 0.2;
     this.pingSamples.push({ at: now, rttMs: measuredRttMs });
     const pingCutoff = now - GameRuntime.PING_AVERAGE_WINDOW_MS;
@@ -973,13 +976,6 @@ export class GameRuntime {
     const roundedPingMs = Math.max(1, Math.round(averagePing));
     const roundedPingOnePercentLowMs = Math.max(1, Math.round(pingOnePercentLowMs));
     const store = useGameStore.getState();
-    store.setLocalPing(roundedPingMs);
-    store.setLocalPingLow(roundedPingOnePercentLowMs);
-    store.setLocalPingJitter(Math.max(0, Math.round(jitterMs)));
-    if (store.localIdentity) {
-      store.setPlayerPing(store.localIdentity, roundedPingMs);
-    }
-
     const baselineRttMs = percentile(rttValues, 0.05);
     const estimatedServerPipelineMs = Math.max(0, measuredRttMs - baselineRttMs);
     this.smoothedServerPipelineMs =
@@ -994,8 +990,28 @@ export class GameRuntime {
     }
     const pipelineValues = this.serverPipelineSamples.map(sample => sample.pipelineMs);
     const serverOnePercentLowMs = percentile(pipelineValues, 0.99);
-    store.setServerPipeline(Math.max(0, Math.round(this.smoothedServerPipelineMs)));
-    store.setServerPipelineLow(Math.max(0, Math.round(serverOnePercentLowMs)));
+
+    const shouldUpdatePing =
+      this.lastPingUiUpdateAt === 0 ||
+      now - this.lastPingUiUpdateAt >= GameRuntime.PING_UI_UPDATE_INTERVAL_MS;
+    if (shouldUpdatePing) {
+      this.lastPingUiUpdateAt = now;
+      store.setLocalPing(roundedPingMs);
+      store.setLocalPingJitter(Math.max(0, Math.round(jitterMs)));
+      store.setServerPipeline(Math.max(0, Math.round(this.smoothedServerPipelineMs)));
+      if (store.localIdentity) {
+        store.setPlayerPing(store.localIdentity, roundedPingMs);
+      }
+    }
+
+    const shouldUpdateLows =
+      this.lastLowsUpdateAt === 0 ||
+      now - this.lastLowsUpdateAt >= GameRuntime.LOWS_UPDATE_INTERVAL_MS;
+    if (shouldUpdateLows) {
+      this.lastLowsUpdateAt = now;
+      store.setLocalPingLow(roundedPingOnePercentLowMs);
+      store.setServerPipelineLow(Math.max(0, Math.round(serverOnePercentLowMs)));
+    }
   }
 
   private publishDebug(now: number): void {

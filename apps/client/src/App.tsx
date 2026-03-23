@@ -27,6 +27,15 @@ import {
   registerAccount
 } from './netcode/authClient';
 
+const percentile = (values: number[], p: number): number => {
+  if (values.length === 0) {
+    return 0;
+  }
+  const sorted = [...values].sort((a, b) => a - b);
+  const index = Math.max(0, Math.min(sorted.length - 1, Math.floor(p * (sorted.length - 1))));
+  return sorted[index] ?? 0;
+};
+
 export default function App(): React.JSX.Element {
   const mountRef = useRef<HTMLDivElement | null>(null);
   const runtimeRef = useRef<GameRuntime | null>(null);
@@ -97,7 +106,9 @@ export default function App(): React.JSX.Element {
   const setServerPipelineLow = useGameStore(state => state.setServerPipelineLow);
   const setNerdPingsEnabled = useGameStore(state => state.setNerdPingsEnabled);
   const lastRoomListActivityRef = useRef(performance.now());
-  const lastLobbyPingMeasurementRef = useRef(0);
+  const lobbyPingSamplesRef = useRef<Array<{ at: number; rttMs: number }>>([]);
+  const lobbyServerSamplesRef = useRef<Array<{ at: number; pipelineMs: number }>>([]);
+  const lastLobbyLowsUpdateRef = useRef(0);
 
   const syncViewportMode = useCallback((): void => {
     const coarsePointer =
@@ -241,6 +252,9 @@ export default function App(): React.JSX.Element {
     let cancelled = false;
     let timeoutId: number | null = null;
     let inFlight = false;
+    lobbyPingSamplesRef.current = [];
+    lobbyServerSamplesRef.current = [];
+    lastLobbyLowsUpdateRef.current = 0;
     setLocalPing(null);
     setLocalPingLow(null);
     setLocalPingJitter(null);
@@ -250,7 +264,7 @@ export default function App(): React.JSX.Element {
       const focused = document.visibilityState === 'visible' && document.hasFocus();
       if (!focused) return 60_000;
       const idleForMs = performance.now() - lastRoomListActivityRef.current;
-      return idleForMs >= 10_000 ? 15_000 : 1_000;
+      return idleForMs >= 10_000 ? 15_000 : 250;
     };
     const scheduleNext = (delayMs: number): void => {
       if (cancelled) return;
@@ -265,18 +279,59 @@ export default function App(): React.JSX.Element {
         if (!cancelled) {
           setRoomDirectory(snapshot);
           const now = performance.now();
-          if (now - lastLobbyPingMeasurementRef.current >= 2_000) {
-            lastLobbyPingMeasurementRef.current = now;
-            const measuredLobbyPing = Math.max(1, Math.round(now - startedAt));
-            setLocalPing(measuredLobbyPing);
-            setLocalPingLow(measuredLobbyPing);
-            setLocalPingJitter(null);
-            setServerPipeline(null);
-            setServerPipelineLow(null);
+          const measuredLobbyPing = Math.max(1, now - startedAt);
+          lobbyPingSamplesRef.current.push({ at: now, rttMs: measuredLobbyPing });
+          while (
+            (lobbyPingSamplesRef.current.at(0)?.at ?? Number.POSITIVE_INFINITY) <
+            now - 5_000
+          ) {
+            lobbyPingSamplesRef.current.shift();
+          }
+
+          const rttValues = lobbyPingSamplesRef.current.map(sample => sample.rttMs);
+          const avgPing =
+            rttValues.length === 0
+              ? measuredLobbyPing
+              : rttValues.reduce((sum, sample) => sum + sample, 0) / rttValues.length;
+          const variance =
+            rttValues.length === 0
+              ? 0
+              : rttValues.reduce((sum, sample) => {
+                  const delta = sample - avgPing;
+                  return sum + delta * delta;
+                }, 0) / rttValues.length;
+          const jitterMs = Math.sqrt(variance);
+          const baselinePing = percentile(rttValues, 0.05);
+          const serverPipelineMs = Math.max(0, measuredLobbyPing - baselinePing);
+          lobbyServerSamplesRef.current.push({ at: now, pipelineMs: serverPipelineMs });
+          while (
+            (lobbyServerSamplesRef.current.at(0)?.at ?? Number.POSITIVE_INFINITY) <
+            now - 5_000
+          ) {
+            lobbyServerSamplesRef.current.shift();
+          }
+
+          setLocalPing(Math.max(1, Math.round(avgPing)));
+          setLocalPingJitter(Math.max(0, Math.round(jitterMs)));
+          setServerPipeline(Math.max(0, Math.round(serverPipelineMs)));
+
+          if (
+            lastLobbyLowsUpdateRef.current === 0 ||
+            now - lastLobbyLowsUpdateRef.current >= 5_000
+          ) {
+            lastLobbyLowsUpdateRef.current = now;
+            const pingOnePercentLow = percentile(rttValues, 0.99);
+            const serverValues = lobbyServerSamplesRef.current.map(sample => sample.pipelineMs);
+            const serverOnePercentLow = percentile(serverValues, 0.99);
+            setLocalPingLow(Math.max(1, Math.round(pingOnePercentLow)));
+            setServerPipelineLow(Math.max(0, Math.round(serverOnePercentLow)));
           }
         }
       } catch {
         if (!cancelled) {
+          lobbyPingSamplesRef.current = [];
+          lobbyServerSamplesRef.current = [];
+          lastLobbyLowsUpdateRef.current = 0;
           setLocalPing(null);
           setLocalPingLow(null);
           setLocalPingJitter(null);
