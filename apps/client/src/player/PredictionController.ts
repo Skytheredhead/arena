@@ -12,25 +12,7 @@ const distanceBetween = (left: LocalPlayerState, right: LocalPlayerState): numbe
     left.position.z - right.position.z
   );
 
-const mergeAuthoritativeMetadata = (
-  current: LocalPlayerState,
-  authoritative: LocalPlayerState
-): LocalPlayerState => ({
-  ...current,
-  identity: authoritative.identity,
-  serverTick: authoritative.serverTick,
-  serverTimeMs: authoritative.serverTimeMs,
-  onGround: authoritative.onGround,
-  alive: authoritative.alive,
-  health: authoritative.health,
-  ammo: authoritative.ammo,
-  lastProcessedInput: authoritative.lastProcessedInput,
-  respawnTick: authoritative.respawnTick
-});
-
 export class PredictionController {
-  private static readonly HARD_RECONCILIATION_DISTANCE = 8.0;
-
   private predictedState: LocalPlayerState;
   private pendingInputs: InputCommand[] = [];
   private lastAuthoritativeTick: number;
@@ -90,18 +72,7 @@ export class PredictionController {
 
     const correctionDistance = distanceBetween(before, serverReconciled);
     this.lastCorrectionDistance = correctionDistance;
-    const lifeStateChanged =
-      before.alive !== authoritativeState.alive ||
-      before.respawnTick !== authoritativeState.respawnTick;
-
-    if (
-      !lifeStateChanged &&
-      correctionDistance <= PredictionController.HARD_RECONCILIATION_DISTANCE
-    ) {
-      this.predictedState = mergeAuthoritativeMetadata(before, serverReconciled);
-    } else {
-      this.predictedState = serverReconciled;
-    }
+    this.predictedState = serverReconciled;
 
     // Keep the freshest local look state instead of snapping back to the
     // last server-acknowledged yaw/pitch every reconciliation.

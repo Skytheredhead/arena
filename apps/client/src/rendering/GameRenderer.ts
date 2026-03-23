@@ -757,7 +757,7 @@ export class GameRenderer {
     }
     this.camera.position.copy(this.smoothedCameraPosition);
     this.camera.rotation.y = frame.localPlayer.yaw;
-    this.camera.rotation.x = frame.localPlayer.pitch + frame.recoil;
+    this.camera.rotation.x = frame.localPlayer.pitch;
     this.muzzleFlash.visible = frame.muzzleFlashVisible;
     this.rifleWeaponModel.visible = frame.weaponSlot === WEAPON_SLOT_RIFLE;
     this.sniperWeaponModel.visible = frame.weaponSlot === WEAPON_SLOT_SNIPER;
@@ -1026,7 +1026,7 @@ export class GameRenderer {
       const cssHeight = Math.max(1, canvasRect.height);
       const viewportWidth = typeof window === 'undefined' ? cssWidth : window.innerWidth;
       const viewportHeight = typeof window === 'undefined' ? cssHeight : window.innerHeight;
-      const scopeSizeCss = Math.round(Math.min(cssWidth, cssHeight) * 0.62);
+      const scopeSizeCss = Math.round(Math.min(viewportWidth, viewportHeight) * 0.62);
       const desiredCenterX = viewportWidth * 0.5 - canvasRect.left;
       const desiredCenterY = viewportHeight * 0.5 - canvasRect.top;
       const unclampedLeftCss = Math.round(desiredCenterX - scopeSizeCss * 0.5);
@@ -1038,9 +1038,8 @@ export class GameRenderer {
       const scopeWidth = Math.max(1, Math.round(scopeSizeCss * bufferScaleX));
       const scopeHeight = Math.max(1, Math.round(scopeSizeCss * bufferScaleY));
       const scopeLeft = Math.round(scopeLeftCss * bufferScaleX);
-      const scopeBottom = Math.round(
-        (cssHeight - (scopeTopCss + scopeSizeCss)) * bufferScaleY
-      );
+      const scopeTop = Math.round(scopeTopCss * bufferScaleY);
+      const scopeBottom = fullHeight - (scopeTop + scopeHeight);
       const basePassFov = this.camera.fov;
       const basePassAspect = this.camera.aspect;
       const zoomedFov = Math.max(10, this.baseFov * 0.25);

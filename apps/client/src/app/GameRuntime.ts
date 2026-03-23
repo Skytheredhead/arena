@@ -69,6 +69,7 @@ export class GameRuntime {
   private static readonly MIN_REMOTE_INTERPOLATION_DELAY_MS = 32;
   private static readonly MAX_REMOTE_INTERPOLATION_DELAY_MS = 90;
   private static readonly BASE_REMOTE_INTERPOLATION_DELAY_MS = 42;
+  private static readonly LOCAL_CORRECTION_DEADZONE = 0.025;
   private readonly renderer: GameRenderer;
   private readonly input: InputController;
   private readonly rifle = new RifleController();
@@ -328,11 +329,11 @@ export class GameRuntime {
     const correctionMagnitude = Math.hypot(correction.x, correction.y, correction.z);
     if (!before.alive || !reconciled.alive || correctionMagnitude > 3) {
       this.localCorrectionOffset = { x: 0, y: 0, z: 0 };
-    } else {
+    } else if (correctionMagnitude >= GameRuntime.LOCAL_CORRECTION_DEADZONE) {
       this.localCorrectionOffset = {
-        x: 0,
+        x: this.localCorrectionOffset.x + correction.x,
         y: this.localCorrectionOffset.y + correction.y,
-        z: 0
+        z: this.localCorrectionOffset.z + correction.z
       };
     }
 
@@ -807,9 +808,9 @@ export class GameRuntime {
     return {
       ...preview,
       position: {
-        x: preview.position.x,
+        x: preview.position.x + this.localCorrectionOffset.x,
         y: preview.position.y + this.localCorrectionOffset.y,
-        z: preview.position.z
+        z: preview.position.z + this.localCorrectionOffset.z
       }
     };
   }

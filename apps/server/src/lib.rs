@@ -49,8 +49,6 @@ const RIFLE_DAMAGE: u16 = 10;
 const RIFLE_FIRE_INTERVAL_TICKS: u32 = 7;
 const RIFLE_RANGE: f32 = 80.0;
 const RIFLE_MAGAZINE: u16 = 40;
-const BASE_WEAPON_SPREAD: f32 = 0.004;
-const MOVEMENT_SPREAD: f32 = 0.1;
 const HEADSHOT_MULTIPLIER: u16 = 2;
 const WEAPON_SLOT_RIFLE: u8 = 1;
 const WEAPON_SLOT_SNIPER: u8 = 2;
@@ -58,17 +56,10 @@ const WEAPON_SLOT_SHOTGUN: u8 = 3;
 const SNIPER_DAMAGE: u16 = 75;
 const SNIPER_FIRE_INTERVAL_TICKS: u32 = SERVER_TICK_RATE * 2;
 const SNIPER_RANGE: f32 = 140.0;
-const SNIPER_BASE_SPREAD: f32 = 0.0014;
-const SNIPER_MOVEMENT_SPREAD: f32 = 0.08;
-const SNIPER_UNSCOPED_SPREAD_MULTIPLIER: f32 = 14.0;
 const SHOTGUN_PELLETS: u32 = 10;
 const SHOTGUN_DAMAGE: u16 = 5;
-const SHOTGUN_FIRE_INTERVAL_TICKS: u32 = 24;
+const SHOTGUN_FIRE_INTERVAL_TICKS: u32 = SNIPER_FIRE_INTERVAL_TICKS / 2;
 const SHOTGUN_RANGE: f32 = 36.0;
-const SHOTGUN_BASE_SPREAD: f32 = 0.024;
-const SHOTGUN_MOVEMENT_SPREAD: f32 = 0.12;
-const SHOTGUN_SCOPED_SPREAD_MULTIPLIER: f32 = 0.9;
-const SHOTGUN_UNSCOPED_SPREAD_MULTIPLIER: f32 = 2.05;
 const HEALTH_REGEN_DELAY_TICKS: u32 = SERVER_TICK_RATE * 5;
 const HEALTH_REGEN_PER_TICK: f32 = 3.0 / SERVER_TICK_RATE as f32;
 const AMMO_PACK_AMOUNT: u16 = 6;
@@ -1154,7 +1145,7 @@ pub fn fire_weapon(
     ctx: &ReducerContext,
     yaw: f32,
     pitch: f32,
-    scoped: bool,
+    _scoped: bool,
     weapon_slot: u8,
 ) -> Result<(), String> {
     let tick = current_tick(ctx);
@@ -2079,10 +2070,6 @@ struct WeaponSpec {
     pellet_count: u32,
     max_range: f32,
     pellet_damage: u16,
-    base_spread: f32,
-    movement_spread: f32,
-    scoped_spread_multiplier: f32,
-    unscoped_spread_multiplier: f32,
 }
 
 fn weapon_kind_from_slot(slot: u8) -> WeaponKind {
@@ -2101,30 +2088,18 @@ fn weapon_spec(kind: WeaponKind) -> WeaponSpec {
             pellet_count: 1,
             max_range: RIFLE_RANGE,
             pellet_damage: RIFLE_DAMAGE,
-            base_spread: BASE_WEAPON_SPREAD,
-            movement_spread: MOVEMENT_SPREAD,
-            scoped_spread_multiplier: 0.45,
-            unscoped_spread_multiplier: 1.0,
         },
         WeaponKind::Sniper => WeaponSpec {
             fire_interval_ticks: SNIPER_FIRE_INTERVAL_TICKS,
             pellet_count: 1,
             max_range: SNIPER_RANGE,
             pellet_damage: SNIPER_DAMAGE,
-            base_spread: SNIPER_BASE_SPREAD,
-            movement_spread: SNIPER_MOVEMENT_SPREAD,
-            scoped_spread_multiplier: 0.2,
-            unscoped_spread_multiplier: SNIPER_UNSCOPED_SPREAD_MULTIPLIER,
         },
         WeaponKind::Shotgun => WeaponSpec {
             fire_interval_ticks: SHOTGUN_FIRE_INTERVAL_TICKS,
             pellet_count: SHOTGUN_PELLETS,
             max_range: SHOTGUN_RANGE,
             pellet_damage: SHOTGUN_DAMAGE,
-            base_spread: SHOTGUN_BASE_SPREAD,
-            movement_spread: SHOTGUN_MOVEMENT_SPREAD,
-            scoped_spread_multiplier: SHOTGUN_SCOPED_SPREAD_MULTIPLIER,
-            unscoped_spread_multiplier: SHOTGUN_UNSCOPED_SPREAD_MULTIPLIER,
         },
     }
 }
