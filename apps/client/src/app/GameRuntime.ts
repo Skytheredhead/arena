@@ -676,6 +676,7 @@ export class GameRuntime {
       walkPhase: this.walkPhase,
       walkIntensity: this.walkIntensity,
       crouchAmount: this.crouchAmount,
+      crouched: frameInput.sprinting,
       reloadProgress: this.getReloadProgress(now),
       estimatedServerTimeMs
     });

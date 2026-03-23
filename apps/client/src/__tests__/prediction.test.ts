@@ -104,4 +104,20 @@ describe('PredictionController', () => {
     expect(reconciled.position.z).toBeCloseTo(predicted.position.z, 6);
     expect(reconciled.lastProcessedInput).toBe(1);
   });
+
+  it('hard-snaps only on very large divergence', () => {
+    const controller = new PredictionController(makeState());
+    controller.queueInput(command(1));
+    const snapped = controller.reconcile({
+      ...makeState(),
+      position: { x: 24, y: 0, z: 16 },
+      velocity: { x: 0, y: 0, z: 0 },
+      serverTick: 11,
+      serverTimeMs: 550,
+      lastProcessedInput: 1
+    });
+
+    expect(snapped.position.x).toBeCloseTo(24, 5);
+    expect(snapped.position.z).toBeCloseTo(16, 5);
+  });
 });

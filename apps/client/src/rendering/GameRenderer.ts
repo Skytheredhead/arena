@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import {
+  CROUCH_EYE_HEIGHT,
   PLAYER_EYE_HEIGHT,
   SERVER_TICK_MS,
   WEAPON_SLOT_RIFLE,
@@ -37,6 +38,7 @@ interface RenderFrameState {
   walkPhase: number;
   walkIntensity: number;
   crouchAmount: number;
+  crouched: boolean;
   reloadProgress: number;
   estimatedServerTimeMs: number;
   deltaSeconds: number;
@@ -725,10 +727,11 @@ export class GameRenderer {
         this.camera.updateProjectionMatrix();
       }
     }
-    const bobVertical = Math.sin(frame.walkPhase) * frame.walkIntensity * 0.032;
+    const walkBob = Math.sin(frame.walkPhase) * frame.walkIntensity * 0.032;
+    const crouchEyeOffset = frame.crouched ? PLAYER_EYE_HEIGHT - CROUCH_EYE_HEIGHT : 0;
     this.targetCameraPosition.set(
       frame.localPlayer.position.x,
-      frame.localPlayer.position.y + PLAYER_EYE_HEIGHT + bobVertical - frame.crouchAmount * 0.36,
+      frame.localPlayer.position.y + PLAYER_EYE_HEIGHT - crouchEyeOffset,
       frame.localPlayer.position.z
     );
     if (!this.cameraPositionInitialized) {
@@ -783,7 +786,7 @@ export class GameRenderer {
     this.weaponRig.position.y =
       (frame.scoped ? -0.18 : -0.28) +
       frame.recoil * 0.08 +
-      bobVertical * 0.45 -
+      walkBob * 0.45 -
       reloadDrop -
       frame.crouchAmount * 0.08;
     this.weaponRig.position.z = frame.scoped ? -0.45 : -0.55;
@@ -1018,11 +1021,18 @@ export class GameRenderer {
     }
 
     if (frame.scoped && frame.weaponSlot === WEAPON_SLOT_SNIPER) {
-      const cssWidth = Math.max(1, this.mount.clientWidth);
-      const cssHeight = Math.max(1, this.mount.clientHeight);
+      const canvasRect = this.renderer.domElement.getBoundingClientRect();
+      const cssWidth = Math.max(1, canvasRect.width);
+      const cssHeight = Math.max(1, canvasRect.height);
+      const viewportWidth = typeof window === 'undefined' ? cssWidth : window.innerWidth;
+      const viewportHeight = typeof window === 'undefined' ? cssHeight : window.innerHeight;
       const scopeSizeCss = Math.round(Math.min(cssWidth, cssHeight) * 0.62);
-      const scopeLeftCss = Math.round((cssWidth - scopeSizeCss) * 0.5);
-      const scopeTopCss = Math.round((cssHeight - scopeSizeCss) * 0.5);
+      const desiredCenterX = viewportWidth * 0.5 - canvasRect.left;
+      const desiredCenterY = viewportHeight * 0.5 - canvasRect.top;
+      const unclampedLeftCss = Math.round(desiredCenterX - scopeSizeCss * 0.5);
+      const unclampedTopCss = Math.round(desiredCenterY - scopeSizeCss * 0.5);
+      const scopeLeftCss = Math.max(0, Math.min(cssWidth - scopeSizeCss, unclampedLeftCss));
+      const scopeTopCss = Math.max(0, Math.min(cssHeight - scopeSizeCss, unclampedTopCss));
       const bufferScaleX = fullWidth / cssWidth;
       const bufferScaleY = fullHeight / cssHeight;
       const scopeWidth = Math.max(1, Math.round(scopeSizeCss * bufferScaleX));

@@ -12,8 +12,6 @@ const distanceBetween = (left: LocalPlayerState, right: LocalPlayerState): numbe
     left.position.z - right.position.z
   );
 
-const lerp = (from: number, to: number, alpha: number): number => from + (to - from) * alpha;
-
 const mergeAuthoritativeMetadata = (
   current: LocalPlayerState,
   authoritative: LocalPlayerState
@@ -31,10 +29,7 @@ const mergeAuthoritativeMetadata = (
 });
 
 export class PredictionController {
-  private static readonly TRUST_LOCAL_MOTION_DISTANCE = 0.55;
-  private static readonly SOFT_CORRECTION_DISTANCE = 2.2;
-  private static readonly SOFT_CORRECTION_BLEND = 0.24;
-  private static readonly SOFT_VELOCITY_BLEND = 0.35;
+  private static readonly HARD_RECONCILIATION_DISTANCE = 8.0;
 
   private predictedState: LocalPlayerState;
   private pendingInputs: InputCommand[] = [];
@@ -101,53 +96,9 @@ export class PredictionController {
 
     if (
       !lifeStateChanged &&
-      correctionDistance <= PredictionController.TRUST_LOCAL_MOTION_DISTANCE
+      correctionDistance <= PredictionController.HARD_RECONCILIATION_DISTANCE
     ) {
       this.predictedState = mergeAuthoritativeMetadata(before, serverReconciled);
-    } else if (
-      !lifeStateChanged &&
-      correctionDistance <= PredictionController.SOFT_CORRECTION_DISTANCE
-    ) {
-      this.predictedState = mergeAuthoritativeMetadata(
-        {
-          ...serverReconciled,
-          position: {
-            x: lerp(
-              before.position.x,
-              serverReconciled.position.x,
-              PredictionController.SOFT_CORRECTION_BLEND
-            ),
-            y: lerp(
-              before.position.y,
-              serverReconciled.position.y,
-              PredictionController.SOFT_CORRECTION_BLEND
-            ),
-            z: lerp(
-              before.position.z,
-              serverReconciled.position.z,
-              PredictionController.SOFT_CORRECTION_BLEND
-            )
-          },
-          velocity: {
-            x: lerp(
-              before.velocity.x,
-              serverReconciled.velocity.x,
-              PredictionController.SOFT_VELOCITY_BLEND
-            ),
-            y: lerp(
-              before.velocity.y,
-              serverReconciled.velocity.y,
-              PredictionController.SOFT_VELOCITY_BLEND
-            ),
-            z: lerp(
-              before.velocity.z,
-              serverReconciled.velocity.z,
-              PredictionController.SOFT_VELOCITY_BLEND
-            )
-          }
-        },
-        serverReconciled
-      );
     } else {
       this.predictedState = serverReconciled;
     }

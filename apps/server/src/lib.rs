@@ -1196,14 +1196,7 @@ pub fn fire_weapon(
         stats.shots_fired = stats.shots_fired.saturating_add(1);
     });
 
-    let movement_speed = (state.vel_x * state.vel_x + state.vel_z * state.vel_z).sqrt();
-    let movement_ratio = (movement_speed / WALK_SPEED).clamp(0.0, 1.0);
-    let spread_multiplier = if scoped {
-        spec.scoped_spread_multiplier
-    } else {
-        spec.unscoped_spread_multiplier
-    };
-    let spread = (spec.base_spread + movement_ratio * spec.movement_spread) * spread_multiplier;
+    let spread = 0.0;
     let shooter_crouching = shooter_input.sprinting;
     let rewind_ticks = estimate_hit_rewind_ticks(&shooter_input, tick);
     let eye_height = if shooter_crouching {
