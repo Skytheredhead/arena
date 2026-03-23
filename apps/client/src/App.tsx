@@ -107,7 +107,6 @@ export default function App(): React.JSX.Element {
   const setNerdPingsEnabled = useGameStore(state => state.setNerdPingsEnabled);
   const lobbyPingSamplesRef = useRef<Array<{ at: number; rttMs: number }>>([]);
   const lobbyServerSamplesRef = useRef<Array<{ at: number; pipelineMs: number }>>([]);
-  const lastLobbyLowsUpdateRef = useRef(0);
 
   const syncViewportMode = useCallback((): void => {
     const coarsePointer =
@@ -232,7 +231,6 @@ export default function App(): React.JSX.Element {
     if (connected) return;
     lobbyPingSamplesRef.current = [];
     lobbyServerSamplesRef.current = [];
-    lastLobbyLowsUpdateRef.current = 0;
     setLocalPing(null);
     setLocalPingLow(null);
     setLocalPingJitter(null);
@@ -246,14 +244,17 @@ export default function App(): React.JSX.Element {
         onPingSample: measuredLobbyPing => {
           const now = performance.now();
           lobbyPingSamplesRef.current.push({ at: now, rttMs: measuredLobbyPing });
+          const lowsCutoff = now - 10_000;
           while (
             (lobbyPingSamplesRef.current.at(0)?.at ?? Number.POSITIVE_INFINITY) <
-            now - 5_000
+            lowsCutoff
           ) {
             lobbyPingSamplesRef.current.shift();
           }
 
-          const rttValues = lobbyPingSamplesRef.current.map(sample => sample.rttMs);
+          const rttValues = lobbyPingSamplesRef.current
+            .filter(sample => sample.at >= now - 5_000)
+            .map(sample => sample.rttMs);
           const avgPing =
             rttValues.length === 0
               ? measuredLobbyPing
@@ -271,26 +272,33 @@ export default function App(): React.JSX.Element {
           lobbyServerSamplesRef.current.push({ at: now, pipelineMs: pipelineSampleMs });
           while (
             (lobbyServerSamplesRef.current.at(0)?.at ?? Number.POSITIVE_INFINITY) <
-            now - 5_000
+            lowsCutoff
           ) {
             lobbyServerSamplesRef.current.shift();
           }
 
+          const serverAverageValues = lobbyServerSamplesRef.current
+            .filter(sample => sample.at >= now - 5_000)
+            .map(sample => sample.pipelineMs);
+          const serverAverageMs =
+            serverAverageValues.length === 0
+              ? pipelineSampleMs
+              : serverAverageValues.reduce((sum, value) => sum + value, 0) / serverAverageValues.length;
+          const pingLowWindowValues = lobbyPingSamplesRef.current.map(sample => sample.rttMs);
+          const serverLowWindowValues = lobbyServerSamplesRef.current.map(sample => sample.pipelineMs);
           setLocalPing(Math.max(1, Math.round(avgPing)));
           setLocalPingJitter(Math.max(0, Math.round(jitterMs)));
-          setServerPipeline(Math.max(0, Math.round(pipelineSampleMs)));
-
-          if (
-            lastLobbyLowsUpdateRef.current === 0 ||
-            now - lastLobbyLowsUpdateRef.current >= 5_000
-          ) {
-            lastLobbyLowsUpdateRef.current = now;
-            const pingOnePercentLow = percentile(rttValues, 0.01);
-            const serverValues = lobbyServerSamplesRef.current.map(sample => sample.pipelineMs);
-            const serverOnePercentLow = percentile(serverValues, 0.01);
-            setLocalPingLow(Math.max(1, Math.round(pingOnePercentLow)));
-            setServerPipelineLow(Math.max(0, Math.round(serverOnePercentLow)));
-          }
+          setServerPipeline(Math.max(0, Math.round(serverAverageMs)));
+          setLocalPingLow(
+            Math.max(1, Math.round(
+              pingLowWindowValues.length === 0 ? avgPing : Math.min(...pingLowWindowValues)
+            ))
+          );
+          setServerPipelineLow(
+            Math.max(0, Math.round(
+              serverLowWindowValues.length === 0 ? serverAverageMs : Math.min(...serverLowWindowValues)
+            ))
+          );
         },
         onStateChange: liveConnected => {
           if (liveConnected) {

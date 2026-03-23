@@ -224,6 +224,14 @@ export class SpacetimeBridge {
     await this.connection.reducers.sendChatMessage({ message });
   }
 
+  async ping(): Promise<void> {
+    if (!this.connection) {
+      return;
+    }
+
+    await this.connection.reducers.ping({});
+  }
+
   private readStoredToken(): string | undefined {
     // Intentionally disabled so each tab/session gets an independent identity.
     // This avoids multi-tab identity collisions from shared persisted tokens.

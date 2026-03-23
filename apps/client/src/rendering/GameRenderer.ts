@@ -715,6 +715,16 @@ export class GameRenderer {
 
   render(frame: RenderFrameState): void {
     const now = performance.now();
+    this.renderer.getDrawingBufferSize(this.drawingBufferSize);
+    const fullWidth = this.drawingBufferSize.x;
+    const fullHeight = this.drawingBufferSize.y;
+    if (fullWidth > 0 && fullHeight > 0) {
+      const renderAspect = fullWidth / fullHeight;
+      if (Math.abs(this.camera.aspect - renderAspect) > 0.0001) {
+        this.camera.aspect = renderAspect;
+        this.camera.updateProjectionMatrix();
+      }
+    }
     const bobVertical = Math.sin(frame.walkPhase) * frame.walkIntensity * 0.032;
     this.targetCameraPosition.set(
       frame.localPlayer.position.x,
@@ -761,6 +771,7 @@ export class GameRenderer {
     const idleSway = frame.scoped ? 0 : Math.sin(now * 0.0045) * 0.0035;
     const walkSwayX = Math.sin(frame.walkPhase) * frame.walkIntensity * 0.026;
     const walkSwayY = Math.cos(frame.walkPhase * 2) * frame.walkIntensity * 0.014;
+    const lateralSwayX = frame.scoped ? 0 : walkSwayX;
     const reloadTilt = frame.reloadProgress * 0.22;
     const reloadDrop = frame.reloadProgress * 0.08;
     this.weaponRig.rotation.x =
@@ -768,9 +779,9 @@ export class GameRenderer {
       frame.recoil * (frame.scoped ? 0.6 : 1.4) +
       walkSwayY +
       reloadTilt * 0.35;
-    this.weaponRig.rotation.y = (frame.scoped ? 0 : -0.035) - frame.recoil * 0.22 - walkSwayX * 0.35;
+    this.weaponRig.rotation.y = (frame.scoped ? 0 : -0.035) - frame.recoil * 0.22 - lateralSwayX * 0.35;
     this.weaponRig.rotation.z = reloadTilt;
-    this.weaponRig.position.x = (frame.scoped ? scopedBaseX : hipFireBaseX) + idleSway + walkSwayX;
+    this.weaponRig.position.x = (frame.scoped ? scopedBaseX : hipFireBaseX) + idleSway + lateralSwayX;
     this.weaponRig.position.y =
       (frame.scoped ? -0.18 : -0.28) +
       frame.recoil * 0.08 +
@@ -1009,9 +1020,6 @@ export class GameRenderer {
     }
 
     if (frame.scoped && frame.weaponSlot === WEAPON_SLOT_SNIPER) {
-      this.renderer.getDrawingBufferSize(this.drawingBufferSize);
-      const fullWidth = this.drawingBufferSize.x;
-      const fullHeight = this.drawingBufferSize.y;
       const scopeSize = Math.round(Math.min(fullWidth, fullHeight) * 0.62);
       const scopeLeft = Math.round((fullWidth - scopeSize) * 0.5);
       const scopeBottom = Math.round((fullHeight - scopeSize) * 0.5);
@@ -1038,8 +1046,7 @@ export class GameRenderer {
       this.camera.updateProjectionMatrix();
     } else {
       this.renderer.setScissorTest(false);
-      this.renderer.getDrawingBufferSize(this.drawingBufferSize);
-      this.renderer.setViewport(0, 0, this.drawingBufferSize.x, this.drawingBufferSize.y);
+      this.renderer.setViewport(0, 0, fullWidth, fullHeight);
       this.renderer.render(this.scene, this.camera);
     }
   }
