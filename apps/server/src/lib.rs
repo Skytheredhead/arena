@@ -1327,6 +1327,11 @@ pub fn request_respawn(ctx: &ReducerContext) -> Result<(), String> {
 }
 
 #[reducer]
+pub fn ping(_ctx: &ReducerContext) -> Result<(), String> {
+    Ok(())
+}
+
+#[reducer]
 pub fn sim_tick(ctx: &ReducerContext, _schedule: SimTickSchedule) -> Result<(), String> {
     if ctx.sender() != ctx.identity() {
         return Err("sim_tick is scheduler-driven and cannot be called by clients".to_string());

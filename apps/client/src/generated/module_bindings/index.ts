@@ -41,6 +41,7 @@ import LeaveRoomReducer from "./leave_room_reducer";
 import LoginAccountReducer from "./login_account_reducer";
 import LoginWithSessionReducer from "./login_with_session_reducer";
 import LogoutAccountReducer from "./logout_account_reducer";
+import PingReducer from "./ping_reducer";
 import RegisterAccountReducer from "./register_account_reducer";
 import RequestRespawnReducer from "./request_respawn_reducer";
 import SendChatMessageReducer from "./send_chat_message_reducer";
@@ -235,6 +236,7 @@ const reducersSchema = __reducers(
   __reducerSchema("login_account", LoginAccountReducer),
   __reducerSchema("login_with_session", LoginWithSessionReducer),
   __reducerSchema("logout_account", LogoutAccountReducer),
+  __reducerSchema("ping", PingReducer),
   __reducerSchema("register_account", RegisterAccountReducer),
   __reducerSchema("request_respawn", RequestRespawnReducer),
   __reducerSchema("send_chat_message", SendChatMessageReducer),

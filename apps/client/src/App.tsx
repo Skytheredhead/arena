@@ -17,7 +17,7 @@ import {
   type BackendTarget
 } from './utils/env';
 import { CyberGlobalStyles, CyberScanFx } from './ui/cyberTheme';
-import { fetchOpenRoomsSnapshot } from './netcode/roomDirectory';
+import { fetchOpenRoomsSnapshot, startLiveRoomDirectory } from './netcode/roomDirectory';
 import {
   type AccountStatsView,
   type AuthSnapshot,
@@ -105,7 +105,6 @@ export default function App(): React.JSX.Element {
   const setServerPipeline = useGameStore(state => state.setServerPipeline);
   const setServerPipelineLow = useGameStore(state => state.setServerPipelineLow);
   const setNerdPingsEnabled = useGameStore(state => state.setNerdPingsEnabled);
-  const lastRoomListActivityRef = useRef(performance.now());
   const lobbyPingSamplesRef = useRef<Array<{ at: number; rttMs: number }>>([]);
   const lobbyServerSamplesRef = useRef<Array<{ at: number; pipelineMs: number }>>([]);
   const lastLobbyLowsUpdateRef = useRef(0);
@@ -181,24 +180,6 @@ export default function App(): React.JSX.Element {
     };
   }, [syncViewportMode]);
 
-  useEffect(() => {
-    const markActive = (): void => { lastRoomListActivityRef.current = performance.now(); };
-    window.addEventListener('pointerdown', markActive);
-    window.addEventListener('keydown', markActive);
-    window.addEventListener('mousemove', markActive);
-    window.addEventListener('touchstart', markActive);
-    window.addEventListener('wheel', markActive);
-    document.addEventListener('visibilitychange', markActive);
-    return () => {
-      window.removeEventListener('pointerdown', markActive);
-      window.removeEventListener('keydown', markActive);
-      window.removeEventListener('mousemove', markActive);
-      window.removeEventListener('touchstart', markActive);
-      window.removeEventListener('wheel', markActive);
-      document.removeEventListener('visibilitychange', markActive);
-    };
-  }, []);
-
   const connected = connectionStatus === 'connected';
   const connecting = connectionStatus === 'connecting';
   const backendConnected = connected || localPingMs != null;
@@ -249,9 +230,6 @@ export default function App(): React.JSX.Element {
 
   useEffect(() => {
     if (connected) return;
-    let cancelled = false;
-    let timeoutId: number | null = null;
-    let inFlight = false;
     lobbyPingSamplesRef.current = [];
     lobbyServerSamplesRef.current = [];
     lastLobbyLowsUpdateRef.current = 0;
@@ -260,26 +238,13 @@ export default function App(): React.JSX.Element {
     setLocalPingJitter(null);
     setServerPipeline(null);
     setServerPipelineLow(null);
-    const computeDelayMs = (): number => {
-      const focused = document.visibilityState === 'visible' && document.hasFocus();
-      if (!focused) return 60_000;
-      const idleForMs = performance.now() - lastRoomListActivityRef.current;
-      return idleForMs >= 10_000 ? 15_000 : 250;
-    };
-    const scheduleNext = (delayMs: number): void => {
-      if (cancelled) return;
-      timeoutId = window.setTimeout(() => { void refreshRooms(); }, delayMs);
-    };
-    const refreshRooms = async (): Promise<void> => {
-      if (cancelled || inFlight) return;
-      inFlight = true;
-      const startedAt = performance.now();
-      try {
-        const snapshot = await fetchOpenRoomsSnapshot(backendTarget);
-        if (!cancelled) {
-          setRoomDirectory(snapshot);
+    const live = startLiveRoomDirectory(
+      {
+        onSnapshot: rows => {
+          setRoomDirectory(rows);
+        },
+        onPingSample: measuredLobbyPing => {
           const now = performance.now();
-          const measuredLobbyPing = Math.max(1, now - startedAt);
           lobbyPingSamplesRef.current.push({ at: now, rttMs: measuredLobbyPing });
           while (
             (lobbyPingSamplesRef.current.at(0)?.at ?? Number.POSITIVE_INFINITY) <
@@ -302,8 +267,8 @@ export default function App(): React.JSX.Element {
                 }, 0) / rttValues.length;
           const jitterMs = Math.sqrt(variance);
           const baselinePing = percentile(rttValues, 0.05);
-          const serverPipelineMs = Math.max(0, measuredLobbyPing - baselinePing);
-          lobbyServerSamplesRef.current.push({ at: now, pipelineMs: serverPipelineMs });
+          const pipelineSampleMs = Math.max(0, measuredLobbyPing - baselinePing);
+          lobbyServerSamplesRef.current.push({ at: now, pipelineMs: pipelineSampleMs });
           while (
             (lobbyServerSamplesRef.current.at(0)?.at ?? Number.POSITIVE_INFINITY) <
             now - 5_000
@@ -313,7 +278,7 @@ export default function App(): React.JSX.Element {
 
           setLocalPing(Math.max(1, Math.round(avgPing)));
           setLocalPingJitter(Math.max(0, Math.round(jitterMs)));
-          setServerPipeline(Math.max(0, Math.round(serverPipelineMs)));
+          setServerPipeline(Math.max(0, Math.round(pipelineSampleMs)));
 
           if (
             lastLobbyLowsUpdateRef.current === 0 ||
@@ -326,25 +291,23 @@ export default function App(): React.JSX.Element {
             setLocalPingLow(Math.max(1, Math.round(pingOnePercentLow)));
             setServerPipelineLow(Math.max(0, Math.round(serverOnePercentLow)));
           }
-        }
-      } catch {
-        if (!cancelled) {
-          lobbyPingSamplesRef.current = [];
-          lobbyServerSamplesRef.current = [];
-          lastLobbyLowsUpdateRef.current = 0;
+        },
+        onStateChange: liveConnected => {
+          if (liveConnected) {
+            return;
+          }
           setLocalPing(null);
           setLocalPingLow(null);
           setLocalPingJitter(null);
           setServerPipeline(null);
           setServerPipelineLow(null);
         }
-      } finally {
-        inFlight = false;
-        scheduleNext(computeDelayMs());
-      }
+      },
+      backendTarget
+    );
+    return () => {
+      live.stop();
     };
-    void refreshRooms();
-    return () => { cancelled = true; if (timeoutId !== null) window.clearTimeout(timeoutId); };
   }, [
     backendTarget,
     connected,
