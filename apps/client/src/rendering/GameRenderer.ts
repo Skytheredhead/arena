@@ -759,19 +759,17 @@ export class GameRenderer {
     this.rifleWeaponModel.visible = frame.weaponSlot === WEAPON_SLOT_RIFLE;
     this.sniperWeaponModel.visible = frame.weaponSlot === WEAPON_SLOT_SNIPER;
     this.shotgunWeaponModel.visible = frame.weaponSlot === WEAPON_SLOT_SHOTGUN;
-    const hipFireBaseX =
-      frame.weaponSlot === WEAPON_SLOT_SNIPER ? 0.22 : frame.weaponSlot === WEAPON_SLOT_SHOTGUN ? 0.2 : 0.26;
-    const scopedBaseX = 0;
-    const muzzleFlashX = frame.scoped ? 0 : hipFireBaseX * 0.35;
+    const muzzleFlashX = 0;
+    const muzzleFlashY = 0;
     this.muzzleFlash.position.set(
       muzzleFlashX,
-      frame.weaponSlot === WEAPON_SLOT_SNIPER ? 0.02 : 0.04,
+      muzzleFlashY,
       frame.weaponSlot === WEAPON_SLOT_SNIPER ? -1.18 : frame.weaponSlot === WEAPON_SLOT_SHOTGUN ? -0.86 : -0.92
     );
     const idleSway = frame.scoped ? 0 : Math.sin(now * 0.0045) * 0.0035;
     const walkSwayX = Math.sin(frame.walkPhase) * frame.walkIntensity * 0.026;
     const walkSwayY = Math.cos(frame.walkPhase * 2) * frame.walkIntensity * 0.014;
-    const lateralSwayX = frame.scoped ? 0 : walkSwayX;
+    const horizontalSway = frame.scoped ? 0 : walkSwayX * 0.12;
     const reloadTilt = frame.reloadProgress * 0.22;
     const reloadDrop = frame.reloadProgress * 0.08;
     this.weaponRig.rotation.x =
@@ -779,9 +777,9 @@ export class GameRenderer {
       frame.recoil * (frame.scoped ? 0.6 : 1.4) +
       walkSwayY +
       reloadTilt * 0.35;
-    this.weaponRig.rotation.y = (frame.scoped ? 0 : -0.035) - frame.recoil * 0.22 - lateralSwayX * 0.35;
+    this.weaponRig.rotation.y = -frame.recoil * 0.22;
     this.weaponRig.rotation.z = reloadTilt;
-    this.weaponRig.position.x = (frame.scoped ? scopedBaseX : hipFireBaseX) + idleSway + lateralSwayX;
+    this.weaponRig.position.x = idleSway * 0.25 + horizontalSway;
     this.weaponRig.position.y =
       (frame.scoped ? -0.18 : -0.28) +
       frame.recoil * 0.08 +

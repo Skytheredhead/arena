@@ -688,7 +688,7 @@ export function CyberCrosshair({
   );
   return (
     <div style={{ position:'absolute',left:'50%',top:'50%',transform:'translate(-50%,-50%)',zIndex:20,pointerEvents:'none' }}>
-      <div style={{ position:'relative',width:'44px',height:'44px', animation: 'cyberFloatY 3s ease-in-out infinite' }}>
+      <div style={{ position:'relative',width:'44px',height:'44px' }}>
         {arm({ left:'50%', top:`calc(50% - ${offset}px - ${armLen}px)`, width:'1px', height:`${armLen}px`, transform:'translateX(-50%)' })}
         {arm({ left:'50%', top:`calc(50% + ${offset}px)`,               width:'1px', height:`${armLen}px`, transform:'translateX(-50%)' })}
         {arm({ top:'50%',  left:`calc(50% - ${offset}px - ${armLen}px)`, width:`${armLen}px`, height:'1px', transform:'translateY(-50%)' })}
