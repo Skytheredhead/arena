@@ -35,6 +35,13 @@ interface RuntimePlayerMeta extends ScoreRow {
   roomCode: string | null;
 }
 
+export interface ServerPingSample {
+  atMs: number;
+  source: 'lobby' | 'ingame';
+  pingMs: number;
+  pipelineMs: number;
+}
+
 export interface RoomView {
   code: string;
   playerCount: number;
@@ -73,6 +80,7 @@ interface SessionState {
   localPingJitterMs: number | null;
   serverPipelineMs: number | null;
   serverPipelineLowMs: number | null;
+  serverPingHistory: ServerPingSample[];
   nerdPingsEnabled: boolean;
   playerPings: Record<string, number | null>;
   scoreboardOpen: boolean;
@@ -123,6 +131,7 @@ interface SessionState {
   setLocalPingJitter: (jitterMs: number | null) => void;
   setServerPipeline: (pipelineMs: number | null) => void;
   setServerPipelineLow: (pipelineMs: number | null) => void;
+  pushServerPingSample: (sample: ServerPingSample) => void;
   setNerdPingsEnabled: (enabled: boolean) => void;
   setPlayerPing: (identity: string, pingMs: number | null) => void;
   consumeNearestAmmoPack: (
@@ -182,6 +191,7 @@ export const useGameStore = create<SessionState>(set => ({
   localPingJitterMs: null,
   serverPipelineMs: null,
   serverPipelineLowMs: null,
+  serverPingHistory: [],
   nerdPingsEnabled: false,
   playerPings: {},
   scoreboardOpen: false,
@@ -268,6 +278,7 @@ export const useGameStore = create<SessionState>(set => ({
       localPingJitterMs: null,
       serverPipelineMs: null,
       serverPipelineLowMs: null,
+      serverPingHistory: [],
       playerPings: {},
       scoreboardOpen: false,
       crosshairSpread: 0,
@@ -475,6 +486,10 @@ export const useGameStore = create<SessionState>(set => ({
       }
       return { serverPipelineLowMs };
     }),
+  pushServerPingSample: sample =>
+    set(state => ({
+      serverPingHistory: [...state.serverPingHistory, sample].slice(-100)
+    })),
   setNerdPingsEnabled: nerdPingsEnabled =>
     set(state => (state.nerdPingsEnabled === nerdPingsEnabled ? state : { nerdPingsEnabled })),
   setPlayerPing: (identity, pingMs) =>

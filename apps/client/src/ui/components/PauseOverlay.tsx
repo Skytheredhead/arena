@@ -1,4 +1,5 @@
 import { CAMERA_SENSITIVITY } from '@arena/shared';
+import { useState } from 'react';
 import type { GraphicsQuality } from '../../types/settings';
 import {
   CYBER,
@@ -25,6 +26,8 @@ interface PauseOverlayProps {
   onSfxVolumeChange: (value: number) => void;
   onMusicVolumeChange: (value: number) => void;
   onNerdPingsChange: (enabled: boolean) => void;
+  hasServerPings: boolean;
+  onCopyServerPings: () => Promise<boolean>;
   onOpenSettings: () => void;
   onCloseSettings: () => void;
   onResume: () => void;
@@ -120,11 +123,14 @@ export function PauseOverlay({
   onSfxVolumeChange,
   onMusicVolumeChange,
   onNerdPingsChange,
+  hasServerPings,
+  onCopyServerPings,
   onOpenSettings,
   onCloseSettings,
   onResume,
   onDisconnect
 }: PauseOverlayProps): React.JSX.Element | null {
+  const [copyStatus, setCopyStatus] = useState<'idle' | 'copied' | 'failed'>('idle');
   if (!visible) return null;
 
   const pauseButtons = [
@@ -267,6 +273,24 @@ export function PauseOverlay({
                   />
                   Nerd pings
                 </label>
+                <div style={{ marginTop: '10px', animation: 'cyberFadeUp .3s .34s ease both' }}>
+                  <CyberButton
+                    full
+                    onClick={() => {
+                      void onCopyServerPings().then(copied => {
+                        setCopyStatus(copied ? 'copied' : 'failed');
+                        window.setTimeout(() => setCopyStatus('idle'), 2200);
+                      });
+                    }}
+                    disabled={!hasServerPings}
+                  >
+                    {copyStatus === 'copied'
+                      ? 'Copied'
+                      : copyStatus === 'failed'
+                        ? 'Copy failed'
+                        : 'Copy server pings'}
+                  </CyberButton>
+                </div>
               </CyberPanel>
 
               <div style={{ marginTop: '12px', animation: 'cyberFadeUp .3s .32s ease both' }}>

@@ -5,7 +5,7 @@ import { PauseOverlay } from './ui/components/PauseOverlay';
 import { MobileControls } from './ui/components/MobileControls';
 import { EliminatedOverlay } from './ui/components/EliminatedOverlay';
 import { LoadingOverlay } from './ui/components/LoadingOverlay';
-import { useGameStore } from './state/gameStore';
+import { useGameStore, type ServerPingSample } from './state/gameStore';
 import { GameRuntime } from './app/GameRuntime';
 import { normalizeRoomCode } from './utils/roomCode';
 import {
@@ -34,6 +34,30 @@ const percentile = (values: number[], p: number): number => {
   const sorted = [...values].sort((a, b) => a - b);
   const index = Math.max(0, Math.min(sorted.length - 1, Math.floor(p * (sorted.length - 1))));
   return sorted[index] ?? 0;
+};
+
+const copyTextToClipboard = async (text: string): Promise<void> => {
+  if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+
+  if (typeof document === 'undefined') {
+    throw new Error('Clipboard unavailable');
+  }
+  const textarea = document.createElement('textarea');
+  textarea.value = text;
+  textarea.setAttribute('readonly', 'true');
+  textarea.style.position = 'fixed';
+  textarea.style.opacity = '0';
+  document.body.appendChild(textarea);
+  textarea.focus();
+  textarea.select();
+  const copied = document.execCommand('copy');
+  document.body.removeChild(textarea);
+  if (!copied) {
+    throw new Error('Copy command failed');
+  }
 };
 
 export default function App(): React.JSX.Element {
@@ -90,6 +114,7 @@ export default function App(): React.JSX.Element {
   const serverPipelineMs = useGameStore(state => state.serverPipelineMs);
   const serverPipelineLowMs = useGameStore(state => state.serverPipelineLowMs);
   const nerdPingsEnabled = useGameStore(state => state.nerdPingsEnabled);
+  const serverPingHistory = useGameStore(state => state.serverPingHistory);
   const playerPings = useGameStore(state => state.playerPings);
   const setNickname = useGameStore(state => state.setNickname);
   const setRoomCode = useGameStore(state => state.setRoomCode);
@@ -105,6 +130,7 @@ export default function App(): React.JSX.Element {
   const setServerPipeline = useGameStore(state => state.setServerPipeline);
   const setServerPipelineLow = useGameStore(state => state.setServerPipelineLow);
   const setNerdPingsEnabled = useGameStore(state => state.setNerdPingsEnabled);
+  const pushServerPingSample = useGameStore(state => state.pushServerPingSample);
   const lobbyPingSamplesRef = useRef<Array<{ at: number; rttMs: number }>>([]);
   const lobbyServerSamplesRef = useRef<Array<{ at: number; pipelineMs: number }>>([]);
 
@@ -269,6 +295,12 @@ export default function App(): React.JSX.Element {
           const jitterMs = Math.sqrt(variance);
           const baselinePing = percentile(rttValues, 0.05);
           const pipelineSampleMs = Math.max(0, measuredLobbyPing - baselinePing);
+          pushServerPingSample({
+            atMs: now,
+            source: 'lobby',
+            pingMs: measuredLobbyPing,
+            pipelineMs: pipelineSampleMs
+          });
           lobbyServerSamplesRef.current.push({ at: now, pipelineMs: pipelineSampleMs });
           while (
             (lobbyServerSamplesRef.current.at(0)?.at ?? Number.POSITIVE_INFINITY) <
@@ -324,7 +356,8 @@ export default function App(): React.JSX.Element {
     setLocalPingJitter,
     setServerPipeline,
     setServerPipelineLow,
-    setRoomDirectory
+    setRoomDirectory,
+    pushServerPingSample
   ]);
 
   useEffect(() => {
@@ -672,6 +705,27 @@ export default function App(): React.JSX.Element {
     });
   }, [setLocalPing, setLocalPingLow, setLocalPingJitter, setServerPipeline, setServerPipelineLow]);
 
+  const handleCopyServerPings = useCallback(async (): Promise<boolean> => {
+    const samples: ServerPingSample[] = serverPingHistory.slice(-100);
+    if (samples.length === 0) {
+      return false;
+    }
+    const text = [
+      `server_ping_samples=${samples.length}`,
+      'timestamp_iso\tsource\tping_ms\tpipeline_ms',
+      ...samples.map(sample =>
+        `${new Date(sample.atMs).toISOString()}\t${sample.source}\t${Math.round(sample.pingMs)}\t${Math.round(sample.pipelineMs)}`
+      )
+    ].join('\n');
+
+    try {
+      await copyTextToClipboard(text);
+      return true;
+    } catch {
+      return false;
+    }
+  }, [serverPingHistory]);
+
   const updateCustomBackendSettings = useCallback(
     (next: CustomBackendSettings): void => {
       setCustomBackendSettingsState(next);
@@ -746,6 +800,8 @@ export default function App(): React.JSX.Element {
         onSfxVolumeChange={setSfxVolume}
         onMusicVolumeChange={setMusicVolume}
         onNerdPingsChange={setNerdPingsEnabled}
+        hasServerPings={serverPingHistory.length > 0}
+        onCopyServerPings={handleCopyServerPings}
         onNicknameChange={value => { if (authLoggedIn) return; setNickname(value); }}
         onRoomCodeChange={value => setRoomCode(normalizeRoomCode(value))}
         onCreateRoom={() => connectToRoom(true)}
@@ -781,6 +837,8 @@ export default function App(): React.JSX.Element {
         onSfxVolumeChange={setSfxVolume}
         onMusicVolumeChange={setMusicVolume}
         onNerdPingsChange={setNerdPingsEnabled}
+        hasServerPings={serverPingHistory.length > 0}
+        onCopyServerPings={handleCopyServerPings}
         onOpenSettings={() => setPauseView('settings')}
         onCloseSettings={() => setPauseView('pause')}
         onResume={resumeFromPause}

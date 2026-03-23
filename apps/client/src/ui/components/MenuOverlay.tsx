@@ -60,6 +60,8 @@ interface MenuOverlayProps {
   onSfxVolumeChange: (value: number) => void;
   onMusicVolumeChange: (value: number) => void;
   onNerdPingsChange: (enabled: boolean) => void;
+  hasServerPings: boolean;
+  onCopyServerPings: () => Promise<boolean>;
   onNicknameChange: (value: string) => void;
   onRoomCodeChange: (value: string) => void;
   onCreateRoom: () => void;
@@ -189,6 +191,8 @@ export function MenuOverlay({
   onSfxVolumeChange,
   onMusicVolumeChange,
   onNerdPingsChange,
+  hasServerPings,
+  onCopyServerPings,
   onNicknameChange,
   onRoomCodeChange,
   onCreateRoom,
@@ -207,6 +211,7 @@ export function MenuOverlay({
   const [registerEmail, setRegisterEmail] = useState('');
   const [registerUsername, setRegisterUsername] = useState('');
   const [registerPassword, setRegisterPassword] = useState('');
+  const [copyStatus, setCopyStatus] = useState<'idle' | 'copied' | 'failed'>('idle');
   const [hoveredRoom, setHoveredRoom] = useState<string | null>(null);
   const backendOptions: Array<{ target: BackendTarget; label: string }> = [
     { target: 'current', label: 'Current' },
@@ -672,6 +677,24 @@ export function MenuOverlay({
                   />
                   Nerd pings
                 </label>
+                <div style={{ marginTop: '10px', animation: 'cyberFadeUp .3s .34s ease both' }}>
+                  <CyberButton
+                    full
+                    onClick={() => {
+                      void onCopyServerPings().then(copied => {
+                        setCopyStatus(copied ? 'copied' : 'failed');
+                        window.setTimeout(() => setCopyStatus('idle'), 2200);
+                      });
+                    }}
+                    disabled={!hasServerPings}
+                  >
+                    {copyStatus === 'copied'
+                      ? 'Copied'
+                      : copyStatus === 'failed'
+                        ? 'Copy failed'
+                        : 'Copy server pings'}
+                  </CyberButton>
+                </div>
 
                 <CyberLine margin="14px 0 12px" />
 

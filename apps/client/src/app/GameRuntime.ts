@@ -1000,6 +1000,12 @@ export class GameRuntime {
     const store = useGameStore.getState();
     const baselineRttMs = percentile(rttValues, 0.05);
     const estimatedServerPipelineMs = Math.max(0, clampedRttMs - baselineRttMs);
+    store.pushServerPingSample({
+      atMs: now,
+      source: 'ingame',
+      pingMs: clampedRttMs,
+      pipelineMs: estimatedServerPipelineMs
+    });
     this.smoothedServerPipelineMs =
       this.smoothedServerPipelineMs * 0.8 + estimatedServerPipelineMs * 0.2;
     this.serverPipelineSamples.push({
