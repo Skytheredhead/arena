@@ -83,4 +83,25 @@ describe('PredictionController', () => {
     expect(reconciled.yaw).toBeCloseTo(-0.35);
     expect(reconciled.pitch).toBeCloseTo(0.12);
   });
+
+  it('keeps local motion when server correction is very small', () => {
+    const controller = new PredictionController(makeState());
+    const predicted = controller.queueInput(command(1));
+
+    const reconciled = controller.reconcile({
+      ...makeState(),
+      position: {
+        x: predicted.position.x + 0.12,
+        y: predicted.position.y,
+        z: predicted.position.z - 0.08
+      },
+      serverTick: 11,
+      serverTimeMs: 550,
+      lastProcessedInput: 1
+    });
+
+    expect(reconciled.position.x).toBeCloseTo(predicted.position.x, 6);
+    expect(reconciled.position.z).toBeCloseTo(predicted.position.z, 6);
+    expect(reconciled.lastProcessedInput).toBe(1);
+  });
 });

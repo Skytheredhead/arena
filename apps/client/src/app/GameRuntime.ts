@@ -902,10 +902,7 @@ export class GameRuntime {
                 : 1.4;
         this.crosshairKick = Math.min(20, this.crosshairKick + kick);
         const shotYaw = localState.yaw;
-        const shotPitch = Math.max(
-          -MAX_PITCH,
-          Math.min(MAX_PITCH, localState.pitch + this.rifle.getRecoil())
-        );
+        const shotPitch = Math.max(-MAX_PITCH, Math.min(MAX_PITCH, localState.pitch));
         void this.bridge
           .fireWeapon(shotYaw, shotPitch, frameInput.scoped, frameInput.weaponSlot)
           .catch(() => {

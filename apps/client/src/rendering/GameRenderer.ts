@@ -1018,9 +1018,19 @@ export class GameRenderer {
     }
 
     if (frame.scoped && frame.weaponSlot === WEAPON_SLOT_SNIPER) {
-      const scopeSize = Math.round(Math.min(fullWidth, fullHeight) * 0.62);
-      const scopeLeft = Math.round((fullWidth - scopeSize) * 0.5);
-      const scopeBottom = Math.round((fullHeight - scopeSize) * 0.5);
+      const cssWidth = Math.max(1, this.mount.clientWidth);
+      const cssHeight = Math.max(1, this.mount.clientHeight);
+      const scopeSizeCss = Math.round(Math.min(cssWidth, cssHeight) * 0.62);
+      const scopeLeftCss = Math.round((cssWidth - scopeSizeCss) * 0.5);
+      const scopeTopCss = Math.round((cssHeight - scopeSizeCss) * 0.5);
+      const bufferScaleX = fullWidth / cssWidth;
+      const bufferScaleY = fullHeight / cssHeight;
+      const scopeWidth = Math.max(1, Math.round(scopeSizeCss * bufferScaleX));
+      const scopeHeight = Math.max(1, Math.round(scopeSizeCss * bufferScaleY));
+      const scopeLeft = Math.round(scopeLeftCss * bufferScaleX);
+      const scopeBottom = Math.round(
+        (cssHeight - (scopeTopCss + scopeSizeCss)) * bufferScaleY
+      );
       const basePassFov = this.camera.fov;
       const basePassAspect = this.camera.aspect;
       const zoomedFov = Math.max(10, this.baseFov * 0.25);
@@ -1030,11 +1040,11 @@ export class GameRenderer {
       this.renderer.render(this.scene, this.camera);
 
       this.camera.fov = zoomedFov;
-      this.camera.aspect = 1;
+      this.camera.aspect = scopeWidth / scopeHeight;
       this.camera.updateProjectionMatrix();
       this.renderer.clearDepth();
-      this.renderer.setViewport(scopeLeft, scopeBottom, scopeSize, scopeSize);
-      this.renderer.setScissor(scopeLeft, scopeBottom, scopeSize, scopeSize);
+      this.renderer.setViewport(scopeLeft, scopeBottom, scopeWidth, scopeHeight);
+      this.renderer.setScissor(scopeLeft, scopeBottom, scopeWidth, scopeHeight);
       this.renderer.setScissorTest(true);
       this.renderer.render(this.scene, this.camera);
       this.renderer.setScissorTest(false);

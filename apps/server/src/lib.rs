@@ -1128,6 +1128,9 @@ pub fn submit_input(
     sprinting: bool,
 ) -> Result<(), String> {
     require_room_membership(ctx, ctx.sender())?;
+    if !inputs_are_finite([move_x, move_z, yaw, pitch]) {
+        return Err("Invalid input payload".to_string());
+    }
     let mut input = require_input_state(ctx, ctx.sender())?;
     if !should_accept_input_sequence(sequence, input.sequence) {
         return Ok(());
@@ -2054,6 +2057,10 @@ fn room_membership_is_consistent(
 
 fn should_accept_input_sequence(sequence: u32, previous_sequence: u32) -> bool {
     sequence > previous_sequence
+}
+
+fn inputs_are_finite(values: [f32; 4]) -> bool {
+    values.into_iter().all(|value| value.is_finite())
 }
 
 fn can_fire_weapon_at_tick(next_ready_tick: u32, current_tick: u32) -> bool {
@@ -3670,8 +3677,8 @@ fn reset_player_input(ctx: &ReducerContext, identity: Identity, tick: u32) {
 #[cfg(test)]
 mod tests {
     use super::{
-        can_fire_weapon_at_tick, room_membership_is_consistent, should_accept_input_sequence,
-        validate_room_code,
+        can_fire_weapon_at_tick, inputs_are_finite, room_membership_is_consistent,
+        should_accept_input_sequence, validate_room_code,
     };
 
     #[test]
@@ -3705,5 +3712,12 @@ mod tests {
         assert!(should_accept_input_sequence(11, 10));
         assert!(!should_accept_input_sequence(10, 10));
         assert!(!should_accept_input_sequence(9, 10));
+    }
+
+    #[test]
+    fn input_payloads_require_finite_values() {
+        assert!(inputs_are_finite([0.0, 1.0, -1.2, 0.3]));
+        assert!(!inputs_are_finite([f32::NAN, 0.0, 0.0, 0.0]));
+        assert!(!inputs_are_finite([0.0, f32::INFINITY, 0.0, 0.0]));
     }
 }
