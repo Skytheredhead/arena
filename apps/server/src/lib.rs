@@ -1373,6 +1373,7 @@ pub fn sim_tick(ctx: &ReducerContext, _schedule: SimTickSchedule) -> Result<(), 
             Some(input) => input,
             None => continue,
         };
+        let input_pipeline_ms = input_pipeline_ms_for_tick(tick, input.last_received_tick);
 
         let effective_input = if tick.saturating_sub(input.last_received_tick) > INPUT_STALE_TICKS {
             PlayerInput {
@@ -1392,7 +1393,7 @@ pub fn sim_tick(ctx: &ReducerContext, _schedule: SimTickSchedule) -> Result<(), 
         ctx.db.player_state().identity().update(PlayerState {
             room_code: Some(room_code),
             server_tick: tick,
-            input_pipeline_ms: input_pipeline_ms_for_tick(tick, input.last_received_tick),
+            input_pipeline_ms,
             ..updated
         });
     }
