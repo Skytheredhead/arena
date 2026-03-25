@@ -132,7 +132,6 @@ export const PlayerState = __t.object("PlayerState", {
   velY: __t.f32(),
   velZ: __t.f32(),
   serverTick: __t.u32(),
-  inputPipelineMs: __t.u32(),
   yaw: __t.f32(),
   pitch: __t.f32(),
   health: __t.u16(),
@@ -142,6 +141,7 @@ export const PlayerState = __t.object("PlayerState", {
   regenProgress: __t.f32(),
   lastProcessedInput: __t.u32(),
   respawnTick: __t.u32(),
+  inputPipelineMs: __t.u32(),
 });
 export type PlayerState = __Infer<typeof PlayerState>;
 
