@@ -459,7 +459,6 @@ pub struct PlayerState {
     vel_y: f32,
     vel_z: f32,
     server_tick: u32,
-    input_pipeline_ms: u32,
     yaw: f32,
     pitch: f32,
     health: u16,
@@ -469,6 +468,8 @@ pub struct PlayerState {
     regen_progress: f32,
     last_processed_input: u32,
     respawn_tick: u32,
+    #[default(0)]
+    input_pipeline_ms: u32,
 }
 
 #[table(accessor = weapon_state, public)]
