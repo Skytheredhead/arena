@@ -22,6 +22,10 @@ import { SPACETIMEDB_DATABASE, getSpacetimeUriCandidates } from '../utils/env';
 import { identityToString } from '../utils/identity';
 import { readAuthSessionToken } from './authClient';
 import {
+  CONNECTION_STAGE_LABEL,
+  type ConnectionStage
+} from './connectionProgress';
+import {
   DbConnection,
   tables
 } from '../generated/module_bindings';
@@ -41,6 +45,7 @@ import type { Infer } from 'spacetimedb';
 const TOKEN_STORAGE_KEY = 'vector-drift-token';
 const RECONNECT_RETRY_INTERVAL_MS = 500;
 const RECONNECT_WINDOW_MS = 10_000;
+const CONNECT_TIMEOUT_MS = 12_000;
 const normalizeError = (error: unknown): Error =>
   error instanceof Error ? error : new Error(String(error));
 
@@ -75,6 +80,7 @@ interface BridgeCallbacks {
     attempt: number;
     startedAtMs: number | null;
   }) => void;
+  onConnectionStageChange?: (stage: ConnectionStage) => void;
   onDisconnected: (reason?: string) => void;
 }
 
@@ -94,10 +100,12 @@ export class SpacetimeBridge {
   private autoReconnectEnabled = false;
   private reconnectLoopId = 0;
   private lastConnectOptions: ConnectOptions | null = null;
+  private connectionStage: ConnectionStage = 'idle';
 
   constructor(private readonly callbacks: BridgeCallbacks) {}
 
   async connect(options: ConnectOptions): Promise<void> {
+    this.setConnectionStage('opening_socket');
     this.autoReconnectEnabled = true;
     this.reconnectLoopId += 1;
     this.lastConnectOptions = {
@@ -114,6 +122,7 @@ export class SpacetimeBridge {
   }
 
   disconnect(): void {
+    this.setConnectionStage('idle');
     this.autoReconnectEnabled = false;
     this.reconnectLoopId += 1;
     this.lastConnectOptions = null;
@@ -298,20 +307,32 @@ export class SpacetimeBridge {
       let settled = false;
       let established = false;
       let connectedRef: DbConnection | null = null;
+      const timeoutId = window.setTimeout(() => {
+        if (connectedRef) {
+          connectedRef.disconnect();
+        }
+        finishReject(
+          new Error(
+            `Connection timed out during ${CONNECTION_STAGE_LABEL[this.connectionStage].toLowerCase()}.`
+          )
+        );
+      }, CONNECT_TIMEOUT_MS);
+      const finishResolve = (): void => {
+        if (settled) return;
+        settled = true;
+        window.clearTimeout(timeoutId);
+        resolve();
+      };
       const fail = (error: unknown): void => {
         if (settled) {
           return;
         }
         settled = true;
+        window.clearTimeout(timeoutId);
         reject(normalizeError(error));
       };
-
-      const succeed = (): void => {
-        if (settled) {
-          return;
-        }
-        settled = true;
-        resolve();
+      const finishReject = (error: unknown): void => {
+        fail(error);
       };
 
       const builder = DbConnection.builder()
@@ -322,6 +343,7 @@ export class SpacetimeBridge {
           established = true;
           connectedRef = connection;
           this.connection = connection;
+          this.setConnectionStage('subscribing');
           this.localIdentity = identityToString(identity);
           this.setStoredToken(token);
           useGameStore.getState().setLocalIdentity(this.localIdentity);
@@ -356,9 +378,10 @@ export class SpacetimeBridge {
               for (const row of connection.db.weapon_state.iter() as Iterable<WeaponStateRow>) {
                 this.handleWeaponStateRow(row);
               }
+              this.setConnectionStage('waiting_for_player');
               useGameStore.getState().setConnection('connected', null);
               useGameStore.getState().setConnectedRoomCode(options.roomCode);
-              succeed();
+              finishResolve();
             } catch (error) {
               fail(error);
             }
@@ -516,10 +539,12 @@ export class SpacetimeBridge {
 
     const sessionToken = readAuthSessionToken();
     if (sessionToken) {
+      this.setConnectionStage('authenticating');
       await connection.reducers
         .loginWithSession({ sessionToken })
         .catch(() => undefined);
     }
+    this.setConnectionStage('joining_room');
     await connection.reducers.setNickname({ nickname: options.nickname || 'Pilot' });
     if (options.createRoom) {
       await connection.reducers.createRoom({ roomCode: options.roomCode });
@@ -587,6 +612,7 @@ export class SpacetimeBridge {
         return;
       }
       this.latestLocalState = state;
+      this.setConnectionStage('ready');
       this.callbacks.onLocalState(state);
       return;
     }
@@ -910,5 +936,13 @@ export class SpacetimeBridge {
       return SHOTGUN_FIRE_INTERVAL_TICKS;
     }
     return RIFLE_FIRE_INTERVAL_TICKS;
+  }
+
+  private setConnectionStage(stage: ConnectionStage): void {
+    if (this.connectionStage === stage) {
+      return;
+    }
+    this.connectionStage = stage;
+    this.callbacks.onConnectionStageChange?.(stage);
   }
 }

@@ -18,6 +18,7 @@ import {
 } from './utils/env';
 import { CyberGlobalStyles, CyberScanFx } from './ui/cyberTheme';
 import { fetchOpenRoomsSnapshot, startLiveRoomDirectory } from './netcode/roomDirectory';
+import { type ConnectionStage } from './netcode/connectionProgress';
 import {
   type AccountStatsView,
   type AuthSnapshot,
@@ -82,6 +83,8 @@ export default function App(): React.JSX.Element {
   const [backendTarget, setBackendTargetState] = useState<BackendTarget>(() => getBackendTarget());
   const [customBackendSettings, setCustomBackendSettingsState] =
     useState<CustomBackendSettings>(() => getCustomBackendSettings());
+  const [loadingStage, setLoadingStage] = useState<ConnectionStage>('idle');
+  const loadingReadyHideTimerRef = useRef<number | null>(null);
   const connectionStatus = useGameStore(state => state.connectionStatus);
   const connectionError = useGameStore(state => state.connectionError);
   const networkReconnecting = useGameStore(state => state.networkReconnecting);
@@ -182,6 +185,11 @@ export default function App(): React.JSX.Element {
   };
 
   useEffect(() => () => { runtimeRef.current?.dispose(); runtimeRef.current = null; }, []);
+  useEffect(() => () => {
+    if (loadingReadyHideTimerRef.current != null) {
+      window.clearTimeout(loadingReadyHideTimerRef.current);
+    }
+  }, []);
 
   useEffect(() => {
     ensureRuntime();
@@ -615,11 +623,25 @@ export default function App(): React.JSX.Element {
     if (connectInFlightRef.current || useGameStore.getState().connectionStatus === 'connecting') return;
     const runtime = ensureRuntime();
     if (!runtime) return;
+    const setConnectStage = (stage: ConnectionStage): void => {
+      if (loadingReadyHideTimerRef.current != null) {
+        window.clearTimeout(loadingReadyHideTimerRef.current);
+        loadingReadyHideTimerRef.current = null;
+      }
+      setLoadingStage(stage);
+      if (stage === 'ready') {
+        loadingReadyHideTimerRef.current = window.setTimeout(() => {
+          setLoadingStage('idle');
+          loadingReadyHideTimerRef.current = null;
+        }, 420);
+      }
+    };
     const targetRoomCode = normalizeRoomCode(explicitRoomCode ?? roomCode);
     if (targetRoomCode !== roomCode) setRoomCode(targetRoomCode);
     connectInFlightRef.current = true;
     void (async () => {
       runtime.unlockAudio();
+      setConnectStage('preparing');
       try {
         if (createRoom) {
           try {
@@ -644,7 +666,10 @@ export default function App(): React.JSX.Element {
         setPaused(false);
         runtime.setPaused(false);
         lockLandscape();
-        await runtime.connect({ nickname: effectiveNickname, roomCode: targetRoomCode, createRoom });
+        await runtime.connect(
+          { nickname: effectiveNickname, roomCode: targetRoomCode, createRoom },
+          setConnectStage
+        );
         if (useGameStore.getState().connectionStatus === 'connected' && !touchControls) {
           runtime.setPointerLockEnabled(true);
           runtime.requestPointerLock();
@@ -755,6 +780,8 @@ export default function App(): React.JSX.Element {
     [customBackendSettings, updateCustomBackendSettings]
   );
 
+  const loadingVisible = loadingStage !== 'idle';
+
   return (
     <div className="cyber-root relative h-full w-full overflow-hidden bg-[#020b14]">
       <CyberGlobalStyles />
@@ -814,10 +841,16 @@ export default function App(): React.JSX.Element {
         onUseCustomBackend={() => handleBackendTargetChange('custom')}
       />
       <LoadingOverlay
-        visible={connecting}
+        visible={loadingVisible}
+        stage={loadingStage}
         roomCode={roomCode}
         connectionError={runtimeError ?? connectionError}
         onCancel={() => {
+          if (loadingReadyHideTimerRef.current != null) {
+            window.clearTimeout(loadingReadyHideTimerRef.current);
+            loadingReadyHideTimerRef.current = null;
+          }
+          setLoadingStage('idle');
           runtimeRef.current?.disconnect();
         }}
       />

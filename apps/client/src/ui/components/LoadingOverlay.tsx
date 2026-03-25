@@ -6,22 +6,21 @@ import {
   CyberHexBg,
   CyberLoadingSpinner
 } from '../cyberTheme';
+import {
+  CONNECTION_STAGE_DETAIL,
+  CONNECTION_STAGE_LABEL,
+  CONNECTION_STAGE_SEQUENCE,
+  getConnectionStageIndex,
+  type ConnectionStage
+} from '../../netcode/connectionProgress';
 
 interface LoadingOverlayProps {
   visible: boolean;
+  stage: ConnectionStage;
   roomCode: string;
   connectionError: string | null;
   onCancel: () => void;
 }
-
-const PHASES = [
-  'INITIALIZING CONNECTION',
-  'AUTHENTICATING OPERATOR',
-  'LOCATING ROOM',
-  'JOINING ARENA',
-  'SYNCHRONIZING STATE',
-  'ENTERING MATCH',
-] as const;
 
 const SCRAMBLE_CHARS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-.:';
 
@@ -58,6 +57,7 @@ function useScrambleText(target: string, active: boolean): string {
 
 export function LoadingOverlay({
   visible,
+  stage,
   roomCode,
   connectionError,
   onCancel,
@@ -65,34 +65,68 @@ export function LoadingOverlay({
   const [phase, setPhase] = useState(0);
   const [elapsed, setElapsed] = useState(0);
   const startRef = useRef<number | null>(null);
+  const advanceTimerRef = useRef<number | null>(null);
 
-  // Advance phases on a timer while visible
   useEffect(() => {
     if (!visible) {
       setPhase(0);
       setElapsed(0);
       startRef.current = null;
+      if (advanceTimerRef.current != null) {
+        window.clearTimeout(advanceTimerRef.current);
+        advanceTimerRef.current = null;
+      }
       return;
     }
-    startRef.current = Date.now();
+    if (startRef.current == null) {
+      startRef.current = Date.now();
+    }
     const iv = setInterval(() => {
       const t = Date.now() - (startRef.current ?? Date.now());
       setElapsed(t);
-      // Phase thresholds (ms)
-      const thresholds = [0, 600, 1400, 2300, 3400, 4800] as const;
-      let p = 0;
-      for (let i = thresholds.length - 1; i >= 0; i--) {
-        const threshold = thresholds[i] ?? Number.POSITIVE_INFINITY;
-        if (t >= threshold) { p = i; break; }
-      }
-      setPhase(Math.min(p, PHASES.length - 1));
     }, 120);
     return () => clearInterval(iv);
   }, [visible]);
 
-  const currentLabel = PHASES[phase] ?? PHASES[0];
+  useEffect(() => {
+    if (!visible) {
+      return;
+    }
+    const targetPhase = Math.max(0, getConnectionStageIndex(stage));
+    if (advanceTimerRef.current != null) {
+      window.clearTimeout(advanceTimerRef.current);
+      advanceTimerRef.current = null;
+    }
+    if (phase >= targetPhase) {
+      if (phase !== targetPhase) {
+        setPhase(targetPhase);
+      }
+      return;
+    }
+    advanceTimerRef.current = window.setTimeout(() => {
+      setPhase(current => Math.min(targetPhase, current + 1));
+      advanceTimerRef.current = null;
+    }, 220);
+    return () => {
+      if (advanceTimerRef.current != null) {
+        window.clearTimeout(advanceTimerRef.current);
+        advanceTimerRef.current = null;
+      }
+    };
+  }, [phase, stage, visible]);
+
+  const fallbackStage = CONNECTION_STAGE_SEQUENCE[0] ?? 'preparing';
+  const currentStage = CONNECTION_STAGE_SEQUENCE[phase] ?? fallbackStage;
+  const currentLabel = CONNECTION_STAGE_LABEL[currentStage];
   const scrambled = useScrambleText(currentLabel, visible);
-  const progress = Math.min(100, Math.round((phase / (PHASES.length - 1)) * 100));
+  const progress = connectionError
+    ? 0
+    : Math.min(
+        100,
+        Math.round(
+          (getConnectionStageIndex(stage) / (CONNECTION_STAGE_SEQUENCE.length - 1)) * 100
+        )
+      );
 
   if (!visible) return null;
 
@@ -177,6 +211,21 @@ export function LoadingOverlay({
           )}
         </div>
 
+        <div
+          style={{
+            color: CYBER.textDim,
+            fontFamily: CYBER.font,
+            fontSize: '10px',
+            letterSpacing: '1.6px',
+            marginBottom: '20px',
+            minHeight: '16px',
+            opacity: 0.88,
+            animation: 'cyberFadeIn .4s .32s ease both'
+          }}
+        >
+          {connectionError ? 'Connection interrupted. Cancel to retry.' : CONNECTION_STAGE_DETAIL[currentStage]}
+        </div>
+
         {/* Progress bar */}
         <div style={{
           width: '100%', marginBottom: '12px',
@@ -222,9 +271,11 @@ export function LoadingOverlay({
           marginBottom: '28px',
           animation: 'cyberFadeIn .4s .4s ease both',
         }}>
-          {PHASES.map((ph, i) => (
+          {CONNECTION_STAGE_SEQUENCE.map((phaseStage, i) => {
+            const safePhaseStage = phaseStage ?? fallbackStage;
+            return (
             <div
-              key={ph}
+              key={safePhaseStage}
               style={{
                 display: 'flex', gap: '12px', alignItems: 'center',
                 fontFamily: CYBER.font, fontSize: '11px',
@@ -246,10 +297,11 @@ export function LoadingOverlay({
                 letterSpacing: '2px',
                 transition: 'color .3s',
               }}>
-                {ph}
+                {CONNECTION_STAGE_LABEL[safePhaseStage]}
               </span>
             </div>
-          ))}
+            );
+          })}
         </div>
 
         {/* Cancel */}

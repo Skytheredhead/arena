@@ -27,6 +27,7 @@ import {
   getLocalCorrectionDecayRate,
   getMaxLocalCorrectionOffsetMeters
 } from '../netcode/localCorrection';
+import { type ConnectionStage } from '../netcode/connectionProgress';
 import { ConnectOptions, SpacetimeBridge } from '../netcode/SpacetimeBridge';
 import { RifleController } from '../weapons/RifleController';
 import type { GraphicsQuality } from '../types/settings';
@@ -127,6 +128,8 @@ export class GameRuntime {
   private lastLocalShotAt = -1000;
   private deathViewState: LocalPlayerState | null = null;
   private sniperCooldownEndsAt = 0;
+  private onConnectionStageChange: ((stage: ConnectionStage) => void) | null = null;
+  private hasReceivedInitialLocalState = false;
 
   constructor(mount: HTMLElement) {
     this.renderer = new GameRenderer(mount);
@@ -229,12 +232,18 @@ export class GameRuntime {
     await this.bridge.sendChatMessage(message);
   }
 
-  async connect(options: ConnectOptions): Promise<void> {
+  async connect(
+    options: ConnectOptions,
+    onConnectionStageChange?: (stage: ConnectionStage) => void
+  ): Promise<void> {
     this.disconnect();
+    this.onConnectionStageChange = onConnectionStageChange ?? null;
+    this.hasReceivedInitialLocalState = false;
     useGameStore.getState().resetRuntime();
     useGameStore.getState().setNetworkReconnectState(false, 0, null);
     useGameStore.getState().setNickname(options.nickname);
     useGameStore.getState().setRoomCode(options.roomCode);
+    this.onConnectionStageChange?.('opening_socket');
 
     this.bridge = new SpacetimeBridge({
       onLocalState: state => this.handleAuthoritativeLocalState(state),
@@ -248,6 +257,7 @@ export class GameRuntime {
         useGameStore
           .getState()
           .setNetworkReconnectState(state.reconnecting, state.attempt, state.startedAtMs),
+      onConnectionStageChange: stage => this.onConnectionStageChange?.(stage),
       onDisconnected: () => this.disconnect(false)
     });
 
@@ -266,6 +276,8 @@ export class GameRuntime {
     this.stopInGamePingProbe();
     this.bridge?.disconnect();
     this.bridge = null;
+    this.onConnectionStageChange = null;
+    this.hasReceivedInitialLocalState = false;
     this.remoteBuffers.clear();
     this.remoteFootsteps.clear();
     this.impactMarks.clear();
@@ -306,6 +318,10 @@ export class GameRuntime {
   }
 
   private handleAuthoritativeLocalState(state: LocalPlayerState): void {
+    if (!this.hasReceivedInitialLocalState) {
+      this.hasReceivedInitialLocalState = true;
+      this.onConnectionStageChange?.('ready');
+    }
     this.observeServerTime(state.serverTimeMs);
     this.recordAuthoritativePipelineSample(state.inputPipelineMs);
     this.updateMeasuredPing(state.lastProcessedInput);
