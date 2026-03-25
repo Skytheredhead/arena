@@ -5,7 +5,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
 db_name="${SPACETIMEDB_DB_NAME:-${VITE_SPACETIMEDB_DATABASE:-arena-fps-slice}}"
-project_path="${SPACETIMEDB_PROJECT_PATH:-apps/server}"
+module_path="${SPACETIMEDB_MODULE_PATH:-apps/server}"
 
 ensure_spacetime_cli() {
   if command -v spacetime >/dev/null 2>&1; then
@@ -39,14 +39,14 @@ fi
 echo "Using spacetime binary at: $(command -v spacetime)"
 spacetime --version || true
 
-if [[ ! -d "$project_path" ]]; then
-  echo "SpacetimeDB project path does not exist: $project_path" >&2
+if [[ ! -d "$module_path" ]]; then
+  echo "SpacetimeDB module path does not exist: $module_path" >&2
   exit 1
 fi
 
-echo "Generating SpacetimeDB bindings from project source at $project_path for $db_name..."
+echo "Generating SpacetimeDB bindings from module source at $module_path for $db_name..."
 spacetime generate \
   --lang typescript \
-  --project-path "$project_path" \
+  --module-path "$module_path" \
   --out-dir apps/client/src/generated/module_bindings \
   --include-private
