@@ -1,4 +1,5 @@
 import {
+  MAX_PITCH,
   MAX_HEALTH,
   RIFLE_FIRE_INTERVAL_TICKS,
   RIFLE_MAGAZINE,
@@ -46,6 +47,7 @@ const TOKEN_STORAGE_KEY = 'vector-drift-token';
 const RECONNECT_RETRY_INTERVAL_MS = 500;
 const RECONNECT_WINDOW_MS = 10_000;
 const CONNECT_TIMEOUT_MS = 12_000;
+const MAX_REASONABLE_PIPELINE_MS = 5_000;
 const normalizeError = (error: unknown): Error =>
   error instanceof Error ? error : new Error(String(error));
 
@@ -101,6 +103,7 @@ export class SpacetimeBridge {
   private reconnectLoopId = 0;
   private lastConnectOptions: ConnectOptions | null = null;
   private connectionStage: ConnectionStage = 'idle';
+  private schemaMismatchDetected = false;
 
   constructor(private readonly callbacks: BridgeCallbacks) {}
 
@@ -147,6 +150,7 @@ export class SpacetimeBridge {
     this.remoteArrivalOffsetMs.clear();
     this.chatBaselineTickByRoom.clear();
     this.killFeedBaselineTickByRoom.clear();
+    this.schemaMismatchDetected = false;
   }
 
   private async connectInternal(
@@ -586,6 +590,10 @@ export class SpacetimeBridge {
   }
 
   private handlePlayerStateRow(row: PlayerStateRow): void {
+    if (!this.isValidPlayerStateRow(row)) {
+      this.failSchemaMismatch(row);
+      return;
+    }
     const identity = identityToString(row.identity);
     const currentAmmo = Math.max(0, Math.min(RIFLE_MAGAZINE, useGameStore.getState().localPlayer.ammo));
     const nowMs = performance.now();
@@ -944,5 +952,60 @@ export class SpacetimeBridge {
     }
     this.connectionStage = stage;
     this.callbacks.onConnectionStageChange?.(stage);
+  }
+
+  private isValidPlayerStateRow(row: PlayerStateRow): boolean {
+    const finiteValues = [
+      row.x,
+      row.y,
+      row.z,
+      row.velX,
+      row.velY,
+      row.velZ,
+      row.yaw,
+      row.pitch,
+      row.regenProgress
+    ];
+    if (finiteValues.some(value => !Number.isFinite(value))) {
+      return false;
+    }
+    if (!Number.isFinite(row.health) || row.health < 0 || row.health > MAX_HEALTH) {
+      return false;
+    }
+    if (Math.abs(row.pitch) > MAX_PITCH + 0.05) {
+      return false;
+    }
+    if (
+      !Number.isFinite(row.inputPipelineMs) ||
+      row.inputPipelineMs < 0 ||
+      row.inputPipelineMs > MAX_REASONABLE_PIPELINE_MS
+    ) {
+      return false;
+    }
+    return true;
+  }
+
+  private failSchemaMismatch(row: PlayerStateRow): void {
+    if (this.schemaMismatchDetected) {
+      return;
+    }
+    this.schemaMismatchDetected = true;
+    this.autoReconnectEnabled = false;
+    this.callbacks.onReconnectStateChange({
+      reconnecting: false,
+      attempt: 0,
+      startedAtMs: null
+    });
+    const message =
+      'Received invalid player_state data from the backend. Frontend bindings are out of sync with the published SpacetimeDB schema. Regenerate bindings and redeploy the client.';
+    useGameStore.getState().setConnection('error', message);
+    console.error('Schema mismatch detected while decoding player_state', row);
+    if (this.connection) {
+      this.suppressDisconnectEvents = true;
+      this.connection.disconnect();
+      this.suppressDisconnectEvents = false;
+    }
+    this.connection = null;
+    this.callbacks.onDisconnected(message);
   }
 }
