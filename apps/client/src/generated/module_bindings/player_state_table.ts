@@ -20,6 +20,7 @@ export default __t.row({
   velY: __t.f32().name("vel_y"),
   velZ: __t.f32().name("vel_z"),
   serverTick: __t.u32().name("server_tick"),
+  inputPipelineMs: __t.u32().name("input_pipeline_ms"),
   yaw: __t.f32(),
   pitch: __t.f32(),
   health: __t.u16(),

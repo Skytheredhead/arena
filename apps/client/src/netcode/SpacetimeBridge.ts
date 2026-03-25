@@ -570,6 +570,7 @@ export class SpacetimeBridge {
       velocity: { x: row.velX, y: row.velY, z: row.velZ },
       serverTick: row.serverTick,
       serverTimeMs: row.serverTick * SERVER_TICK_MS,
+      inputPipelineMs: row.inputPipelineMs,
       yaw: row.yaw,
       pitch: row.pitch,
       onGround: row.onGround,

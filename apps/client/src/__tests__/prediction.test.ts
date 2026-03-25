@@ -8,6 +8,7 @@ const makeState = (): LocalPlayerState => ({
   velocity: { x: 0, y: 0, z: 0 },
   serverTick: 10,
   serverTimeMs: 500,
+  inputPipelineMs: 0,
   yaw: 0,
   pitch: 0,
   onGround: true,

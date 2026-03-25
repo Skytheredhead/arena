@@ -7,7 +7,8 @@ use generated_collision::ARENA_BLOCKS;
 const SERVER_TICK_RATE: u32 = 60;
 const REMOTE_INTERPOLATION_DELAY_MS: u32 = 60;
 const SERVER_TICK_INTERVAL_US: i64 = 1_000_000 / SERVER_TICK_RATE as i64;
-const INPUT_STALE_TICKS: u32 = 4;
+// Give input a short network-jitter grace period to avoid stop/start rubberbanding.
+const INPUT_STALE_TICKS: u32 = 18;
 const SIM_TICK_SCHEDULE_ID: u64 = 1;
 const MAX_OPEN_ROOMS: usize = 5;
 const MAX_TOTAL_PLAYERS: usize = 50;
@@ -458,6 +459,7 @@ pub struct PlayerState {
     vel_y: f32,
     vel_z: f32,
     server_tick: u32,
+    input_pipeline_ms: u32,
     yaw: f32,
     pitch: f32,
     health: u16,
@@ -639,6 +641,7 @@ pub fn client_connected(ctx: &ReducerContext) {
             vel_y: 0.0,
             vel_z: 0.0,
             server_tick: current_tick,
+            input_pipeline_ms: 0,
             yaw: 0.0,
             pitch: 0.0,
             health: MAX_HEALTH,
@@ -1389,6 +1392,7 @@ pub fn sim_tick(ctx: &ReducerContext, _schedule: SimTickSchedule) -> Result<(), 
         ctx.db.player_state().identity().update(PlayerState {
             room_code: Some(room_code),
             server_tick: tick,
+            input_pipeline_ms: input_pipeline_ms_for_tick(tick, input.last_received_tick),
             ..updated
         });
     }
@@ -1408,6 +1412,11 @@ fn current_tick(ctx: &ReducerContext) -> u32 {
         .find(0)
         .map(|row| row.current_tick)
         .unwrap_or(0)
+}
+
+fn input_pipeline_ms_for_tick(tick: u32, last_received_tick: u32) -> u32 {
+    let age_ticks = tick.saturating_sub(last_received_tick) as u64;
+    ((age_ticks * 1000) / SERVER_TICK_RATE as u64) as u32
 }
 
 fn increment_tick(ctx: &ReducerContext) -> u32 {
@@ -3118,6 +3127,7 @@ fn respawn_player(ctx: &ReducerContext, identity: Identity, room_code: String) {
     state.yaw = spawn_yaw;
     state.pitch = 0.0;
     state.server_tick = current_tick(ctx);
+    state.input_pipeline_ms = 0;
     state.last_processed_input = 0;
     state.respawn_tick = current_tick(ctx);
 

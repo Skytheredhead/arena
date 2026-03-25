@@ -21,6 +21,12 @@ import { PredictionController } from '../player/PredictionController';
 import { GameRenderer } from '../rendering/GameRenderer';
 import { useGameStore } from '../state/gameStore';
 import { SnapshotBuffer } from '../netcode/interpolation';
+import {
+  clampCorrectionOffset,
+  getLocalCorrectionDeadzoneMeters,
+  getLocalCorrectionDecayRate,
+  getMaxLocalCorrectionOffsetMeters
+} from '../netcode/localCorrection';
 import { ConnectOptions, SpacetimeBridge } from '../netcode/SpacetimeBridge';
 import { RifleController } from '../weapons/RifleController';
 import type { GraphicsQuality } from '../types/settings';
@@ -69,7 +75,6 @@ export class GameRuntime {
   private static readonly MIN_REMOTE_INTERPOLATION_DELAY_MS = 32;
   private static readonly MAX_REMOTE_INTERPOLATION_DELAY_MS = 90;
   private static readonly BASE_REMOTE_INTERPOLATION_DELAY_MS = 42;
-  private static readonly LOCAL_CORRECTION_DEADZONE = 0.025;
   private readonly renderer: GameRenderer;
   private readonly input: InputController;
   private readonly rifle = new RifleController();
@@ -108,6 +113,7 @@ export class GameRuntime {
   private readonly pingSamples: Array<{ at: number; rttMs: number }> = [];
   private readonly serverPipelineSamples: Array<{ at: number; pipelineMs: number }> = [];
   private smoothedServerPipelineMs = 0;
+  private lastAuthoritativePipelineMs = 0;
   private adaptiveInterpolationDelayMs = GameRuntime.BASE_REMOTE_INTERPOLATION_DELAY_MS;
   private lastPingUiUpdateAt = 0;
   private pingProbeTimer: ReturnType<typeof setTimeout> | null = null;
@@ -301,6 +307,7 @@ export class GameRuntime {
 
   private handleAuthoritativeLocalState(state: LocalPlayerState): void {
     this.observeServerTime(state.serverTimeMs);
+    this.recordAuthoritativePipelineSample(state.inputPipelineMs);
     this.updateMeasuredPing(state.lastProcessedInput);
     this.sequence = Math.max(this.sequence, state.lastProcessedInput);
     if (!this.prediction) {
@@ -327,14 +334,20 @@ export class GameRuntime {
       z: before.position.z - reconciled.position.z
     };
     const correctionMagnitude = Math.hypot(correction.x, correction.y, correction.z);
+    const store = useGameStore.getState();
+    const correctionMetrics = {
+      pingMs: store.localPingMs ?? this.smoothedPingMs,
+      jitterMs: store.localPingJitterMs,
+      inputPipelineMs: reconciled.inputPipelineMs
+    };
     if (!before.alive || !reconciled.alive || correctionMagnitude > 3) {
       this.localCorrectionOffset = { x: 0, y: 0, z: 0 };
-    } else if (correctionMagnitude >= GameRuntime.LOCAL_CORRECTION_DEADZONE) {
-      this.localCorrectionOffset = {
+    } else if (correctionMagnitude >= getLocalCorrectionDeadzoneMeters(correctionMetrics)) {
+      this.localCorrectionOffset = clampCorrectionOffset({
         x: this.localCorrectionOffset.x + correction.x,
         y: this.localCorrectionOffset.y + correction.y,
         z: this.localCorrectionOffset.z + correction.z
-      };
+      }, getMaxLocalCorrectionOffsetMeters(correctionMetrics));
     }
 
     if (before.alive && !reconciled.alive) {
@@ -482,6 +495,7 @@ export class GameRuntime {
           velocity: { x: 0, y: 0, z: 0 },
           serverTick: Math.max(predicted.serverTick, event.tick),
           serverTimeMs: event.tick * SERVER_TICK_MS,
+          inputPipelineMs: predicted.inputPipelineMs,
           respawnTick: event.tick
         };
         if (this.prediction) {
@@ -798,7 +812,14 @@ export class GameRuntime {
     );
     const preview = simulatePlayerTick(predicted, previewCommand, partialTickSeconds);
 
-    const decay = Math.exp(-14 * deltaSeconds);
+    const store = useGameStore.getState();
+    const decay = Math.exp(
+      -getLocalCorrectionDecayRate({
+        pingMs: store.localPingMs ?? this.smoothedPingMs,
+        jitterMs: store.localPingJitterMs,
+        inputPipelineMs: predicted.inputPipelineMs
+      }) * deltaSeconds
+    );
     this.localCorrectionOffset = {
       x: this.localCorrectionOffset.x * decay,
       y: this.localCorrectionOffset.y * decay,
@@ -964,6 +985,23 @@ export class GameRuntime {
     }
   }
 
+  private recordAuthoritativePipelineSample(
+    measuredPipelineMs: number,
+    now = performance.now()
+  ): void {
+    const clampedPipelineMs = Math.max(0, Math.min(999, measuredPipelineMs));
+    this.lastAuthoritativePipelineMs = clampedPipelineMs;
+    this.smoothedServerPipelineMs = this.smoothedServerPipelineMs * 0.8 + clampedPipelineMs * 0.2;
+    this.serverPipelineSamples.push({
+      at: now,
+      pipelineMs: clampedPipelineMs
+    });
+    const lowsCutoff = now - GameRuntime.LOWS_WINDOW_MS;
+    while ((this.serverPipelineSamples.at(0)?.at ?? Number.POSITIVE_INFINITY) < lowsCutoff) {
+      this.serverPipelineSamples.shift();
+    }
+  }
+
   private recordMeasuredRttSample(measuredRttMs: number, now = performance.now()): void {
     const clampedRttMs = Math.max(1, Math.min(999, measuredRttMs));
     this.smoothedPingMs = this.smoothedPingMs * 0.8 + clampedRttMs * 0.2;
@@ -997,23 +1035,12 @@ export class GameRuntime {
     const roundedPingMs = Math.max(1, Math.round(averagePing));
     const roundedPingOnePercentLowMs = Math.max(1, Math.round(pingOnePercentLowMs));
     const store = useGameStore.getState();
-    const baselineRttMs = percentile(rttValues, 0.05);
-    const estimatedServerPipelineMs = Math.max(0, clampedRttMs - baselineRttMs);
     store.pushServerPingSample({
       atMs: now,
       source: 'ingame',
       pingMs: clampedRttMs,
-      pipelineMs: estimatedServerPipelineMs
+      pipelineMs: this.lastAuthoritativePipelineMs
     });
-    this.smoothedServerPipelineMs =
-      this.smoothedServerPipelineMs * 0.8 + estimatedServerPipelineMs * 0.2;
-    this.serverPipelineSamples.push({
-      at: now,
-      pipelineMs: this.smoothedServerPipelineMs
-    });
-    while ((this.serverPipelineSamples.at(0)?.at ?? Number.POSITIVE_INFINITY) < lowsCutoff) {
-      this.serverPipelineSamples.shift();
-    }
     const serverAverageCutoff = now - GameRuntime.SERVER_PIPELINE_AVERAGE_WINDOW_MS;
     const pipelineValues = this.serverPipelineSamples
       .filter(sample => sample.at >= serverAverageCutoff)
