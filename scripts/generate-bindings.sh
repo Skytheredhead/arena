@@ -51,8 +51,15 @@ server_url="$(normalize_server_url "$raw_server")"
 ensure_spacetime_cli
 
 echo "Generating SpacetimeDB bindings from $server_url for $db_name..."
+if spacetime server list 2>/dev/null | grep -q '^vercel-build-server'; then
+  spacetime server edit vercel-build-server --url "$server_url" --no-fingerprint >/dev/null
+else
+  spacetime server add vercel-build-server --url "$server_url" --default --no-fingerprint >/dev/null
+fi
+spacetime server set-default vercel-build-server >/dev/null
+
 spacetime generate \
+  "$db_name" \
   --lang typescript \
-  --server "$server_url" \
   --out-dir apps/client/src/generated/module_bindings \
-  "$db_name"
+  --include-private
