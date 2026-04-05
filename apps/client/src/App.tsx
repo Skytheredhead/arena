@@ -19,6 +19,7 @@ import {
 import { CyberGlobalStyles, CyberScanFx } from './ui/cyberTheme';
 import { fetchOpenRoomsSnapshot, startLiveRoomDirectory } from './netcode/roomDirectory';
 import { type ConnectionStage } from './netcode/connectionProgress';
+import { getLatencyTailMs, percentile } from './netcode/pingStats';
 import {
   type AccountStatsView,
   type AuthSnapshot,
@@ -27,15 +28,6 @@ import {
   logoutAccount,
   registerAccount
 } from './netcode/authClient';
-
-const percentile = (values: number[], p: number): number => {
-  if (values.length === 0) {
-    return 0;
-  }
-  const sorted = [...values].sort((a, b) => a - b);
-  const index = Math.max(0, Math.min(sorted.length - 1, Math.floor(p * (sorted.length - 1))));
-  return sorted[index] ?? 0;
-};
 
 const copyTextToClipboard = async (text: string): Promise<void> => {
   if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
@@ -330,14 +322,10 @@ export default function App(): React.JSX.Element {
           setLocalPingJitter(Math.max(0, Math.round(jitterMs)));
           setServerPipeline(Math.max(0, Math.round(serverAverageMs)));
           setLocalPingLow(
-            Math.max(1, Math.round(
-              pingLowWindowValues.length === 0 ? avgPing : Math.max(...pingLowWindowValues)
-            ))
+            Math.max(1, Math.round(getLatencyTailMs(pingLowWindowValues, avgPing)))
           );
           setServerPipelineLow(
-            Math.max(0, Math.round(
-              serverLowWindowValues.length === 0 ? serverAverageMs : Math.max(...serverLowWindowValues)
-            ))
+            Math.max(0, Math.round(getLatencyTailMs(serverLowWindowValues, serverAverageMs)))
           );
         },
         onStateChange: liveConnected => {

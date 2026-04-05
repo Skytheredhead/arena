@@ -28,6 +28,7 @@ import {
   type GraphicsQuality
 } from '../types/settings';
 import { generateDefaultCallsign } from '../utils/callsign';
+import { sanitizeLocalPlayerPatch } from './sanitizeLocalPlayerPatch';
 
 type ConnectionStatus = 'disconnected' | 'connecting' | 'connected' | 'error';
 
@@ -221,17 +222,18 @@ export const useGameStore = create<SessionState>(set => ({
   setLocalIdentity: localIdentity => set({ localIdentity }),
   setLocalPlayer: player =>
     set(state => {
+      const sanitized = sanitizeLocalPlayerPatch(player, state.localPlayer);
       const nextAmmo =
-        player.ammo === undefined
+        sanitized.ammo === undefined
           ? state.localPlayer.ammo
-          : Math.max(0, Math.min(RIFLE_MAGAZINE, Math.round(player.ammo)));
+          : Math.max(0, Math.min(RIFLE_MAGAZINE, Math.round(sanitized.ammo)));
       return {
         localPlayer: {
           ...state.localPlayer,
-          ...player,
+          ...sanitized,
           ammo: nextAmmo,
-          position: player.position ?? state.localPlayer.position,
-          velocity: player.velocity ?? state.localPlayer.velocity
+          position: sanitized.position ?? { ...state.localPlayer.position },
+          velocity: sanitized.velocity ?? { ...state.localPlayer.velocity }
         }
       };
     }),

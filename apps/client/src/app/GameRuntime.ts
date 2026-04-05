@@ -25,6 +25,7 @@ import {
   clampCorrectionOffset,
   getLocalCorrectionDeadzoneMeters,
   getLocalCorrectionDecayRate,
+  getLocalCorrectionHardSnapDistanceMeters,
   getMaxLocalCorrectionOffsetMeters
 } from '../netcode/localCorrection';
 import { type ConnectionStage } from '../netcode/connectionProgress';
@@ -32,6 +33,7 @@ import { ConnectOptions, SpacetimeBridge } from '../netcode/SpacetimeBridge';
 import { RifleController } from '../weapons/RifleController';
 import type { GraphicsQuality } from '../types/settings';
 import { AudioManager } from '../audio/AudioManager';
+import { getLatencyTailMs } from '../netcode/pingStats';
 
 declare global {
   interface Window {
@@ -50,15 +52,6 @@ declare global {
   }
 }
 
-const percentile = (values: number[], p: number): number => {
-  if (values.length === 0) {
-    return 0;
-  }
-  const sorted = [...values].sort((a, b) => a - b);
-  const index = Math.max(0, Math.min(sorted.length - 1, Math.floor(p * (sorted.length - 1))));
-  return sorted[index] ?? 0;
-};
-
 export class GameRuntime {
   private static readonly MOBILE_LOOK_SPEED = 2.8;
   private static readonly RELOAD_DURATION_MS = 980;
@@ -76,6 +69,8 @@ export class GameRuntime {
   private static readonly MIN_REMOTE_INTERPOLATION_DELAY_MS = 32;
   private static readonly MAX_REMOTE_INTERPOLATION_DELAY_MS = 90;
   private static readonly BASE_REMOTE_INTERPOLATION_DELAY_MS = 42;
+  private static readonly MAX_FRAME_DELTA_MS = 250;
+  private static readonly MAX_FIXED_TICKS_PER_FRAME = 8;
   private readonly renderer: GameRenderer;
   private readonly input: InputController;
   private readonly rifle = new RifleController();
@@ -351,12 +346,18 @@ export class GameRuntime {
     };
     const correctionMagnitude = Math.hypot(correction.x, correction.y, correction.z);
     const store = useGameStore.getState();
+    const predictionDebug = this.prediction.getDebugState();
     const correctionMetrics = {
       pingMs: store.localPingMs ?? this.smoothedPingMs,
       jitterMs: store.localPingJitterMs,
-      inputPipelineMs: reconciled.inputPipelineMs
+      inputPipelineMs: reconciled.inputPipelineMs,
+      pendingInputs: predictionDebug.pendingInputs
     };
-    if (!before.alive || !reconciled.alive || correctionMagnitude > 3) {
+    if (
+      !before.alive ||
+      !reconciled.alive ||
+      correctionMagnitude > getLocalCorrectionHardSnapDistanceMeters(correctionMetrics)
+    ) {
       this.localCorrectionOffset = { x: 0, y: 0, z: 0 };
     } else if (correctionMagnitude >= getLocalCorrectionDeadzoneMeters(correctionMetrics)) {
       this.localCorrectionOffset = clampCorrectionOffset({
@@ -384,7 +385,7 @@ export class GameRuntime {
     }
 
     useGameStore.getState().setLocalPlayer(reconciled);
-    useGameStore.getState().setPredictionDebug(this.prediction.getDebugState());
+    useGameStore.getState().setPredictionDebug(predictionDebug);
   }
 
   private handleRemoteState(state: RemotePlayerState): void {
@@ -549,9 +550,14 @@ export class GameRuntime {
   }
 
   private readonly frame = (now: number): void => {
-    const deltaSeconds = (now - this.lastFrameTime) / 1000;
+    const rawDeltaMs = Math.max(0, now - this.lastFrameTime);
     this.lastFrameTime = now;
-    this.accumulatorMs += deltaSeconds * 1000;
+    const deltaMs = Math.min(rawDeltaMs, GameRuntime.MAX_FRAME_DELTA_MS);
+    const deltaSeconds = deltaMs / 1000;
+    this.accumulatorMs = Math.min(
+      GameRuntime.MAX_FRAME_DELTA_MS,
+      this.accumulatorMs + deltaMs
+    );
     this.rifle.update(deltaSeconds);
     this.crosshairKick = Math.max(0, this.crosshairKick - deltaSeconds * 18);
 
@@ -586,9 +592,19 @@ export class GameRuntime {
       }
     }
 
-    while (this.accumulatorMs >= SERVER_TICK_MS) {
+    let simulatedTicks = 0;
+    while (
+      this.accumulatorMs >= SERVER_TICK_MS &&
+      simulatedTicks < GameRuntime.MAX_FIXED_TICKS_PER_FRAME
+    ) {
       this.fixedTick(now);
       this.accumulatorMs -= SERVER_TICK_MS;
+      simulatedTicks += 1;
+    }
+    if (this.accumulatorMs >= SERVER_TICK_MS) {
+      // Drop excess backlog after long stalls so prediction cannot race far
+      // ahead of the server and trigger visible rubberbanding.
+      this.accumulatorMs = Math.min(this.accumulatorMs, SERVER_TICK_MS * 0.5);
     }
 
     const renderDelayMs = this.getAdaptiveInterpolationDelayMs();
@@ -833,7 +849,8 @@ export class GameRuntime {
       -getLocalCorrectionDecayRate({
         pingMs: store.localPingMs ?? this.smoothedPingMs,
         jitterMs: store.localPingJitterMs,
-        inputPipelineMs: predicted.inputPipelineMs
+        inputPipelineMs: predicted.inputPipelineMs,
+        pendingInputs: this.prediction?.getDebugState().pendingInputs ?? 0
       }) * deltaSeconds
     );
     this.localCorrectionOffset = {
@@ -1045,8 +1062,7 @@ export class GameRuntime {
       }, 0) / sampleSet.length;
     const jitterMs = Math.sqrt(variance);
     const pingLowWindowValues = this.pingSamples.map(sample => sample.rttMs);
-    const pingOnePercentLowMs =
-      pingLowWindowValues.length === 0 ? averagePing : Math.max(...pingLowWindowValues);
+    const pingOnePercentLowMs = getLatencyTailMs(pingLowWindowValues, averagePing);
 
     const roundedPingMs = Math.max(1, Math.round(averagePing));
     const roundedPingOnePercentLowMs = Math.max(1, Math.round(pingOnePercentLowMs));
@@ -1062,8 +1078,10 @@ export class GameRuntime {
       .filter(sample => sample.at >= serverAverageCutoff)
       .map(sample => sample.pipelineMs);
     const serverLowWindowValues = this.serverPipelineSamples.map(sample => sample.pipelineMs);
-    const serverOnePercentLowMs =
-      serverLowWindowValues.length === 0 ? 0 : Math.max(...serverLowWindowValues);
+    const serverOnePercentLowMs = getLatencyTailMs(
+      serverLowWindowValues,
+      this.smoothedServerPipelineMs
+    );
 
     const shouldUpdatePing =
       this.lastPingUiUpdateAt === 0 ||

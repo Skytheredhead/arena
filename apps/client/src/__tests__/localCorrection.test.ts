@@ -3,6 +3,7 @@ import {
   clampCorrectionOffset,
   getLocalCorrectionDeadzoneMeters,
   getLocalCorrectionDecayRate,
+  getLocalCorrectionHardSnapDistanceMeters,
   getMaxLocalCorrectionOffsetMeters
 } from '../netcode/localCorrection';
 
@@ -11,12 +12,14 @@ describe('localCorrection', () => {
     const stable = {
       pingMs: 28,
       jitterMs: 3,
-      inputPipelineMs: 0
+      inputPipelineMs: 0,
+      pendingInputs: 1
     };
     const unstable = {
       pingMs: 96,
       jitterMs: 34,
-      inputPipelineMs: 120
+      inputPipelineMs: 120,
+      pendingInputs: 14
     };
 
     expect(getLocalCorrectionDeadzoneMeters(unstable)).toBeGreaterThan(
@@ -27,6 +30,9 @@ describe('localCorrection', () => {
     );
     expect(getMaxLocalCorrectionOffsetMeters(unstable)).toBeGreaterThan(
       getMaxLocalCorrectionOffsetMeters(stable)
+    );
+    expect(getLocalCorrectionHardSnapDistanceMeters(unstable)).toBeGreaterThan(
+      getLocalCorrectionHardSnapDistanceMeters(stable)
     );
   });
 
