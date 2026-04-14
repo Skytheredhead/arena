@@ -44,13 +44,35 @@ import RoomTable from '../generated/module_bindings/room_table';
 import WeaponStateTable from '../generated/module_bindings/weapon_state_table';
 import type { Infer } from 'spacetimedb';
 
-const TOKEN_STORAGE_KEY = 'vector-drift-token';
 const RECONNECT_RETRY_INTERVAL_MS = 500;
 const RECONNECT_WINDOW_MS = 10_000;
 const CONNECT_TIMEOUT_MS = 12_000;
 const MAX_REASONABLE_PIPELINE_MS = 5_000;
 const normalizeError = (error: unknown): Error =>
   error instanceof Error ? error : new Error(String(error));
+const shouldRetryWithoutStoredToken = (error: Error): boolean => {
+  const message = error.message.toLowerCase();
+  return (
+    message.includes('token') ||
+    message.includes('auth') ||
+    message.includes('unauthor') ||
+    message.includes('forbidden') ||
+    message.includes('invalid identity')
+  );
+};
+const isLikelyConnectionLossError = (error: Error): boolean => {
+  const message = error.message.toLowerCase();
+  return (
+    message.includes('connection') ||
+    message.includes('socket') ||
+    message.includes('websocket') ||
+    message.includes('transport') ||
+    message.includes('network') ||
+    message.includes('disconnect') ||
+    message.includes('closed') ||
+    message.includes('not connected')
+  );
+};
 
 type RoomRow = Infer<typeof RoomTable>;
 type PlayerRow = Infer<typeof PlayerTable>;
@@ -106,6 +128,7 @@ export class SpacetimeBridge {
   private lastConnectOptions: ConnectOptions | null = null;
   private connectionStage: ConnectionStage = 'idle';
   private schemaMismatchDetected = false;
+  private connectionToken: string | undefined;
 
   constructor(private readonly callbacks: BridgeCallbacks) {}
 
@@ -123,7 +146,10 @@ export class SpacetimeBridge {
       attempt: 0,
       startedAtMs: null
     });
-    await this.connectInternal(options, { setConnectingStatus: true, setErrorStatusOnFailure: true });
+    await this.connectInternal(options, {
+      setConnectingStatus: true,
+      setErrorStatusOnFailure: true
+    });
   }
 
   disconnect(): void {
@@ -154,6 +180,7 @@ export class SpacetimeBridge {
     this.killFeedBaselineTickByRoom.clear();
     this.damageBaselineTickByRoom.clear();
     this.schemaMismatchDetected = false;
+    this.clearStoredToken();
   }
 
   private async connectInternal(
@@ -196,19 +223,17 @@ export class SpacetimeBridge {
   }
 
   async submitInput(command: InputCommand): Promise<void> {
-    if (!this.connection) {
-      return;
-    }
-
-    await this.connection.reducers.submitInput({
-      sequence: command.sequence,
-      moveX: command.moveX,
-      moveZ: command.moveZ,
-      yaw: command.yaw,
-      pitch: command.pitch,
-      jumping: command.jumping,
-      sprinting: command.sprinting
-    });
+    await this.runReducer(connection =>
+      connection.reducers.submitInput({
+        sequence: command.sequence,
+        moveX: command.moveX,
+        moveZ: command.moveZ,
+        yaw: command.yaw,
+        pitch: command.pitch,
+        jumping: command.jumping,
+        sprinting: command.sprinting
+      })
+    );
   }
 
   async fireWeapon(
@@ -217,49 +242,58 @@ export class SpacetimeBridge {
     scoped: boolean,
     weaponSlot: WeaponSlot
   ): Promise<void> {
-    if (!this.connection) {
-      return;
-    }
-
-    await this.connection.reducers.fireWeapon({ yaw, pitch, scoped, weaponSlot });
+    await this.runReducer(connection =>
+      connection.reducers.fireWeapon({ yaw, pitch, scoped, weaponSlot })
+    );
   }
 
   async requestRespawn(): Promise<void> {
-    if (!this.connection) {
-      return;
-    }
-
-    await this.connection.reducers.requestRespawn({});
+    await this.runReducer(connection => connection.reducers.requestRespawn({}));
   }
 
   async sendChatMessage(message: string): Promise<void> {
-    if (!this.connection) {
-      return;
-    }
-
-    await this.connection.reducers.sendChatMessage({ message });
+    await this.runReducer(connection => connection.reducers.sendChatMessage({ message }));
   }
 
   async ping(): Promise<void> {
-    if (!this.connection) {
-      return;
-    }
-
-    await this.connection.reducers.ping({});
+    await this.runReducer(connection => connection.reducers.ping({}));
   }
 
   private readStoredToken(): string | undefined {
-    // Intentionally disabled so each tab/session gets an independent identity.
-    // This avoids multi-tab identity collisions from shared persisted tokens.
-    return undefined;
+    // Keep identity stable across socket reconnects without sharing it across tabs.
+    return this.connectionToken;
   }
 
   private setStoredToken(token: string): void {
-    void token;
+    this.connectionToken = token || undefined;
   }
 
   private clearStoredToken(): void {
-    void TOKEN_STORAGE_KEY;
+    this.connectionToken = undefined;
+  }
+
+  private async runReducer(
+    operation: (connection: DbConnection) => Promise<unknown>
+  ): Promise<void> {
+    const connection = this.connection;
+    if (!connection) {
+      return;
+    }
+
+    try {
+      await operation(connection);
+    } catch (error) {
+      const normalized = normalizeError(error);
+      if (
+        this.connection === connection &&
+        this.autoReconnectEnabled &&
+        isLikelyConnectionLossError(normalized)
+      ) {
+        this.connection = null;
+        void this.handleUnexpectedDisconnect(normalized.message);
+      }
+      throw normalized;
+    }
   }
 
   private resetActiveConnection(): void {
@@ -288,7 +322,7 @@ export class SpacetimeBridge {
       return;
     } catch (error) {
       const initialError = normalizeError(error);
-      if (!storedToken) {
+      if (!storedToken || !shouldRetryWithoutStoredToken(initialError)) {
         throw initialError;
       }
 

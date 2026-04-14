@@ -15,6 +15,7 @@ const MAX_TOTAL_PLAYERS: usize = 50;
 const MAX_PLAYERS_PER_ROOM: u16 = 5;
 const ROOM_ACTION_RATE_LIMIT_TICKS: u32 = 8;
 const ROOM_PRUNE_GRACE_TICKS: u32 = SERVER_TICK_RATE * 15;
+const DISCONNECT_GRACE_TICKS: u32 = SERVER_TICK_RATE * 15;
 const NICKNAME_RATE_LIMIT_TICKS: u32 = 24;
 const CHAT_RATE_LIMIT_TICKS: u32 = 4;
 const MAX_IMPACT_MARKS_PER_ROOM: usize = 120;
@@ -606,12 +607,9 @@ pub fn client_connected(ctx: &ReducerContext) {
     let fallback_nickname = default_nickname_for_identity(ctx.sender());
 
     if let Some(player) = ctx.db.player().identity().find(ctx.sender()) {
-        if player.room_code.is_some() {
-            leave_room_internal(ctx, ctx.sender(), LeaveReason::Disconnected);
-        }
+        clear_disconnect_marker(ctx, ctx.sender());
         ctx.db.player().identity().update(Player {
             connected: true,
-            room_code: None,
             ..player
         });
     } else {
@@ -706,12 +704,13 @@ pub fn client_connected(ctx: &ReducerContext) {
 pub fn client_disconnected(ctx: &ReducerContext) {
     if let Some(player) = ctx.db.player().identity().find(ctx.sender()) {
         if player.room_code.is_some() {
-            leave_room_internal(ctx, ctx.sender(), LeaveReason::Disconnected);
+            let tick = current_tick(ctx);
+            mark_disconnected_at(ctx, ctx.sender(), tick);
+            reset_player_input(ctx, ctx.sender(), tick);
         }
 
         ctx.db.player().identity().update(Player {
             connected: false,
-            room_code: None,
             ..player
         });
     }
@@ -1226,6 +1225,12 @@ pub fn fire_weapon(
             if target.identity == ctx.sender() || !target.alive {
                 continue;
             }
+            let Some(target_player) = ctx.db.player().identity().find(target.identity) else {
+                continue;
+            };
+            if !target_player.connected {
+                continue;
+            }
             if target.room_code.as_deref() != Some(room_code.as_str()) {
                 continue;
             }
@@ -1330,6 +1335,7 @@ pub fn sim_tick(ctx: &ReducerContext, _schedule: SimTickSchedule) -> Result<(), 
 
     let tick = increment_tick(ctx);
     prune_expired_sessions(ctx, tick);
+    prune_stale_disconnected_players(ctx, tick);
     prune_empty_rooms(ctx);
 
     for match_state in ctx.db.match_state().iter() {
@@ -1365,6 +1371,13 @@ pub fn sim_tick(ctx: &ReducerContext, _schedule: SimTickSchedule) -> Result<(), 
             Some(room_code) => room_code,
             None => continue,
         };
+        let player = match ctx.db.player().identity().find(state.identity) {
+            Some(player) => player,
+            None => continue,
+        };
+        if !player.connected {
+            continue;
+        }
 
         if !state.alive {
             continue;
@@ -1879,6 +1892,80 @@ fn current_joined_players(ctx: &ReducerContext) -> usize {
         .iter()
         .filter(|player| player.connected && player.room_code.is_some())
         .count()
+}
+
+fn mark_disconnected_at(ctx: &ReducerContext, identity: Identity, tick: u32) {
+    // Reuse this private tick field as the transient disconnect marker so the
+    // public schema and generated client bindings do not need to change.
+    let mut limiter = ctx
+        .db
+        .player_rate_limit()
+        .identity()
+        .find(identity)
+        .unwrap_or(PlayerRateLimit {
+            identity,
+            last_nickname_tick: 0,
+            last_create_room_tick: 0,
+            last_join_room_tick: 0,
+            last_leave_room_tick: 0,
+            last_start_match_tick: 0,
+            last_chat_tick: 0,
+        });
+    limiter.last_leave_room_tick = tick.max(1);
+
+    if ctx
+        .db
+        .player_rate_limit()
+        .identity()
+        .find(identity)
+        .is_some()
+    {
+        ctx.db.player_rate_limit().identity().update(limiter);
+    } else {
+        ctx.db.player_rate_limit().insert(limiter);
+    }
+}
+
+fn clear_disconnect_marker(ctx: &ReducerContext, identity: Identity) {
+    let Some(mut limiter) = ctx.db.player_rate_limit().identity().find(identity) else {
+        return;
+    };
+    limiter.last_leave_room_tick = 0;
+    ctx.db.player_rate_limit().identity().update(limiter);
+}
+
+fn prune_stale_disconnected_players(ctx: &ReducerContext, tick: u32) {
+    let players: Vec<Player> = ctx
+        .db
+        .player()
+        .iter()
+        .filter(|player| !player.connected && player.room_code.is_some())
+        .collect();
+
+    for player in players {
+        let disconnect_tick = ctx
+            .db
+            .player_rate_limit()
+            .identity()
+            .find(player.identity)
+            .map(|limiter| limiter.last_leave_room_tick)
+            .filter(|value| *value > 0)
+            .or_else(|| {
+                ctx.db
+                    .player_input()
+                    .identity()
+                    .find(player.identity)
+                    .map(|input| input.last_received_tick)
+            });
+
+        let Some(disconnect_tick) = disconnect_tick else {
+            continue;
+        };
+        if tick.saturating_sub(disconnect_tick) >= DISCONNECT_GRACE_TICKS {
+            leave_room_internal(ctx, player.identity, LeaveReason::Disconnected);
+            clear_disconnect_marker(ctx, player.identity);
+        }
+    }
 }
 
 fn enforce_rate_limit(
