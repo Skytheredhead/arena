@@ -4,7 +4,14 @@ Use this to ensure your server is running the **new** backend code instead of an
 
 ## Local publish command
 
-Run from your repo checkout on the server:
+Run this from the repo root to build the whole backend, start SpacetimeDB if
+needed, and publish the module:
+
+```bash
+pnpm backend:local
+```
+
+That command is equivalent to:
 
 ```bash
 cd /path/to/arena
