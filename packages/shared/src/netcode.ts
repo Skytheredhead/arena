@@ -97,6 +97,7 @@ export interface KillFeedEntry {
 
 export interface DamageEvent {
   id: number;
+  roomCode: string;
   attackerIdentity: string;
   victimIdentity: string;
   amount: number;

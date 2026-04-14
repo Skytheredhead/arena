@@ -26,7 +26,6 @@ const SCRAMBLE_CHARS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-.:';
 
 function useScrambleText(target: string, active: boolean): string {
   const [display, setDisplay] = useState(target);
-  const frameRef = useRef(0);
 
   useEffect(() => {
     if (!active) { setDisplay(target); return; }

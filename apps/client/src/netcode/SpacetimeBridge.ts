@@ -22,6 +22,7 @@ import { useGameStore } from '../state/gameStore';
 import { SPACETIMEDB_DATABASE, getSpacetimeUriCandidates } from '../utils/env';
 import { identityToString } from '../utils/identity';
 import { readAuthSessionToken } from './authClient';
+import { shouldAcceptDamageEventForRoom } from './damageEvents';
 import {
   CONNECTION_STAGE_LABEL,
   type ConnectionStage
@@ -99,6 +100,7 @@ export class SpacetimeBridge {
   private readonly remoteArrivalOffsetMs = new Map<string, number>();
   private readonly chatBaselineTickByRoom = new Map<string, number>();
   private readonly killFeedBaselineTickByRoom = new Map<string, number>();
+  private readonly damageBaselineTickByRoom = new Map<string, number>();
   private autoReconnectEnabled = false;
   private reconnectLoopId = 0;
   private lastConnectOptions: ConnectOptions | null = null;
@@ -150,6 +152,7 @@ export class SpacetimeBridge {
     this.remoteArrivalOffsetMs.clear();
     this.chatBaselineTickByRoom.clear();
     this.killFeedBaselineTickByRoom.clear();
+    this.damageBaselineTickByRoom.clear();
     this.schemaMismatchDetected = false;
   }
 
@@ -274,6 +277,7 @@ export class SpacetimeBridge {
     this.remoteArrivalOffsetMs.clear();
     this.chatBaselineTickByRoom.clear();
     this.killFeedBaselineTickByRoom.clear();
+    this.damageBaselineTickByRoom.clear();
   }
 
   private async connectWithUri(uri: string, options: ConnectOptions): Promise<void> {
@@ -537,6 +541,13 @@ export class SpacetimeBridge {
       options.roomCode,
       this.getRoomEventBaselineTick(
         Array.from(connection.db.kill_feed_event.iter() as Iterable<KillFeedEventRow>),
+        options.roomCode
+      )
+    );
+    this.damageBaselineTickByRoom.set(
+      options.roomCode,
+      this.getRoomEventBaselineTick(
+        Array.from(connection.db.damage_event.iter() as Iterable<DamageEventRow>),
         options.roomCode
       )
     );
@@ -804,8 +815,21 @@ export class SpacetimeBridge {
   }
 
   private handleDamageEventRow(row: DamageEventRow): void {
+    const trackedRoom = this.getTrackedRoomCode();
+    if (
+      !shouldAcceptDamageEventForRoom({
+        roomCode: row.roomCode,
+        tick: row.tick,
+        trackedRoomCode: trackedRoom,
+        baselineTick: trackedRoom ? this.damageBaselineTickByRoom.get(trackedRoom) : undefined
+      })
+    ) {
+      return;
+    }
+
     const event: DamageEvent = {
       id: row.id,
+      roomCode: row.roomCode,
       attackerIdentity: identityToString(row.attackerIdentity),
       victimIdentity: identityToString(row.victimIdentity),
       amount: row.amount,

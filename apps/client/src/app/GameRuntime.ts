@@ -34,6 +34,7 @@ import { RifleController } from '../weapons/RifleController';
 import type { GraphicsQuality } from '../types/settings';
 import { AudioManager } from '../audio/AudioManager';
 import { getLatencyTailMs } from '../netcode/pingStats';
+import { isDamageEventCurrentForLocalPlayer } from '../netcode/damageEvents';
 
 declare global {
   interface Window {
@@ -496,6 +497,16 @@ export class GameRuntime {
 
   private handleDamageEvent(event: DamageEvent): void {
     const store = useGameStore.getState();
+    if (
+      !isDamageEventCurrentForLocalPlayer(
+        event,
+        store.connectedRoomCode,
+        store.localPlayer.respawnTick
+      )
+    ) {
+      return;
+    }
+
     const localIdentity = store.localIdentity;
     const now = performance.now();
 
@@ -1052,7 +1063,6 @@ export class GameRuntime {
         : this.pingSamples.length > 0
           ? this.pingSamples
           : [{ at: now, rttMs: this.smoothedPingMs }];
-    const rttValues = sampleSet.map(sample => sample.rttMs);
     const averagePing =
       sampleSet.reduce((acc, sample) => acc + sample.rttMs, 0) / sampleSet.length;
     const variance =
