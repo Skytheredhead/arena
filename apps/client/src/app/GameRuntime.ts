@@ -126,6 +126,7 @@ export class GameRuntime {
   private sniperCooldownEndsAt = 0;
   private onConnectionStageChange: ((stage: ConnectionStage) => void) | null = null;
   private hasReceivedInitialLocalState = false;
+  private renderErrorReported = false;
 
   constructor(mount: HTMLElement) {
     this.renderer = new GameRenderer(mount);
@@ -307,6 +308,7 @@ export class GameRuntime {
     this.lastFootstepAt = 0;
     this.deathViewState = null;
     this.sniperCooldownEndsAt = 0;
+    this.renderErrorReported = false;
     useGameStore.getState().setSniperCooldownRemainingMs(0);
     useGameStore.getState().setSelectedWeaponSlot(WEAPON_SLOT_RIFLE);
     useGameStore.getState().setNetworkReconnectState(false, 0, null);
@@ -717,7 +719,7 @@ export class GameRuntime {
     }
     this.publishDebug(now);
     const estimatedServerTimeMs = this.estimateServerTimeMs(now);
-    this.renderer.render({
+    const renderFrame = {
       localPlayer: currentLocal,
       remotePlayers,
       ammoPacks,
@@ -737,7 +739,27 @@ export class GameRuntime {
       crouched: frameInput.sprinting,
       reloadProgress: this.getReloadProgress(now),
       estimatedServerTimeMs
-    });
+    };
+    try {
+      this.renderer.render(renderFrame);
+    } catch (error) {
+      if (!this.renderErrorReported) {
+        this.renderErrorReported = true;
+        console.error('Render frame failed; retrying without transient shot effects.', error);
+      }
+      try {
+        this.renderer.render({
+          ...renderFrame,
+          impactMarks: [],
+          bloodBursts: [],
+          muzzleFlashVisible: false
+        });
+      } catch (retryError) {
+        if (!this.renderErrorReported) {
+          console.error('Render retry failed.', retryError);
+        }
+      }
+    }
 
     this.frameHandle = requestAnimationFrame(this.frame);
   };

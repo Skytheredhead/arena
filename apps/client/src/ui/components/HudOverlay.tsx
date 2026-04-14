@@ -150,8 +150,10 @@ export function HudOverlay({
     }
   }, [ammo]);
 
-  const hpLow = health < 30;
-  const hpCritical = health < 15;
+  const displayedHealth = Math.max(0, Math.min(100, Math.round(health)));
+  const displayedAmmo = Math.max(0, Math.min(RIFLE_MAGAZINE, Math.round(ammo)));
+  const hpLow = displayedHealth < 30;
+  const hpCritical = displayedHealth < 15;
   const hpColor = hpCritical ? CYBER.danger : hpLow ? CYBER.warn : CYBER.ok;
   const weaponName =
     selectedWeaponSlot === WEAPON_SLOT_SNIPER
@@ -453,25 +455,27 @@ export function HudOverlay({
             style={{ position: 'absolute', bottom: '80px', left: '24px', zIndex: 10 }}
           >
             <CyberPanel style={{
-              padding: '16px 20px', backdropFilter: 'blur(12px)', minWidth: '200px',
+              padding: '8px 12px',
+              backdropFilter: 'blur(12px)',
+              minWidth: '136px',
               boxShadow: hpCritical ? `0 0 20px ${CYBER.danger}44` : hpLow ? `0 0 12px ${CYBER.warn}33` : undefined,
               border: `1px solid ${hpLow ? (hpCritical ? CYBER.danger : CYBER.warn) : CYBER.border}`,
               transition: 'border-color 0.5s, box-shadow 0.5s',
             }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px', alignItems: 'baseline' }}>
-                <div style={{ color: CYBER.textDim, fontSize: '9px', letterSpacing: '3px', fontFamily: CYBER.font }}>HP</div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '5px', alignItems: 'baseline' }}>
+                <div style={{ color: CYBER.textDim, fontSize: '8px', letterSpacing: '3px', fontFamily: CYBER.font }}>HP</div>
                 <div style={{
                   fontFamily: "'Orbitron',var(--font)",
                   color: hpColor,
-                  fontSize: '32px', fontWeight: 700, lineHeight: 1,
-                  textShadow: `0 0 14px ${hpColor}88`,
+                  fontSize: '18px', fontWeight: 700, lineHeight: 1,
+                  textShadow: `0 0 8px ${hpColor}66`,
                   transition: 'color 0.4s',
                   animation: hpCritical ? 'cyberPulse 0.8s ease-in-out infinite' : undefined,
                 }}>
-                  {health}
+                  {displayedHealth}
                 </div>
               </div>
-              <CyberSegBar value={health} max={100} color={hpColor} height={6} segments={4} />
+              <CyberSegBar value={displayedHealth} max={100} color={hpColor} height={4} segments={4} />
             </CyberPanel>
           </div>
 
@@ -492,14 +496,14 @@ export function HudOverlay({
                   style={{
                     fontFamily: "'Orbitron',var(--font)",
                     fontSize: '56px', fontWeight: 900,
-                    color: ammo < 10 ? CYBER.danger : ammo < 20 ? CYBER.warn : CYBER.textBright,
+                    color: displayedAmmo < 10 ? CYBER.danger : displayedAmmo < 20 ? CYBER.warn : CYBER.textBright,
                     lineHeight: 1,
                     textShadow: `0 0 20px ${CYBER.a}44`,
                     animation: 'cyberNumberTick .15s ease both',
                     transition: 'color 0.3s',
                   }}
                 >
-                  {ammo}
+                  {displayedAmmo}
                 </div>
                 <div style={{ fontFamily: CYBER.font, color: CYBER.textBright, fontSize: '22px', lineHeight: 1 }}>
                   /{RIFLE_MAGAZINE}
@@ -541,8 +545,8 @@ export function HudOverlay({
                     key={i}
                     style={{
                       width: '5px', height: '10px',
-                      background: i < ammo ? CYBER.a : `${CYBER.textDim}33`,
-                      boxShadow: i < ammo ? `0 0 3px ${CYBER.a}88` : undefined,
+                      background: i < displayedAmmo ? CYBER.a : `${CYBER.textDim}33`,
+                      boxShadow: i < displayedAmmo ? `0 0 3px ${CYBER.a}88` : undefined,
                       transition: 'background 0.15s, box-shadow 0.15s',
                     }}
                   />

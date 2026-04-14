@@ -62,6 +62,9 @@ interface RemoteDeathFxState {
   yaw: number;
 }
 
+const isFiniteVec3 = (value: { x: number; y: number; z: number }): boolean =>
+  Number.isFinite(value.x) && Number.isFinite(value.y) && Number.isFinite(value.z);
+
 export class GameRenderer {
   private readonly renderer: THREE.WebGLRenderer;
   private readonly scene: THREE.Scene;
@@ -716,6 +719,10 @@ export class GameRenderer {
   }
 
   render(frame: RenderFrameState): void {
+    const safeImpactMarks = frame.impactMarks.filter(
+      mark => isFiniteVec3(mark.position) && isFiniteVec3(mark.normal)
+    );
+    const safeBloodBursts = frame.bloodBursts.filter(burst => isFiniteVec3(burst.position));
     const now = performance.now();
     this.renderer.getDrawingBufferSize(this.drawingBufferSize);
     const fullWidth = this.drawingBufferSize.x;
@@ -769,27 +776,25 @@ export class GameRenderer {
       muzzleFlashY,
       frame.weaponSlot === WEAPON_SLOT_SNIPER ? -1.18 : frame.weaponSlot === WEAPON_SLOT_SHOTGUN ? -0.86 : -0.92
     );
-    const idleSway = frame.scoped ? 0 : Math.sin(now * 0.0045) * 0.0035;
     const walkSwayX = Math.sin(frame.walkPhase) * frame.walkIntensity * 0.026;
     const walkSwayY = Math.cos(frame.walkPhase * 2) * frame.walkIntensity * 0.014;
-    const horizontalSway = frame.scoped ? 0 : walkSwayX * 0.12;
     const reloadTilt = frame.reloadProgress * 0.22;
     const reloadDrop = frame.reloadProgress * 0.08;
     this.weaponRig.rotation.x =
-      (frame.scoped ? -0.02 : -0.08) +
+      (frame.scoped ? -0.015 : -0.035) +
       frame.recoil * (frame.scoped ? 0.6 : 1.4) +
       walkSwayY +
       reloadTilt * 0.35;
-    this.weaponRig.rotation.y = -frame.recoil * 0.22;
+    this.weaponRig.rotation.y = 0;
     this.weaponRig.rotation.z = reloadTilt;
-    this.weaponRig.position.x = idleSway * 0.25 + horizontalSway;
+    this.weaponRig.position.x = 0;
     this.weaponRig.position.y =
-      (frame.scoped ? -0.18 : -0.28) +
+      (frame.scoped ? -0.16 : -0.23) +
       frame.recoil * 0.08 +
       walkBob * 0.45 -
       reloadDrop -
       frame.crouchAmount * 0.08;
-    this.weaponRig.position.z = frame.scoped ? -0.45 : -0.55;
+    this.weaponRig.position.z = frame.scoped ? -0.48 : -0.62;
 
     const activeIds = new Set(frame.remotePlayers.map(player => player.identity));
 
@@ -962,7 +967,7 @@ export class GameRenderer {
     }
 
     const activeImpactIds = new Set<number>();
-    for (const mark of frame.impactMarks) {
+    for (const mark of safeImpactMarks) {
       const markAgeMs = Math.max(0, frame.estimatedServerTimeMs - mark.tick * SERVER_TICK_MS);
       if (markAgeMs >= GameRenderer.IMPACT_MARK_LIFETIME_MS) {
         continue;
@@ -995,8 +1000,8 @@ export class GameRenderer {
       }
     }
 
-    const activeBloodIds = new Set(frame.bloodBursts.map(burst => burst.id));
-    for (const burst of frame.bloodBursts) {
+    const activeBloodIds = new Set(safeBloodBursts.map(burst => burst.id));
+    for (const burst of safeBloodBursts) {
       const mesh = this.ensureBloodBurstMesh(burst.id);
       const life = Math.max(0, Math.min(1, (now - burst.createdAt) / (burst.expiresAt - burst.createdAt)));
       mesh.visible = true;
