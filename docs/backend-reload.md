@@ -2,7 +2,7 @@
 
 Use this to ensure your server is running the **new** backend code instead of an older publish.
 
-## Manual commands on the Linux server
+## Local publish command
 
 Run from your repo checkout on the server:
 
@@ -12,19 +12,37 @@ corepack enable
 pnpm install --frozen-lockfile
 pnpm --filter @arena/shared build
 pnpm server:build
+pnpm server:publish:local
 ```
 
-Start SpacetimeDB (if not already running):
+`pnpm server:publish:local` automatically checks `http://127.0.0.1:4789`.
+If SpacetimeDB is not already running, it starts it in the background before
+publishing the backend module.
+
+Background server logs default to:
 
 ```bash
-spacetime start --listen-addr 0.0.0.0:4789
+/tmp/arena-spacetimedb.log
 ```
 
-Publish this backend module to your DB:
+Use a different local database name if your client points somewhere else:
 
 ```bash
-cd /path/to/arena/apps/server
-spacetime publish --server http://127.0.0.1:4789 arena-fps-slice
+SPACETIMEDB_DB_NAME=your-db-name pnpm server:publish:local
 ```
 
 If your old backend is under a different DB name, publish to the **same** DB your client uses.
+
+## Manual fallback
+
+If you need to start SpacetimeDB yourself:
+
+```bash
+pnpm server:start
+```
+
+Then publish:
+
+```bash
+pnpm server:publish:local
+```

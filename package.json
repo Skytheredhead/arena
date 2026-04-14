@@ -12,7 +12,7 @@
     "generate:bindings": "bash ./scripts/generate-bindings.sh",
     "vercel:build": "bash ./scripts/vercel-build.sh",
     "server:build": "spacetime build -p apps/server",
-    "server:publish:local": "cd apps/server && spacetime publish --server http://127.0.0.1:4789 ${SPACETIMEDB_DB_NAME:-arena-fps-slice}",
+    "server:publish:local": "bash ./scripts/publish-local-server.sh",
     "server:start": "spacetime start --listen-addr 0.0.0.0:4789"
   },
   "devDependencies": {
