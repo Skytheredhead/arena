@@ -85,13 +85,11 @@ interface SessionState {
   nerdPingsEnabled: boolean;
   playerPings: Record<string, number | null>;
   scoreboardOpen: boolean;
-  crosshairSpread: number;
   scoped: boolean;
   hitmarkerUntil: number;
   muzzleFlashUntil: number;
   damageFlashToken: number;
   selectedWeaponSlot: WeaponSlot;
-  sniperCooldownRemainingMs: number;
   setConnection: (status: ConnectionStatus, error?: string | null) => void;
   setNetworkReconnectState: (
     reconnecting: boolean,
@@ -141,13 +139,11 @@ interface SessionState {
     radius: number
   ) => void;
   setScoreboardOpen: (open: boolean) => void;
-  setCrosshairSpread: (spread: number) => void;
   setScoped: (scoped: boolean) => void;
   triggerHitmarker: (until: number) => void;
   triggerMuzzleFlash: (until: number) => void;
   triggerDamageFlash: () => void;
   setSelectedWeaponSlot: (slot: WeaponSlot) => void;
-  setSniperCooldownRemainingMs: (value: number) => void;
 }
 
 const initialLocal = makeDefaultLocalPlayer();
@@ -196,13 +192,11 @@ export const useGameStore = create<SessionState>(set => ({
   nerdPingsEnabled: false,
   playerPings: {},
   scoreboardOpen: false,
-  crosshairSpread: 0,
   scoped: false,
   hitmarkerUntil: 0,
   muzzleFlashUntil: 0,
   damageFlashToken: 0,
   selectedWeaponSlot: WEAPON_SLOT_RIFLE,
-  sniperCooldownRemainingMs: 0,
   setConnection: (connectionStatus, connectionError = null) =>
     set({ connectionStatus, connectionError }),
   setNetworkReconnectState: (networkReconnecting, networkReconnectAttempt, networkReconnectStartedAtMs) =>
@@ -283,13 +277,11 @@ export const useGameStore = create<SessionState>(set => ({
       serverPingHistory: [],
       playerPings: {},
       scoreboardOpen: false,
-      crosshairSpread: 0,
       scoped: false,
       hitmarkerUntil: 0,
       muzzleFlashUntil: 0,
       damageFlashToken: 0,
-      selectedWeaponSlot: WEAPON_SLOT_RIFLE,
-      sniperCooldownRemainingMs: 0
+      selectedWeaponSlot: WEAPON_SLOT_RIFLE
     }),
   upsertPlayerMeta: player =>
     set(state => ({
@@ -545,10 +537,6 @@ export const useGameStore = create<SessionState>(set => ({
     }),
   setScoreboardOpen: scoreboardOpen =>
     set(state => (state.scoreboardOpen === scoreboardOpen ? state : { scoreboardOpen })),
-  setCrosshairSpread: crosshairSpread =>
-    set(state =>
-      state.crosshairSpread === crosshairSpread ? state : { crosshairSpread }
-    ),
   setScoped: scoped => set(state => (state.scoped === scoped ? state : { scoped })),
   triggerHitmarker: hitmarkerUntil => set({ hitmarkerUntil }),
   triggerMuzzleFlash: muzzleFlashUntil => set({ muzzleFlashUntil }),
@@ -559,13 +547,5 @@ export const useGameStore = create<SessionState>(set => ({
       state.selectedWeaponSlot === selectedWeaponSlot
         ? state
         : { selectedWeaponSlot }
-    ),
-  setSniperCooldownRemainingMs: sniperCooldownRemainingMs =>
-    set(state => {
-      const clamped = Math.max(0, sniperCooldownRemainingMs);
-      if (Math.abs(state.sniperCooldownRemainingMs - clamped) < 1) {
-        return state;
-      }
-      return { sniperCooldownRemainingMs: clamped };
-    })
+    )
 }));

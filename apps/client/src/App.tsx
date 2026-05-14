@@ -100,13 +100,10 @@ export default function App(): React.JSX.Element {
   const scoreboardOpen = useGameStore((state) => state.scoreboardOpen);
   const hitmarkerUntil = useGameStore((state) => state.hitmarkerUntil);
   const damageFlashToken = useGameStore((state) => state.damageFlashToken);
-  const crosshairSpread = useGameStore((state) => state.crosshairSpread);
   const scoped = useGameStore((state) => state.scoped);
   const selectedWeaponSlot = useGameStore((state) => state.selectedWeaponSlot);
-  const sniperCooldownRemainingMs = useGameStore(
-    (state) => state.sniperCooldownRemainingMs
-  );
-  const localPlayer = useGameStore((state) => state.localPlayer);
+  const localAlive = useGameStore((state) => state.localPlayer.alive);
+  const localHealth = useGameStore((state) => state.localPlayer.health);
   const magAmmo = useGameStore((state) => state.magAmmo);
   const reserveAmmo = useGameStore((state) => state.reserveAmmo);
   const localIdentity = useGameStore((state) => state.localIdentity);
@@ -618,7 +615,7 @@ export default function App(): React.JSX.Element {
         : undefined,
     [localIdentity, scoreboard]
   );
-  const eliminated = connected && !localPlayer.alive;
+  const eliminated = connected && !localAlive;
 
   useEffect(() => {
     if (!eliminated) return;
@@ -667,7 +664,7 @@ export default function App(): React.JSX.Element {
     if (
       !touchControls &&
       connected &&
-      localPlayer.alive &&
+      localAlive &&
       !pausedRef.current
     ) {
       runtime.requestPointerLock();
@@ -681,12 +678,12 @@ export default function App(): React.JSX.Element {
       .finally(() => {
         setChatBusy(false);
       });
-  }, [chatBusy, chatDraft, connected, localPlayer.alive, touchControls]);
+  }, [chatBusy, chatDraft, connected, localAlive, touchControls]);
 
   const hudProps = useMemo(
     () => ({
       localIdentity,
-      health: localPlayer.health,
+      health: localHealth,
       ammo: magAmmo,
       reserveAmmo,
       localKills: localMeta?.kills ?? 0,
@@ -704,10 +701,8 @@ export default function App(): React.JSX.Element {
       nerdPingsEnabled,
       hitmarkerVisible,
       damageFlashToken,
-      crosshairSpread,
       scoped,
       selectedWeaponSlot,
-      sniperCooldownRemainingMs,
       networkReconnecting,
       networkReconnectAttempt,
       networkReconnectStartedAtMs,
@@ -722,7 +717,6 @@ export default function App(): React.JSX.Element {
     }),
     [
       connected,
-      crosshairSpread,
       damageFlashToken,
       chatBusy,
       chatDraft,
@@ -730,7 +724,7 @@ export default function App(): React.JSX.Element {
       hitmarkerVisible,
       killFeed,
       localIdentity,
-      localPlayer.health,
+      localHealth,
       magAmmo,
       reserveAmmo,
       localMeta?.deaths,
@@ -748,7 +742,6 @@ export default function App(): React.JSX.Element {
       paused,
       selectedWeaponSlot,
       sendChat,
-      sniperCooldownRemainingMs,
       scoped,
       scoreboard,
       scoreboardOpen,

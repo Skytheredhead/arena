@@ -5,9 +5,44 @@ import {
   type RemotePlayerState
 } from '@arena/shared';
 
+export type RemoteInterpolationSampleMode =
+  | 'interpolated'
+  | 'extrapolated'
+  | 'single-sample';
+
+export interface SnapshotSampleResult {
+  state: RemotePlayerState;
+  mode: RemoteInterpolationSampleMode;
+  underrunMs: number;
+  bufferDepthMs: number;
+}
+
+export interface RemoteInterpolationDelayMetrics {
+  pingMs: number | null;
+  jitterMs: number | null;
+  serverPipelineMs: number | null;
+  remoteBufferPressure: number;
+  reconnecting: boolean;
+}
+
+export interface RemoteBufferPressureMetrics {
+  previousPressure: number;
+  maxUnderrunMs: number;
+  deltaSeconds: number;
+  fullPressureUnderrunMs: number;
+  decayPerSecond: number;
+}
+
+export const MIN_REMOTE_INTERPOLATION_DELAY_MS = 70;
+export const BASE_REMOTE_INTERPOLATION_DELAY_MS = 90;
+export const MAX_REMOTE_INTERPOLATION_DELAY_MS = 220;
+
 interface BufferedSnapshot {
   state: RemotePlayerState;
 }
+
+const clamp = (value: number, min: number, max: number): number =>
+  Math.min(max, Math.max(min, value));
 
 const lerp = (start: number, end: number, alpha: number): number =>
   start + (end - start) * alpha;
@@ -60,6 +95,10 @@ export class SnapshotBuffer {
   }
 
   sample(renderServerTimeMs: number): RemotePlayerState | null {
+    return this.sampleWithMeta(renderServerTimeMs)?.state ?? null;
+  }
+
+  sampleWithMeta(renderServerTimeMs: number): SnapshotSampleResult | null {
     if (this.samples.length === 0) {
       return null;
     }
@@ -72,7 +111,14 @@ export class SnapshotBuffer {
     }
 
     if (this.samples.length === 1) {
-      return extrapolateState(this.samples[0]!.state, renderServerTimeMs);
+      const only = this.samples[0]!.state;
+      const underrunMs = Math.max(0, renderServerTimeMs - only.serverTimeMs);
+      return {
+        state: extrapolateState(only, renderServerTimeMs),
+        mode: underrunMs > 0 ? 'extrapolated' : 'single-sample',
+        underrunMs,
+        bufferDepthMs: Math.max(0, only.serverTimeMs - renderServerTimeMs)
+      };
     }
 
     const [from, to] = this.samples;
@@ -80,29 +126,37 @@ export class SnapshotBuffer {
       return null;
     }
 
-    const alpha = Math.max(
+    const alpha = clamp(
+      (renderServerTimeMs - from.state.serverTimeMs) /
+        (to.state.serverTimeMs - from.state.serverTimeMs || 1),
       0,
-      Math.min(
-        1,
-        (renderServerTimeMs - from.state.serverTimeMs) /
-          (to.state.serverTimeMs - from.state.serverTimeMs || 1)
-      )
+      1
     );
+    const newestServerTimeMs = this.samples.at(-1)!.state.serverTimeMs;
+    const underrunMs = Math.max(0, renderServerTimeMs - newestServerTimeMs);
+    const withinRange =
+      renderServerTimeMs >= from.state.serverTimeMs &&
+      renderServerTimeMs <= to.state.serverTimeMs;
 
     return {
-      ...to.state,
-      position: {
-        x: lerp(from.state.position.x, to.state.position.x, alpha),
-        y: lerp(from.state.position.y, to.state.position.y, alpha),
-        z: lerp(from.state.position.z, to.state.position.z, alpha)
+      state: {
+        ...to.state,
+        position: {
+          x: lerp(from.state.position.x, to.state.position.x, alpha),
+          y: lerp(from.state.position.y, to.state.position.y, alpha),
+          z: lerp(from.state.position.z, to.state.position.z, alpha)
+        },
+        velocity: {
+          x: lerp(from.state.velocity.x, to.state.velocity.x, alpha),
+          y: lerp(from.state.velocity.y, to.state.velocity.y, alpha),
+          z: lerp(from.state.velocity.z, to.state.velocity.z, alpha)
+        },
+        yaw: lerpAngle(from.state.yaw, to.state.yaw, alpha),
+        pitch: lerp(from.state.pitch, to.state.pitch, alpha)
       },
-      velocity: {
-        x: lerp(from.state.velocity.x, to.state.velocity.x, alpha),
-        y: lerp(from.state.velocity.y, to.state.velocity.y, alpha),
-        z: lerp(from.state.velocity.z, to.state.velocity.z, alpha)
-      },
-      yaw: lerpAngle(from.state.yaw, to.state.yaw, alpha),
-      pitch: lerp(from.state.pitch, to.state.pitch, alpha)
+      mode: withinRange ? 'interpolated' : 'single-sample',
+      underrunMs,
+      bufferDepthMs: Math.max(0, newestServerTimeMs - renderServerTimeMs)
     };
   }
 }
@@ -126,4 +180,46 @@ const extrapolateState = (
     },
     serverTimeMs: state.serverTimeMs + deltaMs
   };
+};
+
+export const getAdaptiveRemoteInterpolationDelayMs = ({
+  pingMs,
+  jitterMs,
+  serverPipelineMs,
+  remoteBufferPressure,
+  reconnecting
+}: RemoteInterpolationDelayMetrics): number => {
+  const effectivePingMs = Math.max(0, (pingMs ?? 48) - 60);
+  const effectiveJitterMs = Math.max(0, jitterMs ?? 0);
+  const effectivePipelineMs = Math.max(0, serverPipelineMs ?? 0);
+  const pressure = clamp(remoteBufferPressure, 0, 1);
+  const reconnectPenaltyMs = reconnecting ? 20 : 0;
+
+  return clamp(
+    BASE_REMOTE_INTERPOLATION_DELAY_MS +
+      effectivePingMs * 0.12 +
+      effectiveJitterMs * 1.8 +
+      effectivePipelineMs * 0.22 +
+      pressure * 95 +
+      reconnectPenaltyMs,
+    MIN_REMOTE_INTERPOLATION_DELAY_MS,
+    MAX_REMOTE_INTERPOLATION_DELAY_MS
+  );
+};
+
+export const updateRemoteBufferPressure = ({
+  previousPressure,
+  maxUnderrunMs,
+  deltaSeconds,
+  fullPressureUnderrunMs,
+  decayPerSecond
+}: RemoteBufferPressureMetrics): number => {
+  if (maxUnderrunMs > 0) {
+    return Math.max(
+      clamp(previousPressure, 0, 1),
+      clamp(maxUnderrunMs / fullPressureUnderrunMs, 0, 1)
+    );
+  }
+
+  return clamp(previousPressure - deltaSeconds * decayPerSecond, 0, 1);
 };

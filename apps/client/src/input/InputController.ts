@@ -49,7 +49,7 @@ export class InputController {
     }
     this.element.focus();
     if (document.pointerLockElement !== this.element) {
-      void this.element.requestPointerLock();
+      void this.element.requestPointerLock().catch(() => undefined);
     }
   }
 
@@ -141,7 +141,7 @@ export class InputController {
       return;
     }
     if (document.pointerLockElement !== this.element) {
-      void this.element.requestPointerLock();
+      void this.element.requestPointerLock().catch(() => undefined);
     }
   };
 

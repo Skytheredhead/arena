@@ -1,4 +1,9 @@
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
+import {
+  getRuntimeHudFrame,
+  subscribeRuntimeHudFrame,
+  type RuntimeHudFrame,
+} from './runtimeHudFrame';
 
 export const CYBER = {
   bg: '#020b14',
@@ -673,26 +678,54 @@ export function PingLabel({
 /* Crosshair — dynamic spread, hitmarker */
 export function CyberCrosshair({
   hitmarkerVisible,
-  spread,
   scoped
 }: {
   hitmarkerVisible: boolean;
-  spread: number;
   scoped: boolean;
 }): React.JSX.Element {
-  const clamped = Math.max(0, Math.min(16, spread));
-  const offset  = scoped ? 5 + clamped * 0.45 : 7 + clamped;
-  const armLen  = scoped ? 6 : 8;
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  useEffect(
+    () =>
+      subscribeRuntimeHudFrame((frame: RuntimeHudFrame) => {
+        const root = rootRef.current;
+        if (!root) return;
+        const clamped = Math.max(0, Math.min(16, frame.crosshairSpread));
+        const offset = scoped ? 5 + clamped * 0.45 : 7 + clamped;
+        const armLen = scoped ? 6 : 8;
+        root.style.setProperty('--crosshair-offset', `${offset}px`);
+        root.style.setProperty('--crosshair-arm-len', `${armLen}px`);
+      }),
+    [scoped]
+  );
+  const initialFrame = getRuntimeHudFrame();
+  const initialClamped = Math.max(
+    0,
+    Math.min(16, initialFrame.crosshairSpread)
+  );
+  const initialOffset = scoped ? 5 + initialClamped * 0.45 : 7 + initialClamped;
+  const initialArmLen = scoped ? 6 : 8;
   const arm = (style: CSSProperties): React.JSX.Element => (
     <div style={{ position:'absolute', background: CYBER.a, boxShadow: `0 0 4px ${CYBER.a}`, ...style }} />
   );
   return (
-    <div style={{ position:'absolute',left:'50%',top:'50%',transform:'translate(-50%,-50%)',zIndex:20,pointerEvents:'none' }}>
+    <div
+      ref={rootRef}
+      style={{
+        position:'absolute',
+        left:'50%',
+        top:'50%',
+        transform:'translate(-50%,-50%)',
+        zIndex:20,
+        pointerEvents:'none',
+        '--crosshair-offset': `${initialOffset}px`,
+        '--crosshair-arm-len': `${initialArmLen}px`,
+      } as CSSProperties}
+    >
       <div style={{ position:'relative',width:'44px',height:'44px' }}>
-        {arm({ left:'50%', top:`calc(50% - ${offset}px - ${armLen}px)`, width:'1px', height:`${armLen}px`, transform:'translateX(-50%)' })}
-        {arm({ left:'50%', top:`calc(50% + ${offset}px)`,               width:'1px', height:`${armLen}px`, transform:'translateX(-50%)' })}
-        {arm({ top:'50%',  left:`calc(50% - ${offset}px - ${armLen}px)`, width:`${armLen}px`, height:'1px', transform:'translateY(-50%)' })}
-        {arm({ top:'50%',  left:`calc(50% + ${offset}px)`,               width:`${armLen}px`, height:'1px', transform:'translateY(-50%)' })}
+        {arm({ left:'50%', top:'calc(50% - var(--crosshair-offset) - var(--crosshair-arm-len))', width:'1px', height:'var(--crosshair-arm-len)', transform:'translateX(-50%)' })}
+        {arm({ left:'50%', top:'calc(50% + var(--crosshair-offset))',               width:'1px', height:'var(--crosshair-arm-len)', transform:'translateX(-50%)' })}
+        {arm({ top:'50%',  left:'calc(50% - var(--crosshair-offset) - var(--crosshair-arm-len))', width:'var(--crosshair-arm-len)', height:'1px', transform:'translateY(-50%)' })}
+        {arm({ top:'50%',  left:'calc(50% + var(--crosshair-offset))',               width:'var(--crosshair-arm-len)', height:'1px', transform:'translateY(-50%)' })}
         <div style={{ position:'absolute',left:'50%',top:'50%',width:'3px',height:'3px',background:CYBER.a2,borderRadius:'50%',transform:'translate(-50%,-50%)',boxShadow:`0 0 6px ${CYBER.a2}`,animation:'cyberPulse 1.5s ease-in-out infinite' }} />
         {hitmarkerVisible && (
           <>

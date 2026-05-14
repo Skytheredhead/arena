@@ -1,8 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import {
   RIFLE_CLIP_SIZE,
-  SERVER_TICK_MS,
-  SNIPER_FIRE_INTERVAL_TICKS,
   WEAPON_SLOT_SHOTGUN,
   WEAPON_SLOT_SNIPER,
   type KillFeedEntry,
@@ -18,6 +16,10 @@ import {
   CyberSegBar,
   PingLabel,
 } from '../cyberTheme';
+import {
+  getRuntimeHudFrame,
+  subscribeRuntimeHudFrame,
+} from '../runtimeHudFrame';
 
 interface HudOverlayProps {
   localIdentity: string | null;
@@ -39,10 +41,8 @@ interface HudOverlayProps {
   nerdPingsEnabled: boolean;
   hitmarkerVisible: boolean;
   damageFlashToken: number;
-  crosshairSpread: number;
   scoped: boolean;
   selectedWeaponSlot: WeaponSlot;
-  sniperCooldownRemainingMs: number;
   networkReconnecting: boolean;
   networkReconnectAttempt: number;
   networkReconnectStartedAtMs: number | null;
@@ -109,6 +109,48 @@ function FeedItem({
   );
 }
 
+function SniperCooldownFill({
+  glowPx,
+}: {
+  glowPx: number;
+}): React.JSX.Element {
+  const fillRef = useRef<HTMLDivElement | null>(null);
+  useEffect(
+    () =>
+      subscribeRuntimeHudFrame((frame) => {
+        const fill = fillRef.current;
+        if (!fill) return;
+        const clamped = Math.max(0, Math.min(1, frame.sniperCooldownReady));
+        const readyColor = clamped >= 1 ? CYBER.ok : CYBER.warn;
+        fill.style.height = `${Math.round(clamped * 100)}%`;
+        fill.style.background = readyColor;
+        fill.style.boxShadow = `0 0 ${glowPx}px ${readyColor}`;
+      }),
+    [glowPx]
+  );
+  const initialReady = Math.max(
+    0,
+    Math.min(1, getRuntimeHudFrame().sniperCooldownReady)
+  );
+  const initialColor = initialReady >= 1 ? CYBER.ok : CYBER.warn;
+
+  return (
+    <div
+      ref={fillRef}
+      style={{
+        position: 'absolute',
+        left: 0,
+        right: 0,
+        bottom: 0,
+        height: `${Math.round(initialReady * 100)}%`,
+        background: initialColor,
+        boxShadow: `0 0 ${glowPx}px ${initialColor}`,
+        transition: 'height 0.06s linear',
+      }}
+    />
+  );
+}
+
 export function HudOverlay({
   localIdentity,
   health,
@@ -129,10 +171,8 @@ export function HudOverlay({
   nerdPingsEnabled,
   hitmarkerVisible,
   damageFlashToken,
-  crosshairSpread,
   scoped,
   selectedWeaponSlot,
-  sniperCooldownRemainingMs,
   networkReconnecting,
   networkReconnectAttempt,
   networkReconnectStartedAtMs,
@@ -183,11 +223,6 @@ export function HudOverlay({
       : selectedWeaponSlot === WEAPON_SLOT_SHOTGUN
         ? 'BREACH SHOTGUN'
         : 'PULSE RIFLE';
-  const sniperCooldownWindowMs = SNIPER_FIRE_INTERVAL_TICKS * SERVER_TICK_MS;
-  const sniperCooldownReady = Math.max(
-    0,
-    Math.min(1, 1 - sniperCooldownRemainingMs / sniperCooldownWindowMs)
-  );
   const reconnectElapsedSeconds =
     networkReconnecting && networkReconnectStartedAtMs != null
       ? Math.max(0, (nowMs - networkReconnectStartedAtMs) / 1000)
@@ -246,7 +281,6 @@ export function HudOverlay({
 
       <CyberCrosshair
         hitmarkerVisible={hitmarkerVisible}
-        spread={crosshairSpread}
         scoped={scoped}
       />
 
@@ -319,21 +353,7 @@ export function HudOverlay({
                 boxShadow: `0 0 12px ${CYBER.a}33`,
               }}
             >
-              <div
-                style={{
-                  position: 'absolute',
-                  left: 0,
-                  right: 0,
-                  bottom: 0,
-                  height: `${Math.round(sniperCooldownReady * 100)}%`,
-                  background: sniperCooldownReady >= 1 ? CYBER.ok : CYBER.warn,
-                  boxShadow:
-                    sniperCooldownReady >= 1
-                      ? `0 0 10px ${CYBER.ok}`
-                      : `0 0 10px ${CYBER.warn}`,
-                  transition: 'height 0.06s linear',
-                }}
-              />
+              <SniperCooldownFill glowPx={10} />
             </div>
           </div>
         </div>
@@ -710,22 +730,7 @@ export function HudOverlay({
                         overflow: 'hidden',
                       }}
                     >
-                      <div
-                        style={{
-                          position: 'absolute',
-                          left: 0,
-                          right: 0,
-                          bottom: 0,
-                          height: `${Math.round(sniperCooldownReady * 100)}%`,
-                          background:
-                            sniperCooldownReady >= 1 ? CYBER.ok : CYBER.warn,
-                          boxShadow:
-                            sniperCooldownReady >= 1
-                              ? `0 0 8px ${CYBER.ok}`
-                              : `0 0 8px ${CYBER.warn}`,
-                          transition: 'height 0.06s linear',
-                        }}
-                      />
+                      <SniperCooldownFill glowPx={8} />
                     </div>
                   </div>
                 )}

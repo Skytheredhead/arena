@@ -5,6 +5,7 @@ import {
   RIFLE_RESERVE_CAPACITY,
   RELOAD_DURATION_MS,
   SERVER_TICK_MS,
+  SNIPER_FIRE_INTERVAL_TICKS,
   WEAPON_SLOT_RIFLE,
   WEAPON_SLOT_SNIPER,
   WEAPON_SLOT_SHOTGUN,
@@ -24,7 +25,13 @@ import { InputController } from '../input/InputController';
 import { PredictionController } from '../player/PredictionController';
 import { GameRenderer } from '../rendering/GameRenderer';
 import { useGameStore } from '../state/gameStore';
-import { SnapshotBuffer } from '../netcode/interpolation';
+import {
+  BASE_REMOTE_INTERPOLATION_DELAY_MS,
+  SnapshotBuffer,
+  getAdaptiveRemoteInterpolationDelayMs,
+  updateRemoteBufferPressure as calculateRemoteBufferPressure,
+  type RemoteInterpolationSampleMode,
+} from '../netcode/interpolation';
 import {
   clampCorrectionOffset,
   getLocalCorrectionDeadzoneMeters,
@@ -39,6 +46,7 @@ import type { GraphicsQuality } from '../types/settings';
 import { AudioManager } from '../audio/AudioManager';
 import { getLatencyTailMs } from '../netcode/pingStats';
 import { isDamageEventCurrentForLocalPlayer } from '../netcode/damageEvents';
+import { publishRuntimeHudFrame } from '../ui/runtimeHudFrame';
 
 declare global {
   interface Window {
@@ -52,6 +60,10 @@ declare global {
       serverPipelineMs: number | null;
       serverOnePercentLowMs: number | null;
       remoteBuffers: Record<string, number>;
+      remoteInterpolationDelayMs: number;
+      remoteUnderrunMs: number;
+      remoteSampleModes: Record<string, RemoteInterpolationSampleMode>;
+      remoteBufferDepthMs: Record<string, number>;
       spamFire: (count?: number) => Promise<void>;
     };
   }
@@ -70,9 +82,8 @@ export class GameRuntime {
   private static readonly INGAME_PING_INTERVAL_MS = 250;
   private static readonly INGAME_PING_BACKGROUND_INTERVAL_MS = 1000;
   private static readonly REMOTE_BUFFER_STALE_MS = 1_800;
-  private static readonly MIN_REMOTE_INTERPOLATION_DELAY_MS = 32;
-  private static readonly MAX_REMOTE_INTERPOLATION_DELAY_MS = 90;
-  private static readonly BASE_REMOTE_INTERPOLATION_DELAY_MS = 42;
+  private static readonly REMOTE_BUFFER_PRESSURE_DECAY_PER_SECOND = 0.65;
+  private static readonly REMOTE_UNDERRUN_FULL_PRESSURE_MS = 140;
   private static readonly MAX_FRAME_DELTA_MS = 250;
   private static readonly MAX_FIXED_TICKS_PER_FRAME = 8;
   private static readonly INPUT_SEND_INTERVAL_MS = 16;
@@ -122,7 +133,12 @@ export class GameRuntime {
   private smoothedServerPipelineMs = 0;
   private lastAuthoritativePipelineMs = 0;
   private adaptiveInterpolationDelayMs =
-    GameRuntime.BASE_REMOTE_INTERPOLATION_DELAY_MS;
+    BASE_REMOTE_INTERPOLATION_DELAY_MS;
+  private remoteBufferPressure = 0;
+  private latestRemoteUnderrunMs = 0;
+  private latestRemoteSampleModes: Record<string, RemoteInterpolationSampleMode> =
+    {};
+  private latestRemoteBufferDepthMs: Record<string, number> = {};
   private lastPingUiUpdateAt = 0;
   private pingProbeTimer: ReturnType<typeof setTimeout> | null = null;
   private pingProbeInFlight = false;
@@ -319,7 +335,11 @@ export class GameRuntime {
     this.serverPipelineSamples.length = 0;
     this.smoothedServerPipelineMs = 0;
     this.adaptiveInterpolationDelayMs =
-      GameRuntime.BASE_REMOTE_INTERPOLATION_DELAY_MS;
+      BASE_REMOTE_INTERPOLATION_DELAY_MS;
+    this.remoteBufferPressure = 0;
+    this.latestRemoteUnderrunMs = 0;
+    this.latestRemoteSampleModes = {};
+    this.latestRemoteBufferDepthMs = {};
     this.lastPingUiUpdateAt = 0;
     this.preferAckPingSampling = false;
     this.cancelReload();
@@ -331,9 +351,12 @@ export class GameRuntime {
     this.deathViewState = null;
     this.sniperCooldownEndsAt = 0;
     this.renderErrorReported = false;
-    useGameStore.getState().setSniperCooldownRemainingMs(0);
     useGameStore.getState().setSelectedWeaponSlot(WEAPON_SLOT_RIFLE);
     useGameStore.getState().setNetworkReconnectState(false, 0, null);
+    publishRuntimeHudFrame({
+      crosshairSpread: 0,
+      sniperCooldownReady: 1,
+    });
     this.applyDisplayedAmmo();
   }
 
@@ -666,12 +689,16 @@ export class GameRuntime {
     store.setScoreboardOpen(frameInput.scoreboardHeld);
     store.setScoped(frameInput.scoped);
     store.setSelectedWeaponSlot(frameInput.weaponSlot);
+    let sniperCooldownReady = 1;
     if (frameInput.weaponSlot === WEAPON_SLOT_SNIPER) {
-      store.setSniperCooldownRemainingMs(
-        Math.max(0, this.sniperCooldownEndsAt - now)
+      const remainingMs = Math.max(0, this.sniperCooldownEndsAt - now);
+      sniperCooldownReady = Math.max(
+        0,
+        Math.min(
+          1,
+          1 - remainingMs / (SNIPER_FIRE_INTERVAL_TICKS * SERVER_TICK_MS)
+        )
       );
-    } else {
-      store.setSniperCooldownRemainingMs(0);
     }
 
     const predictedForLook = this.prediction?.getState();
@@ -691,11 +718,6 @@ export class GameRuntime {
       }
       if (look.yawDelta !== 0 || look.pitchDelta !== 0) {
         this.prediction.applyLook(look.yawDelta, look.pitchDelta);
-        const predicted = this.prediction.getState();
-        useGameStore.getState().setLocalPlayer({
-          yaw: predicted.yaw,
-          pitch: Math.max(-MAX_PITCH, Math.min(MAX_PITCH, predicted.pitch)),
-        });
       }
     }
 
@@ -721,6 +743,9 @@ export class GameRuntime {
     );
     const connectedRoomCode = useGameStore.getState().connectedRoomCode;
     const remotePlayers: RemotePlayerState[] = [];
+    const remoteSampleModes: Record<string, RemoteInterpolationSampleMode> = {};
+    const remoteBufferDepthMs: Record<string, number> = {};
+    let maxRemoteUnderrunMs = 0;
     for (const [identity, buffer] of this.remoteBuffers) {
       const meta = useGameStore.getState().players[identity];
       const staleBuffer =
@@ -738,10 +763,17 @@ export class GameRuntime {
         continue;
       }
 
-      const sample = buffer.sample(renderServerTimeMs);
-      if (!sample) {
+      const sampleResult = buffer.sampleWithMeta(renderServerTimeMs);
+      if (!sampleResult) {
         continue;
       }
+      remoteSampleModes[identity] = sampleResult.mode;
+      remoteBufferDepthMs[identity] = sampleResult.bufferDepthMs;
+      maxRemoteUnderrunMs = Math.max(
+        maxRemoteUnderrunMs,
+        sampleResult.underrunMs
+      );
+      const sample = sampleResult.state;
       if (
         connectedRoomCode &&
         sample.roomCode &&
@@ -755,6 +787,9 @@ export class GameRuntime {
       useGameStore.getState().upsertRemotePlayer(sample);
       remotePlayers.push(sample);
     }
+    this.latestRemoteSampleModes = remoteSampleModes;
+    this.latestRemoteBufferDepthMs = remoteBufferDepthMs;
+    this.updateRemoteBufferPressure(maxRemoteUnderrunMs, deltaSeconds);
 
     const currentLocal = this.getPresentedLocalState(deltaSeconds);
     const speed = Math.hypot(currentLocal.velocity.x, currentLocal.velocity.z);
@@ -807,9 +842,10 @@ export class GameRuntime {
           : frameInput.scoped
             ? Math.min(12, speed * 1.2)
             : Math.min(20, speed * 2.4);
-    useGameStore
-      .getState()
-      .setCrosshairSpread(Math.max(0, weaponSpread + this.crosshairKick));
+    publishRuntimeHudFrame({
+      crosshairSpread: Math.max(0, weaponSpread + this.crosshairKick),
+      sniperCooldownReady,
+    });
 
     const ammoPacks: AmmoPackView[] = Object.values(
       useGameStore.getState().ammoPacks
@@ -1239,20 +1275,32 @@ export class GameRuntime {
     return this.latestServerTimeMs + (now - this.latestServerObservedAt);
   }
 
+  private updateRemoteBufferPressure(
+    maxUnderrunMs: number,
+    deltaSeconds: number
+  ): void {
+    this.latestRemoteUnderrunMs = maxUnderrunMs;
+    this.remoteBufferPressure = calculateRemoteBufferPressure({
+      previousPressure: this.remoteBufferPressure,
+      maxUnderrunMs,
+      deltaSeconds,
+      fullPressureUnderrunMs: GameRuntime.REMOTE_UNDERRUN_FULL_PRESSURE_MS,
+      decayPerSecond: GameRuntime.REMOTE_BUFFER_PRESSURE_DECAY_PER_SECOND,
+    });
+  }
+
   private getAdaptiveInterpolationDelayMs(): number {
     const store = useGameStore.getState();
-    const ping = store.localPingMs ?? this.smoothedPingMs;
-    const jitter = store.localPingJitterMs ?? 0;
-    const reconnectPenalty = store.networkReconnecting ? 8 : 0;
-    const targetDelay = Math.max(
-      GameRuntime.MIN_REMOTE_INTERPOLATION_DELAY_MS,
-      Math.min(
-        GameRuntime.MAX_REMOTE_INTERPOLATION_DELAY_MS,
-        24 + ping * 0.18 + jitter * 1.4 + reconnectPenalty
-      )
-    );
+    const targetDelay = getAdaptiveRemoteInterpolationDelayMs({
+      pingMs: store.localPingMs ?? this.smoothedPingMs,
+      jitterMs: store.localPingJitterMs,
+      serverPipelineMs: store.serverPipelineMs ?? this.smoothedServerPipelineMs,
+      remoteBufferPressure: this.remoteBufferPressure,
+      reconnecting: store.networkReconnecting,
+    });
+    const blend = targetDelay > this.adaptiveInterpolationDelayMs ? 0.35 : 0.04;
     this.adaptiveInterpolationDelayMs =
-      this.adaptiveInterpolationDelayMs * 0.85 + targetDelay * 0.15;
+      this.adaptiveInterpolationDelayMs * (1 - blend) + targetDelay * blend;
     return this.adaptiveInterpolationDelayMs;
   }
 
@@ -1454,6 +1502,10 @@ export class GameRuntime {
           buffer.size(),
         ])
       ),
+      remoteInterpolationDelayMs: this.adaptiveInterpolationDelayMs,
+      remoteUnderrunMs: this.latestRemoteUnderrunMs,
+      remoteSampleModes: this.latestRemoteSampleModes,
+      remoteBufferDepthMs: this.latestRemoteBufferDepthMs,
       spamFire: async (count = 3) => {
         if (!this.bridge || !this.prediction) {
           return;
