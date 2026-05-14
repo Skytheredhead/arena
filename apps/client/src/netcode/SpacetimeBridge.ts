@@ -130,6 +130,7 @@ export class SpacetimeBridge {
   private connectionStage: ConnectionStage = 'idle';
   private schemaMismatchDetected = false;
   private connectionToken: string | undefined;
+  private malformedPlayerStateWarningReported = false;
 
   constructor(private readonly callbacks: BridgeCallbacks) {}
 
@@ -181,6 +182,7 @@ export class SpacetimeBridge {
     this.killFeedBaselineTickByRoom.clear();
     this.damageBaselineTickByRoom.clear();
     this.schemaMismatchDetected = false;
+    this.malformedPlayerStateWarningReported = false;
     this.clearStoredToken();
   }
 
@@ -690,10 +692,7 @@ export class SpacetimeBridge {
   }
 
   private handlePlayerStateRow(row: PlayerStateRow): void {
-    if (!this.isValidPlayerStateRow(row)) {
-      this.failSchemaMismatch(row);
-      return;
-    }
+    const normalized = this.normalizePlayerStateRow(row);
     const identity = identityToString(row.identity);
     const currentAmmo = Math.max(
       0,
@@ -702,21 +701,21 @@ export class SpacetimeBridge {
     const nowMs = performance.now();
     const state = {
       identity,
-      position: { x: row.x, y: row.y, z: row.z },
-      velocity: { x: row.velX, y: row.velY, z: row.velZ },
-      serverTick: row.serverTick,
-      serverTimeMs: row.serverTick * SERVER_TICK_MS,
-      inputPipelineMs: row.inputPipelineMs,
-      yaw: row.yaw,
-      pitch: row.pitch,
-      onGround: row.onGround,
-      sprinting: row.sprinting,
-      crouching: row.crouching,
-      alive: row.alive,
-      health: row.health,
+      position: normalized.position,
+      velocity: normalized.velocity,
+      serverTick: normalized.serverTick,
+      serverTimeMs: normalized.serverTick * SERVER_TICK_MS,
+      inputPipelineMs: normalized.inputPipelineMs,
+      yaw: normalized.yaw,
+      pitch: normalized.pitch,
+      onGround: normalized.onGround,
+      sprinting: normalized.sprinting,
+      crouching: normalized.crouching,
+      alive: normalized.alive,
+      health: normalized.health,
       ammo: currentAmmo,
-      lastProcessedInput: row.lastProcessedInput,
-      respawnTick: row.respawnTick,
+      lastProcessedInput: normalized.lastProcessedInput,
+      respawnTick: normalized.respawnTick,
     } satisfies LocalPlayerState;
 
     if (identity === this.localIdentity) {
@@ -1104,39 +1103,83 @@ export class SpacetimeBridge {
     this.callbacks.onConnectionStageChange?.(stage);
   }
 
-  private isValidPlayerStateRow(row: PlayerStateRow): boolean {
-    const finiteValues = [
-      row.x,
-      row.y,
-      row.z,
-      row.velX,
-      row.velY,
-      row.velZ,
-      row.yaw,
-      row.pitch,
-      row.regenProgress,
-    ];
-    if (finiteValues.some((value) => !Number.isFinite(value))) {
-      return false;
+  private normalizePlayerStateRow(row: PlayerStateRow): {
+    position: { x: number; y: number; z: number };
+    velocity: { x: number; y: number; z: number };
+    serverTick: number;
+    inputPipelineMs: number;
+    yaw: number;
+    pitch: number;
+    onGround: boolean;
+    sprinting: boolean;
+    crouching: boolean;
+    alive: boolean;
+    health: number;
+    lastProcessedInput: number;
+    respawnTick: number;
+  } {
+    const fallback = useGameStore.getState().localPlayer;
+    let sanitized = false;
+    const numberOr = (value: unknown, fallbackValue: number): number => {
+      if (typeof value === 'number' && Number.isFinite(value)) {
+        return value;
+      }
+      sanitized = true;
+      return fallbackValue;
+    };
+    const boolOr = (value: unknown, fallbackValue: boolean): boolean => {
+      if (typeof value === 'boolean') {
+        return value;
+      }
+      sanitized = true;
+      return fallbackValue;
+    };
+    const intOr = (
+      value: unknown,
+      fallbackValue: number,
+      max = Number.MAX_SAFE_INTEGER
+    ): number => Math.max(0, Math.min(max, Math.round(numberOr(value, fallbackValue))));
+
+    const normalized = {
+      position: {
+        x: numberOr(row.x, fallback.position.x),
+        y: numberOr(row.y, fallback.position.y),
+        z: numberOr(row.z, fallback.position.z),
+      },
+      velocity: {
+        x: numberOr(row.velX, fallback.velocity.x),
+        y: numberOr(row.velY, fallback.velocity.y),
+        z: numberOr(row.velZ, fallback.velocity.z),
+      },
+      serverTick: intOr(row.serverTick, fallback.serverTick),
+      inputPipelineMs: intOr(
+        row.inputPipelineMs,
+        fallback.inputPipelineMs,
+        MAX_REASONABLE_PIPELINE_MS
+      ),
+      yaw: numberOr(row.yaw, fallback.yaw),
+      pitch: Math.max(
+        -MAX_PITCH,
+        Math.min(MAX_PITCH, numberOr(row.pitch, fallback.pitch))
+      ),
+      onGround: boolOr(row.onGround, fallback.onGround),
+      sprinting: boolOr(row.sprinting, false),
+      crouching: boolOr(row.crouching, false),
+      alive: boolOr(row.alive, fallback.alive),
+      health: intOr(row.health, fallback.health, MAX_HEALTH),
+      lastProcessedInput: intOr(row.lastProcessedInput, fallback.lastProcessedInput),
+      respawnTick: intOr(row.respawnTick, fallback.respawnTick),
+    };
+
+    if (sanitized && !this.malformedPlayerStateWarningReported) {
+      this.malformedPlayerStateWarningReported = true;
+      console.warn(
+        'Received partial or malformed player_state data; sanitized row instead of blocking gameplay.',
+        row
+      );
     }
-    if (
-      !Number.isFinite(row.health) ||
-      row.health < 0 ||
-      row.health > MAX_HEALTH
-    ) {
-      return false;
-    }
-    if (Math.abs(row.pitch) > MAX_PITCH + 0.05) {
-      return false;
-    }
-    if (
-      !Number.isFinite(row.inputPipelineMs) ||
-      row.inputPipelineMs < 0 ||
-      row.inputPipelineMs > MAX_REASONABLE_PIPELINE_MS
-    ) {
-      return false;
-    }
-    return true;
+
+    return normalized;
   }
 
   private failSchemaMismatch(row: PlayerStateRow): void {
