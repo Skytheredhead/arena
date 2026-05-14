@@ -25,11 +25,11 @@ export default __t.row({
   health: __t.u16(),
   alive: __t.bool(),
   onGround: __t.bool().name('on_ground'),
-  sprinting: __t.bool(),
-  crouching: __t.bool(),
   lastDamageTick: __t.u32().name('last_damage_tick'),
   regenProgress: __t.f32().name('regen_progress'),
   lastProcessedInput: __t.u32().name('last_processed_input'),
   respawnTick: __t.u32().name('respawn_tick'),
   inputPipelineMs: __t.u32().name('input_pipeline_ms'),
+  sprinting: __t.bool(),
+  crouching: __t.bool(),
 });

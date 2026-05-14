@@ -436,12 +436,17 @@ pub struct PlayerInput {
     pitch: f32,
     jumping: bool,
     sprinting: bool,
-    crouching: bool,
-    scoped: bool,
-    fire_held: bool,
-    reload_pressed: bool,
-    weapon_slot: u8,
     last_received_tick: u32,
+    #[default(false)]
+    crouching: bool,
+    #[default(false)]
+    scoped: bool,
+    #[default(false)]
+    fire_held: bool,
+    #[default(false)]
+    reload_pressed: bool,
+    #[default(1)]
+    weapon_slot: u8,
 }
 
 #[table(accessor = player_rate_limit)]
@@ -474,16 +479,16 @@ pub struct PlayerState {
     health: u16,
     alive: bool,
     on_ground: bool,
-    #[default(false)]
-    sprinting: bool,
-    #[default(false)]
-    crouching: bool,
     last_damage_tick: u32,
     regen_progress: f32,
     last_processed_input: u32,
     respawn_tick: u32,
     #[default(0)]
     input_pipeline_ms: u32,
+    #[default(false)]
+    sprinting: bool,
+    #[default(false)]
+    crouching: bool,
 }
 
 #[table(accessor = weapon_state, public)]
@@ -492,6 +497,7 @@ pub struct WeaponState {
     identity: Identity,
     room_code: Option<String>,
     ammo_in_mag: u16,
+    next_ready_tick: u32,
     #[default(0)]
     reserve_ammo: u16,
     #[default(0)]
@@ -502,7 +508,6 @@ pub struct WeaponState {
     reloading: bool,
     #[default(1)]
     selected_weapon_slot: u8,
-    next_ready_tick: u32,
 }
 
 #[table(accessor = spawn_point, public)]

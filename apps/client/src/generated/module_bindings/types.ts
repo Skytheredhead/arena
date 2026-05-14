@@ -108,12 +108,12 @@ export const PlayerInput = __t.object('PlayerInput', {
   pitch: __t.f32(),
   jumping: __t.bool(),
   sprinting: __t.bool(),
+  lastReceivedTick: __t.u32(),
   crouching: __t.bool(),
   scoped: __t.bool(),
   fireHeld: __t.bool(),
   reloadPressed: __t.bool(),
   weaponSlot: __t.u8(),
-  lastReceivedTick: __t.u32(),
 });
 export type PlayerInput = __Infer<typeof PlayerInput>;
 
@@ -142,13 +142,13 @@ export const PlayerState = __t.object('PlayerState', {
   health: __t.u16(),
   alive: __t.bool(),
   onGround: __t.bool(),
-  sprinting: __t.bool(),
-  crouching: __t.bool(),
   lastDamageTick: __t.u32(),
   regenProgress: __t.f32(),
   lastProcessedInput: __t.u32(),
   respawnTick: __t.u32(),
   inputPipelineMs: __t.u32(),
+  sprinting: __t.bool(),
+  crouching: __t.bool(),
 });
 export type PlayerState = __Infer<typeof PlayerState>;
 
@@ -178,12 +178,12 @@ export const WeaponState = __t.object('WeaponState', {
   identity: __t.identity(),
   roomCode: __t.option(__t.string()),
   ammoInMag: __t.u16(),
+  nextReadyTick: __t.u32(),
   reserveAmmo: __t.u16(),
   reloadStartedTick: __t.u32(),
   reloadCompleteTick: __t.u32(),
   reloading: __t.bool(),
   selectedWeaponSlot: __t.u8(),
-  nextReadyTick: __t.u32(),
 });
 export type WeaponState = __Infer<typeof WeaponState>;
 
