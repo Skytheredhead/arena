@@ -8,11 +8,16 @@ import {
   t as __t,
   type AlgebraicTypeType as __AlgebraicTypeType,
   type Infer as __Infer,
-} from "spacetimedb";
+} from 'spacetimedb';
 
 export default __t.row({
   identity: __t.identity().primaryKey(),
-  roomCode: __t.option(__t.string()).name("room_code"),
-  ammoInMag: __t.u16().name("ammo_in_mag"),
-  nextReadyTick: __t.u32().name("next_ready_tick"),
+  roomCode: __t.option(__t.string()).name('room_code'),
+  ammoInMag: __t.u16().name('ammo_in_mag'),
+  reserveAmmo: __t.u16().name('reserve_ammo'),
+  reloadStartedTick: __t.u32().name('reload_started_tick'),
+  reloadCompleteTick: __t.u32().name('reload_complete_tick'),
+  reloading: __t.bool(),
+  selectedWeaponSlot: __t.u8().name('selected_weapon_slot'),
+  nextReadyTick: __t.u32().name('next_ready_tick'),
 });

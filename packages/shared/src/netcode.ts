@@ -1,19 +1,10 @@
 import { MAX_HEALTH, RIFLE_MAGAZINE } from './gameplay';
+export type { InputCommand } from './actions';
 
 export interface Vec3 {
   x: number;
   y: number;
   z: number;
-}
-
-export interface InputCommand {
-  sequence: number;
-  moveX: number;
-  moveZ: number;
-  yaw: number;
-  pitch: number;
-  jumping: boolean;
-  sprinting: boolean;
 }
 
 export interface LocalPlayerState {
@@ -26,6 +17,8 @@ export interface LocalPlayerState {
   yaw: number;
   pitch: number;
   onGround: boolean;
+  sprinting: boolean;
+  crouching: boolean;
   alive: boolean;
   health: number;
   ammo: number;
@@ -42,6 +35,8 @@ export interface RemotePlayerState {
   serverTimeMs: number;
   yaw: number;
   pitch: number;
+  sprinting: boolean;
+  crouching: boolean;
   alive: boolean;
   health: number;
   kills: number;
@@ -131,9 +126,11 @@ export const makeDefaultLocalPlayer = (): LocalPlayerState => ({
   yaw: 0,
   pitch: 0,
   onGround: true,
+  sprinting: false,
+  crouching: false,
   alive: true,
   health: MAX_HEALTH,
   ammo: RIFLE_MAGAZINE,
   lastProcessedInput: 0,
-  respawnTick: 0
+  respawnTick: 0,
 });

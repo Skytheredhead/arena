@@ -12,7 +12,7 @@ import {
   type HealthPackView,
   type ImpactMarkView,
   type LocalPlayerState,
-  type RemotePlayerState
+  type RemotePlayerState,
 } from '@arena/shared';
 import { createArena } from '../scene/createArena';
 import type { GraphicsQuality } from '../types/settings';
@@ -63,7 +63,9 @@ interface RemoteDeathFxState {
 }
 
 const isFiniteVec3 = (value: { x: number; y: number; z: number }): boolean =>
-  Number.isFinite(value.x) && Number.isFinite(value.y) && Number.isFinite(value.z);
+  Number.isFinite(value.x) &&
+  Number.isFinite(value.y) &&
+  Number.isFinite(value.z);
 
 export class GameRenderer {
   private readonly renderer: THREE.WebGLRenderer;
@@ -106,7 +108,7 @@ export class GameRenderer {
   constructor(private readonly mount: HTMLElement) {
     this.renderer = new THREE.WebGLRenderer({
       antialias: true,
-      powerPreference: 'high-performance'
+      powerPreference: 'high-performance',
     });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.2));
     this.renderer.setSize(mount.clientWidth, mount.clientHeight, false);
@@ -148,7 +150,11 @@ export class GameRenderer {
     this.rifleWeaponModel = this.createRifleWeaponModel();
     this.sniperWeaponModel = this.createSniperWeaponModel();
     this.shotgunWeaponModel = this.createShotgunWeaponModel();
-    this.weaponRig.add(this.rifleWeaponModel, this.sniperWeaponModel, this.shotgunWeaponModel);
+    this.weaponRig.add(
+      this.rifleWeaponModel,
+      this.sniperWeaponModel,
+      this.shotgunWeaponModel
+    );
     this.camera.add(this.weaponRig);
     this.camera.add(this.muzzleFlash);
     this.scene.add(this.camera);
@@ -184,15 +190,23 @@ export class GameRenderer {
     }
 
     this.graphicsQuality = quality;
-    const pixelRatioCap = quality === 'low' ? 0.9 : quality === 'medium' ? 1.2 : 1.5;
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, pixelRatioCap));
+    const pixelRatioCap =
+      quality === 'low' ? 0.9 : quality === 'medium' ? 1.2 : 1.5;
+    this.renderer.setPixelRatio(
+      Math.min(window.devicePixelRatio, pixelRatioCap)
+    );
     this.renderer.shadowMap.enabled = quality === 'high';
-    this.scene.fog = quality === 'low'
-      ? new THREE.Fog('#07111c', 16, 34)
-      : quality === 'medium'
-        ? new THREE.Fog('#07111c', 18, 42)
-        : new THREE.Fog('#07111c', 20, 52);
-    this.renderer.setSize(this.mount.clientWidth, this.mount.clientHeight, false);
+    this.scene.fog =
+      quality === 'low'
+        ? new THREE.Fog('#07111c', 16, 34)
+        : quality === 'medium'
+          ? new THREE.Fog('#07111c', 18, 42)
+          : new THREE.Fog('#07111c', 20, 52);
+    this.renderer.setSize(
+      this.mount.clientWidth,
+      this.mount.clientHeight,
+      false
+    );
   }
 
   setFov(fov: number): void {
@@ -220,62 +234,92 @@ export class GameRenderer {
     const material = new THREE.MeshStandardMaterial({
       color: '#202730',
       roughness: 0.48,
-      metalness: 0.42
+      metalness: 0.42,
     });
     const matte = new THREE.MeshStandardMaterial({
       color: '#12171d',
       roughness: 0.72,
-      metalness: 0.18
+      metalness: 0.18,
     });
     const accent = new THREE.MeshStandardMaterial({
       color: '#7f8ea4',
       roughness: 0.35,
-      metalness: 0.52
+      metalness: 0.52,
     });
 
-    const body = new THREE.Mesh(new THREE.BoxGeometry(0.11, 0.1, 0.58), material);
+    const body = new THREE.Mesh(
+      new THREE.BoxGeometry(0.11, 0.1, 0.58),
+      material
+    );
     body.position.set(0, 0.015, -0.08);
     body.castShadow = true;
     group.add(body);
 
-    const upper = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.08, 0.54), matte);
+    const upper = new THREE.Mesh(
+      new THREE.BoxGeometry(0.07, 0.08, 0.54),
+      matte
+    );
     upper.position.set(0, 0.065, -0.1);
     group.add(upper);
 
-    const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.016, 0.016, 0.5, 10), matte);
+    const barrel = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.016, 0.016, 0.5, 10),
+      matte
+    );
     barrel.rotation.x = Math.PI / 2;
     barrel.position.set(0, 0.055, -0.54);
     group.add(barrel);
 
-    const muzzle = new THREE.Mesh(new THREE.CylinderGeometry(0.019, 0.019, 0.05, 10), accent);
+    const muzzle = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.019, 0.019, 0.05, 10),
+      accent
+    );
     muzzle.rotation.x = Math.PI / 2;
     muzzle.position.set(0, 0.055, -0.8);
     group.add(muzzle);
 
-    const stock = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.11, 0.2), material);
+    const stock = new THREE.Mesh(
+      new THREE.BoxGeometry(0.12, 0.11, 0.2),
+      material
+    );
     stock.position.set(-0.02, 0.005, 0.23);
     stock.rotation.y = 0.12;
     group.add(stock);
 
-    const sight = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.03, 0.09), accent);
+    const sight = new THREE.Mesh(
+      new THREE.BoxGeometry(0.03, 0.03, 0.09),
+      accent
+    );
     sight.position.set(0, 0.115, -0.18);
     group.add(sight);
 
-    const rearSight = new THREE.Mesh(new THREE.BoxGeometry(0.028, 0.024, 0.042), accent);
+    const rearSight = new THREE.Mesh(
+      new THREE.BoxGeometry(0.028, 0.024, 0.042),
+      accent
+    );
     rearSight.position.set(0, 0.108, 0.04);
     group.add(rearSight);
 
-    const magazine = new THREE.Mesh(new THREE.BoxGeometry(0.052, 0.17, 0.074), matte);
+    const magazine = new THREE.Mesh(
+      new THREE.BoxGeometry(0.052, 0.17, 0.074),
+      matte
+    );
     magazine.position.set(0.0, -0.13, -0.02);
     magazine.rotation.z = 0.08;
     group.add(magazine);
 
-    const grip = new THREE.Mesh(new THREE.BoxGeometry(0.048, 0.15, 0.07), material);
+    const grip = new THREE.Mesh(
+      new THREE.BoxGeometry(0.048, 0.15, 0.07),
+      material
+    );
     grip.position.set(0.012, -0.13, 0.09);
     grip.rotation.z = 0.24;
     group.add(grip);
 
-    const rail = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.014, 0.42), accent);
+    const rail = new THREE.Mesh(
+      new THREE.BoxGeometry(0.02, 0.014, 0.42),
+      accent
+    );
     rail.position.set(0, 0.108, -0.26);
     group.add(rail);
 
@@ -288,29 +332,38 @@ export class GameRenderer {
     const body = new THREE.MeshStandardMaterial({
       color: '#242c35',
       roughness: 0.42,
-      metalness: 0.5
+      metalness: 0.5,
     });
     const matte = new THREE.MeshStandardMaterial({
       color: '#11161b',
       roughness: 0.72,
-      metalness: 0.2
+      metalness: 0.2,
     });
     const scopeMetal = new THREE.MeshStandardMaterial({
       color: '#8ea4bb',
       roughness: 0.3,
-      metalness: 0.62
+      metalness: 0.62,
     });
 
-    const receiver = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.09, 0.74), body);
+    const receiver = new THREE.Mesh(
+      new THREE.BoxGeometry(0.1, 0.09, 0.74),
+      body
+    );
     receiver.position.set(0, 0.02, -0.12);
     group.add(receiver);
 
-    const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.013, 0.013, 0.92, 12), matte);
+    const barrel = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.013, 0.013, 0.92, 12),
+      matte
+    );
     barrel.rotation.x = Math.PI / 2;
     barrel.position.set(0, 0.05, -0.86);
     group.add(barrel);
 
-    const muzzle = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, 0.06, 12), scopeMetal);
+    const muzzle = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.02, 0.02, 0.06, 12),
+      scopeMetal
+    );
     muzzle.rotation.x = Math.PI / 2;
     muzzle.position.set(0, 0.05, -1.33);
     group.add(muzzle);
@@ -320,22 +373,34 @@ export class GameRenderer {
     stock.rotation.y = 0.08;
     group.add(stock);
 
-    const grip = new THREE.Mesh(new THREE.BoxGeometry(0.045, 0.15, 0.075), matte);
+    const grip = new THREE.Mesh(
+      new THREE.BoxGeometry(0.045, 0.15, 0.075),
+      matte
+    );
     grip.position.set(0.015, -0.13, 0.08);
     grip.rotation.z = 0.2;
     group.add(grip);
 
-    const scope = new THREE.Mesh(new THREE.CylinderGeometry(0.034, 0.034, 0.5, 14), scopeMetal);
+    const scope = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.034, 0.034, 0.5, 14),
+      scopeMetal
+    );
     scope.rotation.x = Math.PI / 2;
     scope.position.set(0, 0.12, -0.28);
     group.add(scope);
 
-    const scopeFront = new THREE.Mesh(new THREE.CylinderGeometry(0.038, 0.038, 0.03, 14), scopeMetal);
+    const scopeFront = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.038, 0.038, 0.03, 14),
+      scopeMetal
+    );
     scopeFront.rotation.x = Math.PI / 2;
     scopeFront.position.set(0, 0.12, -0.52);
     group.add(scopeFront);
 
-    const scopeBack = new THREE.Mesh(new THREE.CylinderGeometry(0.038, 0.038, 0.03, 14), scopeMetal);
+    const scopeBack = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.038, 0.038, 0.03, 14),
+      scopeMetal
+    );
     scopeBack.rotation.x = Math.PI / 2;
     scopeBack.position.set(0, 0.12, -0.04);
     group.add(scopeBack);
@@ -349,39 +414,54 @@ export class GameRenderer {
     const body = new THREE.MeshStandardMaterial({
       color: '#2a3138',
       roughness: 0.58,
-      metalness: 0.34
+      metalness: 0.34,
     });
     const dark = new THREE.MeshStandardMaterial({
       color: '#13181f',
       roughness: 0.76,
-      metalness: 0.16
+      metalness: 0.16,
     });
     const wood = new THREE.MeshStandardMaterial({
       color: '#5f4430',
       roughness: 0.7,
-      metalness: 0.04
+      metalness: 0.04,
     });
 
-    const receiver = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.11, 0.42), body);
+    const receiver = new THREE.Mesh(
+      new THREE.BoxGeometry(0.12, 0.11, 0.42),
+      body
+    );
     receiver.position.set(0, 0.02, -0.02);
     group.add(receiver);
 
-    const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.015, 0.015, 0.74, 12), dark);
+    const barrel = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.015, 0.015, 0.74, 12),
+      dark
+    );
     barrel.rotation.x = Math.PI / 2;
     barrel.position.set(0, 0.05, -0.61);
     group.add(barrel);
 
-    const tube = new THREE.Mesh(new THREE.CylinderGeometry(0.013, 0.013, 0.62, 12), dark);
+    const tube = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.013, 0.013, 0.62, 12),
+      dark
+    );
     tube.rotation.x = Math.PI / 2;
     tube.position.set(0, 0.01, -0.54);
     group.add(tube);
 
-    const muzzle = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, 0.055, 12), body);
+    const muzzle = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.02, 0.02, 0.055, 12),
+      body
+    );
     muzzle.rotation.x = Math.PI / 2;
     muzzle.position.set(0, 0.05, -1.0);
     group.add(muzzle);
 
-    const foregrip = new THREE.Mesh(new THREE.BoxGeometry(0.085, 0.08, 0.18), wood);
+    const foregrip = new THREE.Mesh(
+      new THREE.BoxGeometry(0.085, 0.08, 0.18),
+      wood
+    );
     foregrip.position.set(0, -0.005, -0.41);
     group.add(foregrip);
 
@@ -403,20 +483,32 @@ export class GameRenderer {
     const bodyMaterial = new THREE.MeshStandardMaterial({
       color: '#272f38',
       roughness: 0.56,
-      metalness: 0.35
+      metalness: 0.35,
     });
     const darkMaterial = new THREE.MeshStandardMaterial({
       color: '#12151b',
       roughness: 0.72,
-      metalness: 0.16
+      metalness: 0.16,
     });
-    const barrel = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.04, 0.38), darkMaterial);
+    const barrel = new THREE.Mesh(
+      new THREE.BoxGeometry(0.04, 0.04, 0.38),
+      darkMaterial
+    );
     barrel.position.set(0, 0.015, -0.21);
-    const body = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.06, 0.24), bodyMaterial);
+    const body = new THREE.Mesh(
+      new THREE.BoxGeometry(0.07, 0.06, 0.24),
+      bodyMaterial
+    );
     body.position.set(0, 0, 0.02);
-    const stock = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.07, 0.12), bodyMaterial);
+    const stock = new THREE.Mesh(
+      new THREE.BoxGeometry(0.08, 0.07, 0.12),
+      bodyMaterial
+    );
     stock.position.set(-0.012, -0.004, 0.15);
-    const mag = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.08, 0.04), darkMaterial);
+    const mag = new THREE.Mesh(
+      new THREE.BoxGeometry(0.03, 0.08, 0.04),
+      darkMaterial
+    );
     mag.position.set(0.0, -0.07, 0.03);
     gun.add(barrel, body, stock, mag);
     return gun;
@@ -428,22 +520,22 @@ export class GameRenderer {
     const shirt = new THREE.MeshStandardMaterial({
       color: '#3f7fa3',
       roughness: 0.68,
-      metalness: 0.08
+      metalness: 0.08,
     });
     const skin = new THREE.MeshStandardMaterial({
       color: '#d1ad86',
       roughness: 0.82,
-      metalness: 0.02
+      metalness: 0.02,
     });
     const pants = new THREE.MeshStandardMaterial({
       color: '#324462',
       roughness: 0.74,
-      metalness: 0.04
+      metalness: 0.04,
     });
     const boots = new THREE.MeshStandardMaterial({
       color: '#2a313b',
       roughness: 0.8,
-      metalness: 0.05
+      metalness: 0.05,
     });
 
     const torso = new THREE.Mesh(new THREE.BoxGeometry(0.56, 0.74, 0.3), shirt);
@@ -463,7 +555,10 @@ export class GameRenderer {
 
     const leftArmPivot = new THREE.Group();
     leftArmPivot.position.set(-0.39, 1.44, 0);
-    const leftArm = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.62, 0.18), skin);
+    const leftArm = new THREE.Mesh(
+      new THREE.BoxGeometry(0.18, 0.62, 0.18),
+      skin
+    );
     leftArm.position.set(0, -0.31, 0);
     leftArm.castShadow = true;
     leftArm.receiveShadow = true;
@@ -472,7 +567,10 @@ export class GameRenderer {
 
     const rightArmPivot = new THREE.Group();
     rightArmPivot.position.set(0.37, 1.43, -0.02);
-    const rightArm = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.62, 0.18), skin);
+    const rightArm = new THREE.Mesh(
+      new THREE.BoxGeometry(0.18, 0.62, 0.18),
+      skin
+    );
     rightArm.position.set(0, -0.31, 0);
     rightArm.castShadow = true;
     rightArm.receiveShadow = true;
@@ -485,29 +583,41 @@ export class GameRenderer {
 
     const leftLegPivot = new THREE.Group();
     leftLegPivot.position.set(-0.16, 0.8, 0);
-    const leftLeg = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.78, 0.22), pants);
+    const leftLeg = new THREE.Mesh(
+      new THREE.BoxGeometry(0.22, 0.78, 0.22),
+      pants
+    );
     leftLeg.position.set(0, -0.39, 0);
     leftLeg.castShadow = true;
     leftLeg.receiveShadow = true;
-    const leftBoot = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.14, 0.26), boots);
+    const leftBoot = new THREE.Mesh(
+      new THREE.BoxGeometry(0.24, 0.14, 0.26),
+      boots
+    );
     leftBoot.position.set(0, -0.78, 0.02);
     leftLegPivot.add(leftLeg, leftBoot);
     root.add(leftLegPivot);
 
     const rightLegPivot = new THREE.Group();
     rightLegPivot.position.set(0.16, 0.8, 0);
-    const rightLeg = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.78, 0.22), pants);
+    const rightLeg = new THREE.Mesh(
+      new THREE.BoxGeometry(0.22, 0.78, 0.22),
+      pants
+    );
     rightLeg.position.set(0, -0.39, 0);
     rightLeg.castShadow = true;
     rightLeg.receiveShadow = true;
-    const rightBoot = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.14, 0.26), boots);
+    const rightBoot = new THREE.Mesh(
+      new THREE.BoxGeometry(0.24, 0.14, 0.26),
+      boots
+    );
     rightBoot.position.set(0, -0.78, 0.02);
     rightLegPivot.add(rightLeg, rightBoot);
     root.add(rightLegPivot);
 
     const materials: THREE.MeshStandardMaterial[] = [];
     const baseColors: number[] = [];
-    root.traverse(object => {
+    root.traverse((object) => {
       if (!(object instanceof THREE.Mesh)) {
         return;
       }
@@ -530,7 +640,7 @@ export class GameRenderer {
       leftLeg: leftLegPivot,
       rightLeg: rightLegPivot,
       materials,
-      baseColors
+      baseColors,
     };
   }
 
@@ -572,7 +682,7 @@ export class GameRenderer {
       metalness: 0.72,
       emissive: '#00f5ff',
       emissiveIntensity: 0.26,
-      transparent: true
+      transparent: true,
     });
     const tipMat = new THREE.MeshStandardMaterial({
       color: '#c6f6ff',
@@ -580,13 +690,19 @@ export class GameRenderer {
       metalness: 0.8,
       emissive: '#7ff7ff',
       emissiveIntensity: 0.2,
-      transparent: true
+      transparent: true,
     });
 
     for (let index = 0; index < 6; index += 1) {
       const bullet = new THREE.Group();
-      const casing = new THREE.Mesh(new THREE.CylinderGeometry(0.028, 0.028, 0.24, 12), casingMat);
-      const tip = new THREE.Mesh(new THREE.ConeGeometry(0.026, 0.08, 12), tipMat);
+      const casing = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.028, 0.028, 0.24, 12),
+        casingMat
+      );
+      const tip = new THREE.Mesh(
+        new THREE.ConeGeometry(0.026, 0.08, 12),
+        tipMat
+      );
       tip.position.y = 0.16;
       bullet.add(casing, tip);
       const row = Math.floor(index / 3);
@@ -606,11 +722,17 @@ export class GameRenderer {
       metalness: 0.28,
       emissive: '#52ffa2',
       emissiveIntensity: 0.2,
-      transparent: true
+      transparent: true,
     });
 
-    const vertical = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.34, 0.1), material);
-    const horizontal = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.1, 0.1), material);
+    const vertical = new THREE.Mesh(
+      new THREE.BoxGeometry(0.1, 0.34, 0.1),
+      material
+    );
+    const horizontal = new THREE.Mesh(
+      new THREE.BoxGeometry(0.34, 0.1, 0.1),
+      material
+    );
     group.add(vertical, horizontal);
     return group;
   }
@@ -666,7 +788,7 @@ export class GameRenderer {
         depthWrite: false,
         polygonOffset: true,
         polygonOffsetFactor: -2,
-        polygonOffsetUnits: -2
+        polygonOffsetUnits: -2,
       })
     );
     this.scene.add(mesh);
@@ -690,7 +812,7 @@ export class GameRenderer {
           color: index % 2 === 0 ? '#a01212' : '#d81f1f',
           transparent: true,
           opacity: 0.92,
-          depthWrite: false
+          depthWrite: false,
         })
       );
       sphere.position.set(
@@ -707,7 +829,7 @@ export class GameRenderer {
   }
 
   private setPickupOpacity(mesh: THREE.Group, opacity: number): void {
-    mesh.traverse(object => {
+    mesh.traverse((object) => {
       if (!(object instanceof THREE.Mesh)) {
         return;
       }
@@ -720,9 +842,11 @@ export class GameRenderer {
 
   render(frame: RenderFrameState): void {
     const safeImpactMarks = frame.impactMarks.filter(
-      mark => isFiniteVec3(mark.position) && isFiniteVec3(mark.normal)
+      (mark) => isFiniteVec3(mark.position) && isFiniteVec3(mark.normal)
     );
-    const safeBloodBursts = frame.bloodBursts.filter(burst => isFiniteVec3(burst.position));
+    const safeBloodBursts = frame.bloodBursts.filter((burst) =>
+      isFiniteVec3(burst.position)
+    );
     const now = performance.now();
     this.renderer.getDrawingBufferSize(this.drawingBufferSize);
     const fullWidth = this.drawingBufferSize.x;
@@ -735,7 +859,9 @@ export class GameRenderer {
       }
     }
     const walkBob = Math.sin(frame.walkPhase) * frame.walkIntensity * 0.032;
-    const crouchEyeOffset = frame.crouched ? PLAYER_EYE_HEIGHT - CROUCH_EYE_HEIGHT : 0;
+    const crouchEyeOffset = frame.crouched
+      ? PLAYER_EYE_HEIGHT - CROUCH_EYE_HEIGHT
+      : 0;
     this.targetCameraPosition.set(
       frame.localPlayer.position.x,
       frame.localPlayer.position.y + PLAYER_EYE_HEIGHT - crouchEyeOffset,
@@ -757,7 +883,8 @@ export class GameRenderer {
         ? Math.max(30, this.baseFov * 0.78)
         : this.baseFov;
     const nextFov =
-      this.camera.fov + (targetFov - this.camera.fov) * Math.min(1, frame.deltaSeconds * 14);
+      this.camera.fov +
+      (targetFov - this.camera.fov) * Math.min(1, frame.deltaSeconds * 14);
     if (Math.abs(nextFov - this.camera.fov) > 0.01) {
       this.camera.fov = nextFov;
       this.camera.updateProjectionMatrix();
@@ -774,10 +901,15 @@ export class GameRenderer {
     this.muzzleFlash.position.set(
       muzzleFlashX,
       muzzleFlashY,
-      frame.weaponSlot === WEAPON_SLOT_SNIPER ? -1.18 : frame.weaponSlot === WEAPON_SLOT_SHOTGUN ? -0.86 : -0.92
+      frame.weaponSlot === WEAPON_SLOT_SNIPER
+        ? -1.18
+        : frame.weaponSlot === WEAPON_SLOT_SHOTGUN
+          ? -0.86
+          : -0.92
     );
     const walkSwayX = Math.sin(frame.walkPhase) * frame.walkIntensity * 0.026;
-    const walkSwayY = Math.cos(frame.walkPhase * 2) * frame.walkIntensity * 0.014;
+    const walkSwayY =
+      Math.cos(frame.walkPhase * 2) * frame.walkIntensity * 0.014;
     const reloadTilt = frame.reloadProgress * 0.22;
     const reloadDrop = frame.reloadProgress * 0.08;
     this.weaponRig.rotation.x =
@@ -787,7 +919,7 @@ export class GameRenderer {
       reloadTilt * 0.35;
     this.weaponRig.rotation.y = 0;
     this.weaponRig.rotation.z = reloadTilt;
-    this.weaponRig.position.x = 0;
+    this.weaponRig.position.x = walkSwayX;
     this.weaponRig.position.y =
       (frame.scoped ? -0.16 : -0.23) +
       frame.recoil * 0.08 +
@@ -796,7 +928,9 @@ export class GameRenderer {
       frame.crouchAmount * 0.08;
     this.weaponRig.position.z = frame.scoped ? -0.48 : -0.62;
 
-    const activeIds = new Set(frame.remotePlayers.map(player => player.identity));
+    const activeIds = new Set(
+      frame.remotePlayers.map((player) => player.identity)
+    );
 
     for (const player of frame.remotePlayers) {
       const avatar = this.ensureRemoteMesh(player.identity);
@@ -804,8 +938,12 @@ export class GameRenderer {
       const speed = Math.hypot(player.velocity.x, player.velocity.z);
       const moveRatio = Math.max(0, Math.min(1, speed / WALK_SPEED));
       const stridePhase = now * 0.008 + player.identity.length * 0.47;
-      const strideSwing = player.alive ? Math.sin(stridePhase) * 0.78 * moveRatio : 0;
-      const armSwing = player.alive ? Math.sin(stridePhase + Math.PI) * 0.56 * moveRatio : 0;
+      const strideSwing = player.alive
+        ? Math.sin(stridePhase) * 0.78 * moveRatio
+        : 0;
+      const armSwing = player.alive
+        ? Math.sin(stridePhase + Math.PI) * 0.56 * moveRatio
+        : 0;
 
       if (player.alive) {
         const hadDeathFx = this.remoteDeathFx.has(player.identity);
@@ -817,21 +955,31 @@ export class GameRenderer {
           );
         }
         const teleportDistance = mesh.position.distanceToSquared(
-          new THREE.Vector3(player.position.x, player.position.y, player.position.z)
+          new THREE.Vector3(
+            player.position.x,
+            player.position.y,
+            player.position.z
+          )
         );
         if (
           mesh.visible &&
           teleportDistance >
-            GameRenderer.REMOTE_TELEPORT_DISTANCE * GameRenderer.REMOTE_TELEPORT_DISTANCE
+            GameRenderer.REMOTE_TELEPORT_DISTANCE *
+              GameRenderer.REMOTE_TELEPORT_DISTANCE
         ) {
           this.remoteTeleportHideUntil.set(
             player.identity,
             now + GameRenderer.REMOTE_TELEPORT_HIDE_MS
           );
         }
-        const hiddenUntil = this.remoteTeleportHideUntil.get(player.identity) ?? 0;
+        const hiddenUntil =
+          this.remoteTeleportHideUntil.get(player.identity) ?? 0;
         this.resetRemoteAvatarAppearance(avatar);
-        mesh.position.set(player.position.x, player.position.y, player.position.z);
+        mesh.position.set(
+          player.position.x,
+          player.position.y,
+          player.position.z
+        );
         mesh.rotation.set(0, player.yaw, 0);
         avatar.head.rotation.x = player.pitch * 0.35;
         avatar.leftLeg.rotation.x = strideSwing;
@@ -850,8 +998,12 @@ export class GameRenderer {
       if (!deathFx) {
         deathFx = {
           startedAt: now,
-          position: new THREE.Vector3(player.position.x, player.position.y, player.position.z),
-          yaw: player.yaw
+          position: new THREE.Vector3(
+            player.position.x,
+            player.position.y,
+            player.position.z
+          ),
+          yaw: player.yaw,
         };
         this.remoteDeathFx.set(player.identity, deathFx);
       }
@@ -867,9 +1019,10 @@ export class GameRenderer {
         Math.min(1, deathAgeMs / GameRenderer.REMOTE_DEATH_FALL_MS)
       );
       const easedFall = 1 - Math.pow(1 - fallProgress, 3);
-      const tintProgress = deathAgeMs <= 220
-        ? 0.65 + Math.abs(Math.sin(deathAgeMs * 0.11)) * 0.35
-        : 0.55;
+      const tintProgress =
+        deathAgeMs <= 220
+          ? 0.65 + Math.abs(Math.sin(deathAgeMs * 0.11)) * 0.35
+          : 0.55;
       const alpha =
         deathAgeMs <= GameRenderer.REMOTE_DEATH_FADE_START_MS
           ? 1
@@ -906,7 +1059,7 @@ export class GameRenderer {
       }
     }
 
-    const activePackIds = new Set(frame.ammoPacks.map(pack => pack.id));
+    const activePackIds = new Set(frame.ammoPacks.map((pack) => pack.id));
     for (const pack of frame.ammoPacks) {
       const mesh = this.ensureAmmoPackMesh(pack.id);
       const wasActive = this.ammoPackActiveState.get(pack.id) ?? false;
@@ -925,7 +1078,11 @@ export class GameRenderer {
       const fadeAlpha = Math.min(1, Math.max(0, (now - activatedAt) / 280));
       this.setPickupOpacity(mesh, fadeAlpha);
       const bob = Math.sin((now + pack.id * 137) * 0.0018) * 0.06;
-      mesh.position.set(pack.position.x, pack.position.y + 0.36 + bob, pack.position.z);
+      mesh.position.set(
+        pack.position.x,
+        pack.position.y + 0.36 + bob,
+        pack.position.z
+      );
       mesh.rotation.y += frame.deltaSeconds * 0.55;
     }
     for (const [id, mesh] of this.ammoPackMeshes) {
@@ -936,7 +1093,9 @@ export class GameRenderer {
       }
     }
 
-    const activeHealthPackIds = new Set(frame.healthPacks.map(pack => pack.id));
+    const activeHealthPackIds = new Set(
+      frame.healthPacks.map((pack) => pack.id)
+    );
     for (const pack of frame.healthPacks) {
       const mesh = this.ensureHealthPackMesh(pack.id);
       const wasActive = this.healthPackActiveState.get(pack.id) ?? false;
@@ -955,7 +1114,11 @@ export class GameRenderer {
       const fadeAlpha = Math.min(1, Math.max(0, (now - activatedAt) / 280));
       this.setPickupOpacity(mesh, fadeAlpha);
       const bob = Math.sin((now + pack.id * 211) * 0.0017) * 0.05;
-      mesh.position.set(pack.position.x, pack.position.y + 0.48 + bob, pack.position.z);
+      mesh.position.set(
+        pack.position.x,
+        pack.position.y + 0.48 + bob,
+        pack.position.z
+      );
       mesh.rotation.y += frame.deltaSeconds * 0.45;
     }
     for (const [id, mesh] of this.healthPackMeshes) {
@@ -968,7 +1131,10 @@ export class GameRenderer {
 
     const activeImpactIds = new Set<number>();
     for (const mark of safeImpactMarks) {
-      const markAgeMs = Math.max(0, frame.estimatedServerTimeMs - mark.tick * SERVER_TICK_MS);
+      const markAgeMs = Math.max(
+        0,
+        frame.estimatedServerTimeMs - mark.tick * SERVER_TICK_MS
+      );
       if (markAgeMs >= GameRenderer.IMPACT_MARK_LIFETIME_MS) {
         continue;
       }
@@ -979,17 +1145,25 @@ export class GameRenderer {
         mark.position.y + mark.normal.y * 0.02,
         mark.position.z + mark.normal.z * 0.02
       );
-      const normal = new THREE.Vector3(mark.normal.x, mark.normal.y, mark.normal.z).normalize();
+      const normal = new THREE.Vector3(
+        mark.normal.x,
+        mark.normal.y,
+        mark.normal.z
+      ).normalize();
       mesh.quaternion.setFromUnitVectors(this.decalUp, normal);
       mesh.rotateZ(mark.id * 0.371);
       const markMaterial = mesh.material as THREE.MeshBasicMaterial;
-      const fadeStart = GameRenderer.IMPACT_MARK_LIFETIME_MS - GameRenderer.IMPACT_MARK_FADE_WINDOW_MS;
+      const fadeStart =
+        GameRenderer.IMPACT_MARK_LIFETIME_MS -
+        GameRenderer.IMPACT_MARK_FADE_WINDOW_MS;
       const fadeAlpha =
         markAgeMs <= fadeStart
           ? 1
           : Math.max(
               0,
-              1 - (markAgeMs - fadeStart) / GameRenderer.IMPACT_MARK_FADE_WINDOW_MS
+              1 -
+                (markAgeMs - fadeStart) /
+                  GameRenderer.IMPACT_MARK_FADE_WINDOW_MS
             );
       markMaterial.opacity = 0.92 * fadeAlpha;
       activeImpactIds.add(mark.id);
@@ -1000,10 +1174,16 @@ export class GameRenderer {
       }
     }
 
-    const activeBloodIds = new Set(safeBloodBursts.map(burst => burst.id));
+    const activeBloodIds = new Set(safeBloodBursts.map((burst) => burst.id));
     for (const burst of safeBloodBursts) {
       const mesh = this.ensureBloodBurstMesh(burst.id);
-      const life = Math.max(0, Math.min(1, (now - burst.createdAt) / (burst.expiresAt - burst.createdAt)));
+      const life = Math.max(
+        0,
+        Math.min(
+          1,
+          (now - burst.createdAt) / (burst.expiresAt - burst.createdAt)
+        )
+      );
       mesh.visible = true;
       mesh.position.set(
         burst.position.x,
@@ -1011,7 +1191,7 @@ export class GameRenderer {
         burst.position.z
       );
       mesh.scale.setScalar(1 + life * 0.35);
-      mesh.traverse(object => {
+      mesh.traverse((object) => {
         if (!(object instanceof THREE.Mesh)) {
           return;
         }
@@ -1029,15 +1209,25 @@ export class GameRenderer {
       const canvasRect = this.renderer.domElement.getBoundingClientRect();
       const cssWidth = Math.max(1, canvasRect.width);
       const cssHeight = Math.max(1, canvasRect.height);
-      const viewportWidth = typeof window === 'undefined' ? cssWidth : window.innerWidth;
-      const viewportHeight = typeof window === 'undefined' ? cssHeight : window.innerHeight;
-      const scopeSizeCss = Math.round(Math.min(viewportWidth, viewportHeight) * 0.62);
+      const viewportWidth =
+        typeof window === 'undefined' ? cssWidth : window.innerWidth;
+      const viewportHeight =
+        typeof window === 'undefined' ? cssHeight : window.innerHeight;
+      const scopeSizeCss = Math.round(
+        Math.min(viewportWidth, viewportHeight) * 0.62
+      );
       const desiredCenterX = viewportWidth * 0.5 - canvasRect.left;
       const desiredCenterY = viewportHeight * 0.5 - canvasRect.top;
       const unclampedLeftCss = Math.round(desiredCenterX - scopeSizeCss * 0.5);
       const unclampedTopCss = Math.round(desiredCenterY - scopeSizeCss * 0.5);
-      const scopeLeftCss = Math.max(0, Math.min(cssWidth - scopeSizeCss, unclampedLeftCss));
-      const scopeTopCss = Math.max(0, Math.min(cssHeight - scopeSizeCss, unclampedTopCss));
+      const scopeLeftCss = Math.max(
+        0,
+        Math.min(cssWidth - scopeSizeCss, unclampedLeftCss)
+      );
+      const scopeTopCss = Math.max(
+        0,
+        Math.min(cssHeight - scopeSizeCss, unclampedTopCss)
+      );
       const bufferScaleX = fullWidth / cssWidth;
       const bufferScaleY = fullHeight / cssHeight;
       const scopeWidth = Math.max(1, Math.round(scopeSizeCss * bufferScaleX));
@@ -1057,7 +1247,12 @@ export class GameRenderer {
       this.camera.aspect = scopeWidth / scopeHeight;
       this.camera.updateProjectionMatrix();
       this.renderer.clearDepth();
-      this.renderer.setViewport(scopeLeft, scopeBottom, scopeWidth, scopeHeight);
+      this.renderer.setViewport(
+        scopeLeft,
+        scopeBottom,
+        scopeWidth,
+        scopeHeight
+      );
       this.renderer.setScissor(scopeLeft, scopeBottom, scopeWidth, scopeHeight);
       this.renderer.setScissorTest(true);
       this.renderer.render(this.scene, this.camera);

@@ -1,11 +1,14 @@
 import {
   MAX_PITCH,
   MAX_HEALTH,
+  RIFLE_CLIP_SIZE,
+  RIFLE_CARRY_CAPACITY,
   RIFLE_FIRE_INTERVAL_TICKS,
-  RIFLE_MAGAZINE,
+  RIFLE_RESERVE_CAPACITY,
   SERVER_TICK_MS,
   SHOTGUN_FIRE_INTERVAL_TICKS,
   SNIPER_FIRE_INTERVAL_TICKS,
+  WEAPON_SLOT_RIFLE,
   WEAPON_SLOT_SHOTGUN,
   WEAPON_SLOT_SNIPER,
   type WeaponSlot,
@@ -16,7 +19,8 @@ import {
   type InputCommand,
   type LocalPlayerState,
   type MatchView,
-  type RemotePlayerState
+  type RemotePlayerState,
+  type WeaponSnapshot,
 } from '@arena/shared';
 import { useGameStore } from '../state/gameStore';
 import { SPACETIMEDB_DATABASE, getSpacetimeUriCandidates } from '../utils/env';
@@ -25,12 +29,9 @@ import { readAuthSessionToken } from './authClient';
 import { shouldAcceptDamageEventForRoom } from './damageEvents';
 import {
   CONNECTION_STAGE_LABEL,
-  type ConnectionStage
+  type ConnectionStage,
 } from './connectionProgress';
-import {
-  DbConnection,
-  tables
-} from '../generated/module_bindings';
+import { DbConnection, tables } from '../generated/module_bindings';
 import AmmoPackTable from '../generated/module_bindings/ammo_pack_table';
 import ChatEventTable from '../generated/module_bindings/chat_event_table';
 import DamageEventTable from '../generated/module_bindings/damage_event_table';
@@ -99,7 +100,7 @@ interface BridgeCallbacks {
   onImpactMark: (mark: ImpactMarkView) => void;
   onImpactMarkRemoved: (id: number) => void;
   onServerTick: (serverTimeMs: number) => void;
-  onWeaponAmmo: (ammo: number) => void;
+  onWeaponState: (weapon: WeaponSnapshot) => void;
   onReconnectStateChange: (state: {
     reconnecting: boolean;
     attempt: number;
@@ -114,7 +115,7 @@ export class SpacetimeBridge {
   private localIdentity = '';
   private activeRoomCode: string | null = null;
   private latestWeaponTick = -1;
-  private latestWeaponAmmo = -1;
+  private latestWeaponSignature = '';
   private latestLocalState: LocalPlayerState | null = null;
   private suppressDisconnectEvents = false;
   private localArrivalOffsetMs = 0;
@@ -139,16 +140,16 @@ export class SpacetimeBridge {
     this.lastConnectOptions = {
       nickname: options.nickname,
       roomCode: options.roomCode,
-      createRoom: false
+      createRoom: false,
     };
     this.callbacks.onReconnectStateChange({
       reconnecting: false,
       attempt: 0,
-      startedAtMs: null
+      startedAtMs: null,
     });
     await this.connectInternal(options, {
       setConnectingStatus: true,
-      setErrorStatusOnFailure: true
+      setErrorStatusOnFailure: true,
     });
   }
 
@@ -160,7 +161,7 @@ export class SpacetimeBridge {
     this.callbacks.onReconnectStateChange({
       reconnecting: false,
       attempt: 0,
-      startedAtMs: null
+      startedAtMs: null,
     });
     if (this.connection) {
       this.suppressDisconnectEvents = true;
@@ -171,7 +172,7 @@ export class SpacetimeBridge {
     this.localIdentity = '';
     this.activeRoomCode = null;
     this.latestWeaponTick = -1;
-    this.latestWeaponAmmo = -1;
+    this.latestWeaponSignature = '';
     this.latestLocalState = null;
     this.localArrivalOffsetMs = 0;
     this.localArrivalOffsetInitialized = false;
@@ -187,7 +188,7 @@ export class SpacetimeBridge {
     options: ConnectOptions,
     {
       setConnectingStatus,
-      setErrorStatusOnFailure
+      setErrorStatusOnFailure,
     }: {
       setConnectingStatus: boolean;
       setErrorStatusOnFailure: boolean;
@@ -199,7 +200,7 @@ export class SpacetimeBridge {
     }
     this.activeRoomCode = options.roomCode;
     this.latestWeaponTick = -1;
-    this.latestWeaponAmmo = -1;
+    this.latestWeaponSignature = '';
     this.latestLocalState = null;
     const endpointCandidates = getSpacetimeUriCandidates();
     const failures: string[] = [];
@@ -223,40 +224,38 @@ export class SpacetimeBridge {
   }
 
   async submitInput(command: InputCommand): Promise<void> {
-    await this.runReducer(connection =>
+    await this.runReducer((connection) =>
       connection.reducers.submitInput({
         sequence: command.sequence,
         moveX: command.moveX,
         moveZ: command.moveZ,
         yaw: command.yaw,
         pitch: command.pitch,
-        jumping: command.jumping,
-        sprinting: command.sprinting
+        jumping: command.jumpHeld,
+        sprinting: command.sprintHeld,
+        crouching: command.crouchHeld,
+        scoped: command.scoped,
+        fireHeld: command.fireHeld,
+        reloadPressed: command.reloadPressed,
+        weaponSlot: command.weaponSlot,
       })
     );
   }
 
-  async fireWeapon(
-    yaw: number,
-    pitch: number,
-    scoped: boolean,
-    weaponSlot: WeaponSlot
-  ): Promise<void> {
-    await this.runReducer(connection =>
-      connection.reducers.fireWeapon({ yaw, pitch, scoped, weaponSlot })
+  async requestRespawn(): Promise<void> {
+    await this.runReducer((connection) =>
+      connection.reducers.requestRespawn({})
     );
   }
 
-  async requestRespawn(): Promise<void> {
-    await this.runReducer(connection => connection.reducers.requestRespawn({}));
-  }
-
   async sendChatMessage(message: string): Promise<void> {
-    await this.runReducer(connection => connection.reducers.sendChatMessage({ message }));
+    await this.runReducer((connection) =>
+      connection.reducers.sendChatMessage({ message })
+    );
   }
 
   async ping(): Promise<void> {
-    await this.runReducer(connection => connection.reducers.ping({}));
+    await this.runReducer((connection) => connection.reducers.ping({}));
   }
 
   private readStoredToken(): string | undefined {
@@ -314,7 +313,10 @@ export class SpacetimeBridge {
     this.damageBaselineTickByRoom.clear();
   }
 
-  private async connectWithUri(uri: string, options: ConnectOptions): Promise<void> {
+  private async connectWithUri(
+    uri: string,
+    options: ConnectOptions
+  ): Promise<void> {
     const storedToken = this.readStoredToken();
 
     try {
@@ -406,7 +408,7 @@ export class SpacetimeBridge {
                     tables.health_pack,
                     tables.impact_mark,
                     tables.kill_feed_event,
-                    tables.damage_event
+                    tables.damage_event,
                   ])
               );
 
@@ -460,7 +462,9 @@ export class SpacetimeBridge {
     }
     const reconnectOptions = this.lastConnectOptions;
     if (!reconnectOptions) {
-      useGameStore.getState().setConnection(reason ? 'error' : 'disconnected', reason ?? null);
+      useGameStore
+        .getState()
+        .setConnection(reason ? 'error' : 'disconnected', reason ?? null);
       this.callbacks.onDisconnected(reason);
       return;
     }
@@ -471,7 +475,7 @@ export class SpacetimeBridge {
     this.callbacks.onReconnectStateChange({
       reconnecting: true,
       attempt,
-      startedAtMs
+      startedAtMs,
     });
 
     while (this.autoReconnectEnabled && loopId === this.reconnectLoopId) {
@@ -482,12 +486,12 @@ export class SpacetimeBridge {
       this.callbacks.onReconnectStateChange({
         reconnecting: true,
         attempt,
-        startedAtMs
+        startedAtMs,
       });
       try {
         await this.connectInternal(reconnectOptions, {
           setConnectingStatus: false,
-          setErrorStatusOnFailure: false
+          setErrorStatusOnFailure: false,
         });
         if (!this.autoReconnectEnabled || loopId !== this.reconnectLoopId) {
           return;
@@ -495,14 +499,16 @@ export class SpacetimeBridge {
         this.callbacks.onReconnectStateChange({
           reconnecting: false,
           attempt: 0,
-          startedAtMs: null
+          startedAtMs: null,
         });
         return;
       } catch {
         if (performance.now() - startedAtMs >= RECONNECT_WINDOW_MS) {
           break;
         }
-        await new Promise(resolve => window.setTimeout(resolve, RECONNECT_RETRY_INTERVAL_MS));
+        await new Promise((resolve) =>
+          window.setTimeout(resolve, RECONNECT_RETRY_INTERVAL_MS)
+        );
       }
     }
 
@@ -512,7 +518,7 @@ export class SpacetimeBridge {
     this.callbacks.onReconnectStateChange({
       reconnecting: false,
       attempt: 0,
-      startedAtMs: null
+      startedAtMs: null,
     });
     const message = reason
       ? `Disconnected from server (${reason}). Unable to reconnect.`
@@ -524,46 +530,89 @@ export class SpacetimeBridge {
   private installListeners(connection: DbConnection): void {
     connection.db.room.onInsert((_ctx, row) => this.handleRoomRow(row));
     connection.db.room.onUpdate((_ctx, row) => this.handleRoomRow(row));
-    connection.db.room.onDelete((_ctx, row) => useGameStore.getState().removeRoom(row.code));
+    connection.db.room.onDelete((_ctx, row) =>
+      useGameStore.getState().removeRoom(row.code)
+    );
     connection.db.player.onInsert((_ctx, row) => this.handlePlayerRow(row));
     connection.db.player.onUpdate((_ctx, row) => this.handlePlayerRow(row));
-    connection.db.player.onDelete((_ctx, row) => this.handlePlayerDeleteRow(row));
-    connection.db.player_state.onInsert((_ctx, row) => this.handlePlayerStateRow(row));
-    connection.db.player_state.onUpdate((_ctx, row) => this.handlePlayerStateRow(row));
-    connection.db.weapon_state.onInsert((_ctx, row) => this.handleWeaponStateRow(row));
-    connection.db.weapon_state.onUpdate((_ctx, row) => this.handleWeaponStateRow(row));
-    connection.db.match_state.onInsert((_ctx, row) => this.handleMatchStateRow(row));
-    connection.db.match_state.onUpdate((_ctx, row) => this.handleMatchStateRow(row));
+    connection.db.player.onDelete((_ctx, row) =>
+      this.handlePlayerDeleteRow(row)
+    );
+    connection.db.player_state.onInsert((_ctx, row) =>
+      this.handlePlayerStateRow(row)
+    );
+    connection.db.player_state.onUpdate((_ctx, row) =>
+      this.handlePlayerStateRow(row)
+    );
+    connection.db.weapon_state.onInsert((_ctx, row) =>
+      this.handleWeaponStateRow(row)
+    );
+    connection.db.weapon_state.onUpdate((_ctx, row) =>
+      this.handleWeaponStateRow(row)
+    );
+    connection.db.match_state.onInsert((_ctx, row) =>
+      this.handleMatchStateRow(row)
+    );
+    connection.db.match_state.onUpdate((_ctx, row) =>
+      this.handleMatchStateRow(row)
+    );
     connection.db.match_state.onDelete((_ctx, row) => {
       if (!this.isTrackedRoom(row.roomCode)) return;
       useGameStore.getState().setMatch(null);
     });
-    connection.db.ammo_pack.onInsert((_ctx, row) => this.handleAmmoPackRow(row));
-    connection.db.ammo_pack.onUpdate((_ctx, row) => this.handleAmmoPackRow(row));
-    connection.db.ammo_pack.onDelete((_ctx, row) => useGameStore.getState().removeAmmoPack(row.id));
-    connection.db.chat_event.onInsert((_ctx, row) => this.handleChatEventRow(row));
-    connection.db.chat_event.onUpdate((_ctx, row) => this.handleChatEventRow(row));
-    connection.db.health_pack.onInsert((_ctx, row) => this.handleHealthPackRow(row));
-    connection.db.health_pack.onUpdate((_ctx, row) => this.handleHealthPackRow(row));
+    connection.db.ammo_pack.onInsert((_ctx, row) =>
+      this.handleAmmoPackRow(row)
+    );
+    connection.db.ammo_pack.onUpdate((_ctx, row) =>
+      this.handleAmmoPackRow(row)
+    );
+    connection.db.ammo_pack.onDelete((_ctx, row) =>
+      useGameStore.getState().removeAmmoPack(row.id)
+    );
+    connection.db.chat_event.onInsert((_ctx, row) =>
+      this.handleChatEventRow(row)
+    );
+    connection.db.chat_event.onUpdate((_ctx, row) =>
+      this.handleChatEventRow(row)
+    );
+    connection.db.health_pack.onInsert((_ctx, row) =>
+      this.handleHealthPackRow(row)
+    );
+    connection.db.health_pack.onUpdate((_ctx, row) =>
+      this.handleHealthPackRow(row)
+    );
     connection.db.health_pack.onDelete((_ctx, row) =>
       useGameStore.getState().removeHealthPack(row.id)
     );
-    connection.db.impact_mark.onInsert((_ctx, row) => this.handleImpactMarkRow(row));
-    connection.db.impact_mark.onUpdate((_ctx, row) => this.handleImpactMarkRow(row));
-    connection.db.impact_mark.onDelete((_ctx, row) => this.callbacks.onImpactMarkRemoved(row.id));
-    connection.db.kill_feed_event.onInsert((_ctx, row) => this.handleKillFeedRow(row));
-    connection.db.damage_event.onInsert((_ctx, row) => this.handleDamageEventRow(row));
+    connection.db.impact_mark.onInsert((_ctx, row) =>
+      this.handleImpactMarkRow(row)
+    );
+    connection.db.impact_mark.onUpdate((_ctx, row) =>
+      this.handleImpactMarkRow(row)
+    );
+    connection.db.impact_mark.onDelete((_ctx, row) =>
+      this.callbacks.onImpactMarkRemoved(row.id)
+    );
+    connection.db.kill_feed_event.onInsert((_ctx, row) =>
+      this.handleKillFeedRow(row)
+    );
+    connection.db.damage_event.onInsert((_ctx, row) =>
+      this.handleDamageEventRow(row)
+    );
   }
 
   private handleRoomRow(row: RoomRow): void {
     useGameStore.getState().upsertRoom({
       code: row.code,
       playerCount: row.playerCount,
-      active: row.active
+      active: row.active,
     });
   }
 
-  private async bootstrap(connection: DbConnection, options: ConnectOptions): Promise<void> {
+  private async bootstrap(
+    connection: DbConnection,
+    options: ConnectOptions
+  ): Promise<void> {
     this.chatBaselineTickByRoom.set(
       options.roomCode,
       this.getRoomEventBaselineTick(
@@ -574,14 +623,18 @@ export class SpacetimeBridge {
     this.killFeedBaselineTickByRoom.set(
       options.roomCode,
       this.getRoomEventBaselineTick(
-        Array.from(connection.db.kill_feed_event.iter() as Iterable<KillFeedEventRow>),
+        Array.from(
+          connection.db.kill_feed_event.iter() as Iterable<KillFeedEventRow>
+        ),
         options.roomCode
       )
     );
     this.damageBaselineTickByRoom.set(
       options.roomCode,
       this.getRoomEventBaselineTick(
-        Array.from(connection.db.damage_event.iter() as Iterable<DamageEventRow>),
+        Array.from(
+          connection.db.damage_event.iter() as Iterable<DamageEventRow>
+        ),
         options.roomCode
       )
     );
@@ -594,7 +647,9 @@ export class SpacetimeBridge {
         .catch(() => undefined);
     }
     this.setConnectionStage('joining_room');
-    await connection.reducers.setNickname({ nickname: options.nickname || 'Pilot' });
+    await connection.reducers.setNickname({
+      nickname: options.nickname || 'Pilot',
+    });
     if (options.createRoom) {
       await connection.reducers.createRoom({ roomCode: options.roomCode });
     }
@@ -613,7 +668,7 @@ export class SpacetimeBridge {
       kills: row.kills,
       deaths: row.deaths,
       connected: row.connected,
-      roomCode: row.roomCode ?? null
+      roomCode: row.roomCode ?? null,
     });
 
     if (identity !== this.localIdentity && (!row.connected || !row.roomCode)) {
@@ -640,7 +695,10 @@ export class SpacetimeBridge {
       return;
     }
     const identity = identityToString(row.identity);
-    const currentAmmo = Math.max(0, Math.min(RIFLE_MAGAZINE, useGameStore.getState().localPlayer.ammo));
+    const currentAmmo = Math.max(
+      0,
+      Math.min(RIFLE_CARRY_CAPACITY, useGameStore.getState().localPlayer.ammo)
+    );
     const nowMs = performance.now();
     const state = {
       identity,
@@ -652,11 +710,13 @@ export class SpacetimeBridge {
       yaw: row.yaw,
       pitch: row.pitch,
       onGround: row.onGround,
+      sprinting: row.sprinting,
+      crouching: row.crouching,
       alive: row.alive,
       health: row.health,
       ammo: currentAmmo,
       lastProcessedInput: row.lastProcessedInput,
-      respawnTick: row.respawnTick
+      respawnTick: row.respawnTick,
     } satisfies LocalPlayerState;
 
     if (identity === this.localIdentity) {
@@ -686,8 +746,10 @@ export class SpacetimeBridge {
       serverTimeMs: state.serverTimeMs,
       yaw: state.yaw,
       pitch: state.pitch,
+      sprinting: state.sprinting,
+      crouching: state.crouching,
       alive: state.alive,
-      health: state.health
+      health: state.health,
     });
   }
 
@@ -701,16 +763,22 @@ export class SpacetimeBridge {
       this.localArrivalOffsetInitialized = true;
       return;
     }
-    this.localArrivalOffsetMs = this.localArrivalOffsetMs * 0.88 + sample * 0.12;
+    this.localArrivalOffsetMs =
+      this.localArrivalOffsetMs * 0.88 + sample * 0.12;
   }
 
-  private updateRemotePingEstimate(identity: string, serverTimeMs: number, nowMs: number): void {
+  private updateRemotePingEstimate(
+    identity: string,
+    serverTimeMs: number,
+    nowMs: number
+  ): void {
     const sample = nowMs - serverTimeMs;
     if (!Number.isFinite(sample)) {
       return;
     }
     const previous = this.remoteArrivalOffsetMs.get(identity);
-    const smoothed = previous == null ? sample : previous * 0.88 + sample * 0.12;
+    const smoothed =
+      previous == null ? sample : previous * 0.88 + sample * 0.12;
     this.remoteArrivalOffsetMs.set(identity, smoothed);
 
     if (!this.localArrivalOffsetInitialized) {
@@ -719,7 +787,9 @@ export class SpacetimeBridge {
     const store = useGameStore.getState();
     const localPing = store.localPingMs ?? 48;
     const relativeDelta = smoothed - this.localArrivalOffsetMs;
-    const estimatedPing = Math.round(Math.max(8, Math.min(380, localPing + relativeDelta)));
+    const estimatedPing = Math.round(
+      Math.max(8, Math.min(380, localPing + relativeDelta))
+    );
     store.setPlayerPing(identity, estimatedPing);
   }
 
@@ -731,26 +801,47 @@ export class SpacetimeBridge {
     const store = useGameStore.getState();
     const tick = row.nextReadyTick;
     const previousTick = this.latestWeaponTick;
-    const normalizedAmmo = Math.max(0, Math.min(RIFLE_MAGAZINE, row.ammoInMag));
-    const previousAmmo = this.latestWeaponAmmo;
+    const snapshot: WeaponSnapshot = {
+      selectedWeaponSlot:
+        row.selectedWeaponSlot === WEAPON_SLOT_SNIPER ||
+        row.selectedWeaponSlot === WEAPON_SLOT_SHOTGUN
+          ? row.selectedWeaponSlot
+          : WEAPON_SLOT_RIFLE,
+      ammoInMag: Math.max(0, Math.min(RIFLE_CLIP_SIZE, row.ammoInMag)),
+      reserveAmmo: Math.max(
+        0,
+        Math.min(RIFLE_RESERVE_CAPACITY, row.reserveAmmo)
+      ),
+      reloading: row.reloading,
+      reloadStartedTick: row.reloadStartedTick,
+      reloadCompleteTick: row.reloadCompleteTick,
+      nextReadyTick: row.nextReadyTick,
+    };
+    const signature = JSON.stringify(snapshot);
     const isStaleTick = tick < previousTick;
 
-    if (isStaleTick && normalizedAmmo <= previousAmmo) {
+    if (isStaleTick && signature === this.latestWeaponSignature) {
       return;
     }
-    if (!isStaleTick && tick === previousTick && previousAmmo === normalizedAmmo) {
+    if (
+      !isStaleTick &&
+      tick === previousTick &&
+      this.latestWeaponSignature === signature
+    ) {
       return;
     }
 
     this.latestWeaponTick = Math.max(previousTick, tick);
-    this.latestWeaponAmmo = normalizedAmmo;
-    const currentAmmo = Math.max(0, Math.min(RIFLE_MAGAZINE, store.localPlayer.ammo));
-    if (normalizedAmmo !== currentAmmo) {
-      store.setLocalPlayer({ ammo: normalizedAmmo });
+    this.latestWeaponSignature = signature;
+    const totalAmmo = snapshot.ammoInMag + snapshot.reserveAmmo;
+    const currentAmmo = Math.max(
+      0,
+      Math.min(RIFLE_CARRY_CAPACITY, store.localPlayer.ammo)
+    );
+    if (totalAmmo !== currentAmmo) {
+      store.setLocalPlayer({ ammo: totalAmmo });
     }
-    if (normalizedAmmo !== previousAmmo) {
-      this.callbacks.onWeaponAmmo(normalizedAmmo);
-    }
+    this.callbacks.onWeaponState(snapshot);
   }
 
   private handleMatchStateRow(row: MatchStateRow): void {
@@ -763,7 +854,7 @@ export class SpacetimeBridge {
       active: row.active,
       tick: row.tick,
       remainingMs: row.remainingMs,
-      round: row.round
+      round: row.round,
     };
     this.callbacks.onServerTick(row.tick * SERVER_TICK_MS);
     useGameStore.getState().setMatch(match);
@@ -787,7 +878,7 @@ export class SpacetimeBridge {
       kind: 'kill',
       senderNickname: row.attackerNickname,
       message: `eliminated ${row.victimNickname}`,
-      tick: performance.now()
+      tick: performance.now(),
     });
 
     if (identityToString(row.victimIdentity) === this.localIdentity) {
@@ -814,7 +905,7 @@ export class SpacetimeBridge {
       kind: 'chat',
       senderNickname: row.senderNickname,
       message: row.message,
-      tick: performance.now()
+      tick: performance.now(),
     });
   }
 
@@ -828,7 +919,7 @@ export class SpacetimeBridge {
       roomCode: row.roomCode,
       position: { x: row.x, y: row.y, z: row.z },
       active: row.active,
-      respawnTick: row.respawnTick
+      respawnTick: row.respawnTick,
     };
     useGameStore.getState().upsertAmmoPack(view);
   }
@@ -843,7 +934,7 @@ export class SpacetimeBridge {
       roomCode: row.roomCode,
       position: { x: row.x, y: row.y, z: row.z },
       active: row.active,
-      respawnTick: row.respawnTick
+      respawnTick: row.respawnTick,
     };
     useGameStore.getState().upsertHealthPack(view);
   }
@@ -855,7 +946,9 @@ export class SpacetimeBridge {
         roomCode: row.roomCode,
         tick: row.tick,
         trackedRoomCode: trackedRoom,
-        baselineTick: trackedRoom ? this.damageBaselineTickByRoom.get(trackedRoom) : undefined
+        baselineTick: trackedRoom
+          ? this.damageBaselineTickByRoom.get(trackedRoom)
+          : undefined,
       })
     ) {
       return;
@@ -868,7 +961,7 @@ export class SpacetimeBridge {
       victimIdentity: identityToString(row.victimIdentity),
       amount: row.amount,
       tick: row.tick,
-      causedDeath: row.causedDeath
+      causedDeath: row.causedDeath,
     };
 
     if (event.attackerIdentity === this.localIdentity) {
@@ -890,7 +983,7 @@ export class SpacetimeBridge {
       roomCode: row.roomCode,
       position: { x: row.x, y: row.y, z: row.z },
       normal: { x: row.normalX, y: row.normalY, z: row.normalZ },
-      tick: row.tick
+      tick: row.tick,
     });
   }
 
@@ -908,7 +1001,7 @@ export class SpacetimeBridge {
     T extends {
       roomCode: string;
       tick: number;
-    }
+    },
   >(events: T[], roomCode: string): number {
     let baseline = 0;
     for (const event of events) {
@@ -928,9 +1021,7 @@ export class SpacetimeBridge {
       return true;
     }
     const deathTransition =
-      previous.alive &&
-      !next.alive &&
-      next.respawnTick >= previous.respawnTick;
+      previous.alive && !next.alive && next.respawnTick >= previous.respawnTick;
     if (deathTransition) {
       return true;
     }
@@ -938,7 +1029,8 @@ export class SpacetimeBridge {
     if (!previous.alive) {
       const respawnTransition =
         next.alive &&
-        ((next.respawnTick > previous.respawnTick && next.health >= previous.health) ||
+        ((next.respawnTick > previous.respawnTick &&
+          next.health >= previous.health) ||
           (next.respawnTick === previous.respawnTick &&
             next.serverTick > previous.serverTick &&
             next.health >= MAX_HEALTH));
@@ -988,7 +1080,7 @@ export class SpacetimeBridge {
       velocity: { x: 0, y: 0, z: 0 },
       serverTick,
       serverTimeMs: serverTick * SERVER_TICK_MS,
-      respawnTick: Math.max(source.respawnTick, tick)
+      respawnTick: Math.max(source.respawnTick, tick),
     };
     this.latestLocalState = forcedState;
     this.callbacks.onLocalState(forcedState);
@@ -1022,12 +1114,16 @@ export class SpacetimeBridge {
       row.velZ,
       row.yaw,
       row.pitch,
-      row.regenProgress
+      row.regenProgress,
     ];
-    if (finiteValues.some(value => !Number.isFinite(value))) {
+    if (finiteValues.some((value) => !Number.isFinite(value))) {
       return false;
     }
-    if (!Number.isFinite(row.health) || row.health < 0 || row.health > MAX_HEALTH) {
+    if (
+      !Number.isFinite(row.health) ||
+      row.health < 0 ||
+      row.health > MAX_HEALTH
+    ) {
       return false;
     }
     if (Math.abs(row.pitch) > MAX_PITCH + 0.05) {
@@ -1052,7 +1148,7 @@ export class SpacetimeBridge {
     this.callbacks.onReconnectStateChange({
       reconnecting: false,
       attempt: 0,
-      startedAtMs: null
+      startedAtMs: null,
     });
     const message =
       'Received invalid player_state data from the backend. Frontend bindings are out of sync with the published SpacetimeDB schema. Regenerate bindings and redeploy the client.';

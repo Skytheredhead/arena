@@ -36,6 +36,7 @@ const CROUCH_HITBOX_HALF: f32 = 0.36;
 const CROUCH_EYE_HEIGHT: f32 = 1.2;
 
 const WALK_SPEED: f32 = 6.4;
+const SPRINT_SPEED: f32 = 8.4;
 const CROUCH_SPEED: f32 = 3.4;
 const GROUND_ACCELERATION: f32 = 30.0;
 const AIR_ACCELERATION: f32 = 5.0;
@@ -50,7 +51,10 @@ const KILL_AMMO_REWARD: u16 = 10;
 const RIFLE_DAMAGE: u16 = 10;
 const RIFLE_FIRE_INTERVAL_TICKS: u32 = 7;
 const RIFLE_RANGE: f32 = 80.0;
-const RIFLE_MAGAZINE: u16 = 40;
+const RIFLE_CLIP_SIZE: u16 = 10;
+const RIFLE_CARRY_CAPACITY: u16 = 40;
+const RIFLE_RESERVE_CAPACITY: u16 = RIFLE_CARRY_CAPACITY - RIFLE_CLIP_SIZE;
+const RELOAD_DURATION_TICKS: u32 = 59;
 const HEADSHOT_MULTIPLIER: u16 = 2;
 const WEAPON_SLOT_RIFLE: u8 = 1;
 const WEAPON_SLOT_SNIPER: u8 = 2;
@@ -432,6 +436,11 @@ pub struct PlayerInput {
     pitch: f32,
     jumping: bool,
     sprinting: bool,
+    crouching: bool,
+    scoped: bool,
+    fire_held: bool,
+    reload_pressed: bool,
+    weapon_slot: u8,
     last_received_tick: u32,
 }
 
@@ -465,6 +474,10 @@ pub struct PlayerState {
     health: u16,
     alive: bool,
     on_ground: bool,
+    #[default(false)]
+    sprinting: bool,
+    #[default(false)]
+    crouching: bool,
     last_damage_tick: u32,
     regen_progress: f32,
     last_processed_input: u32,
@@ -479,6 +492,16 @@ pub struct WeaponState {
     identity: Identity,
     room_code: Option<String>,
     ammo_in_mag: u16,
+    #[default(0)]
+    reserve_ammo: u16,
+    #[default(0)]
+    reload_started_tick: u32,
+    #[default(0)]
+    reload_complete_tick: u32,
+    #[default(false)]
+    reloading: bool,
+    #[default(1)]
+    selected_weapon_slot: u8,
     next_ready_tick: u32,
 }
 
@@ -646,6 +669,8 @@ pub fn client_connected(ctx: &ReducerContext) {
             health: MAX_HEALTH,
             alive: true,
             on_ground: true,
+            sprinting: false,
+            crouching: false,
             last_damage_tick: current_tick,
             regen_progress: 0.0,
             last_processed_input: 0,
@@ -663,7 +688,12 @@ pub fn client_connected(ctx: &ReducerContext) {
         ctx.db.weapon_state().insert(WeaponState {
             identity: ctx.sender(),
             room_code: None,
-            ammo_in_mag: RIFLE_MAGAZINE,
+            ammo_in_mag: RIFLE_CLIP_SIZE,
+            reserve_ammo: RIFLE_RESERVE_CAPACITY,
+            reload_started_tick: 0,
+            reload_complete_tick: 0,
+            reloading: false,
+            selected_weapon_slot: WEAPON_SLOT_RIFLE,
             next_ready_tick: current_tick,
         });
     }
@@ -1015,13 +1045,20 @@ pub fn join_room(ctx: &ReducerContext, room_code: String) -> Result<(), String> 
     state.alive = true;
     state.health = MAX_HEALTH;
     state.on_ground = true;
+    state.sprinting = false;
+    state.crouching = false;
     state.last_damage_tick = current_tick(ctx);
     state.regen_progress = 0.0;
     state.last_processed_input = 0;
     state.respawn_tick = current_tick(ctx);
 
     weapon.room_code = Some(room_code.clone());
-    weapon.ammo_in_mag = RIFLE_MAGAZINE;
+    weapon.ammo_in_mag = RIFLE_CLIP_SIZE;
+    weapon.reserve_ammo = RIFLE_RESERVE_CAPACITY;
+    weapon.reload_started_tick = 0;
+    weapon.reload_complete_tick = 0;
+    weapon.reloading = false;
+    weapon.selected_weapon_slot = WEAPON_SLOT_RIFLE;
     weapon.next_ready_tick = current_tick(ctx);
 
     reset_player_input(ctx, ctx.sender(), current_tick(ctx));
@@ -1120,6 +1157,11 @@ pub fn submit_input(
     pitch: f32,
     jumping: bool,
     sprinting: bool,
+    crouching: bool,
+    scoped: bool,
+    fire_held: bool,
+    reload_pressed: bool,
+    weapon_slot: u8,
 ) -> Result<(), String> {
     require_room_membership(ctx, ctx.sender())?;
     if !inputs_are_finite([move_x, move_z, yaw, pitch]) {
@@ -1137,6 +1179,11 @@ pub fn submit_input(
     input.pitch = pitch.clamp(-MAX_PITCH, MAX_PITCH);
     input.jumping = jumping;
     input.sprinting = sprinting;
+    input.crouching = crouching;
+    input.scoped = scoped;
+    input.fire_held = fire_held;
+    input.reload_pressed = reload_pressed;
+    input.weapon_slot = normalize_weapon_slot(weapon_slot);
     input.last_received_tick = current_tick(ctx);
 
     ctx.db.player_input().identity().update(input);
@@ -1191,7 +1238,7 @@ pub fn fire_weapon(
     });
 
     let spread = 0.0;
-    let shooter_crouching = shooter_input.sprinting;
+    let shooter_crouching = shooter_input.crouching;
     let rewind_ticks = estimate_hit_rewind_ticks(&shooter_input, tick);
     let eye_height = if shooter_crouching {
         CROUCH_EYE_HEIGHT
@@ -1236,14 +1283,7 @@ pub fn fire_weapon(
             }
 
             let position = rewind_player_for_hit(&target, rewind_ticks);
-            let crouching = ctx
-                .db
-                .player_input()
-                .identity()
-                .find(target.identity)
-                .map(|input| input.sprinting)
-                .unwrap_or(false);
-            if let Some(hit) = ray_hits_player(origin, direction, position, crouching) {
+            if let Some(hit) = ray_hits_player(origin, direction, position, target.crouching) {
                 if hit.distance <= spec.max_range {
                     match best_hit {
                         Some((_, best)) if best.distance <= hit.distance => {}
@@ -1304,6 +1344,179 @@ pub fn fire_weapon(
     }
 
     apply_weapon_cooldown(ctx, weapon, tick, spec.fire_interval_ticks);
+    Ok(())
+}
+
+fn process_weapon_action(
+    ctx: &ReducerContext,
+    state: &PlayerState,
+    input: &PlayerInput,
+    tick: u32,
+) -> Result<(), String> {
+    if !state.alive {
+        return Ok(());
+    }
+
+    let player = require_player(ctx, state.identity)?;
+    let mut weapon = require_weapon_state(ctx, state.identity)?;
+    let Some(room_code) = state.room_code.clone() else {
+        return Ok(());
+    };
+    if !room_membership_is_consistent(
+        player.room_code.as_deref(),
+        state.room_code.as_deref(),
+        weapon.room_code.as_deref(),
+    ) {
+        return Ok(());
+    }
+
+    let match_state = match ctx.db.match_state().room_code().find(room_code.clone()) {
+        Some(match_state) => match_state,
+        None => return Ok(()),
+    };
+    if !match_state.active {
+        return Ok(());
+    }
+
+    weapon.selected_weapon_slot = normalize_weapon_slot(input.weapon_slot);
+    complete_reload_if_ready(&mut weapon, tick);
+
+    if input.reload_pressed {
+        start_reload_if_possible(&mut weapon, tick);
+    }
+
+    if !input.fire_held || weapon.reloading {
+        ctx.db.weapon_state().identity().update(weapon);
+        return Ok(());
+    }
+
+    let weapon_kind = weapon_kind_from_slot(weapon.selected_weapon_slot);
+    let spec = weapon_spec(weapon_kind);
+    if !can_fire_weapon_at_tick(weapon.next_ready_tick, tick) {
+        ctx.db.weapon_state().identity().update(weapon);
+        return Ok(());
+    }
+    if weapon.ammo_in_mag == 0 {
+        ctx.db.weapon_state().identity().update(weapon);
+        return Ok(());
+    }
+
+    bump_stat_for_identity(ctx, state.identity, |stats| {
+        stats.shots_fired = stats.shots_fired.saturating_add(1);
+    });
+
+    weapon.reloading = false;
+    weapon.reload_started_tick = 0;
+    weapon.reload_complete_tick = 0;
+    weapon.ammo_in_mag = weapon.ammo_in_mag.saturating_sub(1);
+    weapon.next_ready_tick = tick + spec.fire_interval_ticks;
+    ctx.db.weapon_state().identity().update(weapon);
+
+    let spread = 0.0;
+    let eye_height = if state.crouching {
+        CROUCH_EYE_HEIGHT
+    } else {
+        PLAYER_EYE_HEIGHT
+    };
+    let origin = Vec3 {
+        x: state.x,
+        y: state.y + eye_height,
+        z: state.z,
+    };
+    let rewind_ticks = estimate_hit_rewind_ticks(input, tick);
+    let mut impact_marks: Vec<(f32, Vec3, Vec3)> = Vec::with_capacity(spec.pellet_count as usize);
+
+    for pellet_index in 0..spec.pellet_count {
+        let base_seed = tick as f32 * 0.197
+            + state.x * 1.31
+            + state.z * 2.17
+            + state.yaw * 0.97
+            + pellet_index as f32 * 9.83
+            + weapon_slot_seed(input.weapon_slot);
+        let yaw_offset = (hash01(base_seed) - 0.5) * 2.0 * spread;
+        let pitch_offset = (hash01(base_seed + 17.13) - 0.5) * 2.0 * spread;
+
+        let aim_yaw = input.yaw + yaw_offset;
+        let aim_pitch = (input.pitch + pitch_offset).clamp(-MAX_PITCH, MAX_PITCH);
+        let direction = direction_from_yaw_pitch(aim_yaw, aim_pitch);
+        let block_hit = ray_hits_environment(origin, direction);
+
+        let mut best_hit: Option<(Identity, PlayerHit)> = None;
+        for target in ctx.db.player_state().iter() {
+            if target.identity == state.identity || !target.alive {
+                continue;
+            }
+            let Some(target_player) = ctx.db.player().identity().find(target.identity) else {
+                continue;
+            };
+            if !target_player.connected {
+                continue;
+            }
+            if target.room_code.as_deref() != Some(room_code.as_str()) {
+                continue;
+            }
+
+            let position = rewind_player_for_hit(&target, rewind_ticks);
+            if let Some(hit) = ray_hits_player(origin, direction, position, target.crouching) {
+                if hit.distance <= spec.max_range {
+                    match best_hit {
+                        Some((_, best)) if best.distance <= hit.distance => {}
+                        _ => best_hit = Some((target.identity, hit)),
+                    }
+                }
+            }
+        }
+
+        if let Some((victim_identity, victim_hit)) = best_hit {
+            if let Some(block) = block_hit {
+                if block.distance < victim_hit.distance {
+                    impact_marks.push((
+                        block.distance,
+                        point_along_ray(origin, direction, block.distance),
+                        block.normal,
+                    ));
+                    continue;
+                }
+            }
+
+            let headshot_bonus = if victim_hit.headshot {
+                HEADSHOT_MULTIPLIER
+            } else {
+                1
+            };
+            let damage = spec
+                .pellet_damage
+                .saturating_mul(headshot_bonus)
+                .min(MAX_HEALTH.saturating_mul(2));
+            apply_damage(
+                ctx,
+                room_code.clone(),
+                state.identity,
+                victim_identity,
+                damage,
+            )?;
+            continue;
+        }
+
+        if let Some(block) = block_hit {
+            impact_marks.push((
+                block.distance,
+                point_along_ray(origin, direction, block.distance),
+                block.normal,
+            ));
+        }
+    }
+
+    impact_marks.sort_by(|left, right| left.0.total_cmp(&right.0));
+    let max_marks_to_insert = if matches!(weapon_kind, WeaponKind::Shotgun) {
+        spec.pellet_count as usize
+    } else {
+        1
+    };
+    for (_, impact_position, impact_normal) in impact_marks.into_iter().take(max_marks_to_insert) {
+        insert_impact_mark(ctx, &room_code, impact_position, impact_normal, tick);
+    }
+
     Ok(())
 }
 
@@ -1395,21 +1608,45 @@ pub fn sim_tick(ctx: &ReducerContext, _schedule: SimTickSchedule) -> Result<(), 
                 move_z: 0.0,
                 jumping: false,
                 sprinting: false,
+                crouching: false,
+                scoped: false,
+                fire_held: false,
+                reload_pressed: false,
                 ..input
             }
         } else {
             input
         };
 
-        let updated = simulate_movement_tick(state, effective_input);
-        let mut updated = updated;
-        apply_passive_regen(&mut updated, tick);
-        ctx.db.player_state().identity().update(PlayerState {
+        let mut updated = PlayerState {
             room_code: Some(room_code),
             server_tick: tick,
             input_pipeline_ms,
-            ..updated
-        });
+            ..simulate_movement_tick(state, effective_input)
+        };
+        apply_passive_regen(&mut updated, tick);
+        ctx.db.player_state().identity().update(updated);
+    }
+
+    let weapon_states: Vec<PlayerState> = ctx.db.player_state().iter().collect();
+    for state in weapon_states {
+        if !state.alive {
+            continue;
+        }
+        let input = match ctx.db.player_input().identity().find(state.identity) {
+            Some(input) => input,
+            None => continue,
+        };
+        let effective_input = if tick.saturating_sub(input.last_received_tick) > INPUT_STALE_TICKS {
+            PlayerInput {
+                fire_held: false,
+                reload_pressed: false,
+                ..input
+            }
+        } else {
+            input
+        };
+        process_weapon_action(ctx, &state, &effective_input, tick)?;
     }
 
     process_ammo_packs(ctx, tick);
@@ -2171,12 +2408,60 @@ struct WeaponSpec {
 }
 
 fn weapon_kind_from_slot(slot: u8) -> WeaponKind {
-    match slot {
+    match normalize_weapon_slot(slot) {
         WEAPON_SLOT_RIFLE => WeaponKind::Rifle,
         WEAPON_SLOT_SNIPER => WeaponKind::Sniper,
         WEAPON_SLOT_SHOTGUN => WeaponKind::Shotgun,
         _ => WeaponKind::Rifle,
     }
+}
+
+fn normalize_weapon_slot(slot: u8) -> u8 {
+    match slot {
+        WEAPON_SLOT_SNIPER => WEAPON_SLOT_SNIPER,
+        WEAPON_SLOT_SHOTGUN => WEAPON_SLOT_SHOTGUN,
+        _ => WEAPON_SLOT_RIFLE,
+    }
+}
+
+fn weapon_slot_seed(slot: u8) -> f32 {
+    normalize_weapon_slot(slot) as f32 * 4.71
+}
+
+fn complete_reload_if_ready(weapon: &mut WeaponState, tick: u32) {
+    if !weapon.reloading || tick < weapon.reload_complete_tick {
+        return;
+    }
+    let moved = reload_transfer_amount(weapon.ammo_in_mag, weapon.reserve_ammo);
+    weapon.ammo_in_mag = weapon
+        .ammo_in_mag
+        .saturating_add(moved)
+        .min(RIFLE_CLIP_SIZE);
+    weapon.reserve_ammo = weapon.reserve_ammo.saturating_sub(moved);
+    weapon.reloading = false;
+    weapon.reload_started_tick = 0;
+    weapon.reload_complete_tick = 0;
+}
+
+fn reload_transfer_amount(ammo_in_mag: u16, reserve_ammo: u16) -> u16 {
+    RIFLE_CLIP_SIZE
+        .saturating_sub(ammo_in_mag)
+        .min(reserve_ammo)
+}
+
+fn reserve_after_ammo_pickup(reserve_ammo: u16) -> u16 {
+    reserve_ammo
+        .saturating_add(AMMO_PACK_AMOUNT)
+        .min(RIFLE_RESERVE_CAPACITY)
+}
+
+fn start_reload_if_possible(weapon: &mut WeaponState, tick: u32) {
+    if weapon.reloading || weapon.ammo_in_mag >= RIFLE_CLIP_SIZE || weapon.reserve_ammo == 0 {
+        return;
+    }
+    weapon.reloading = true;
+    weapon.reload_started_tick = tick;
+    weapon.reload_complete_tick = tick.saturating_add(RELOAD_DURATION_TICKS);
 }
 
 fn weapon_spec(kind: WeaponKind) -> WeaponSpec {
@@ -2237,6 +2522,8 @@ fn leave_room_internal(ctx: &ReducerContext, identity: Identity, reason: LeaveRe
             vel_x: 0.0,
             vel_y: 0.0,
             vel_z: 0.0,
+            sprinting: false,
+            crouching: false,
             server_tick: current_tick(ctx),
             ..state
         });
@@ -2245,7 +2532,12 @@ fn leave_room_internal(ctx: &ReducerContext, identity: Identity, reason: LeaveRe
     if let Some(weapon) = ctx.db.weapon_state().identity().find(identity) {
         ctx.db.weapon_state().identity().update(WeaponState {
             room_code: None,
-            ammo_in_mag: RIFLE_MAGAZINE,
+            ammo_in_mag: RIFLE_CLIP_SIZE,
+            reserve_ammo: RIFLE_RESERVE_CAPACITY,
+            reload_started_tick: 0,
+            reload_complete_tick: 0,
+            reloading: false,
+            selected_weapon_slot: WEAPON_SLOT_RIFLE,
             ..weapon
         });
     }
@@ -2391,8 +2683,16 @@ fn simulate_movement_tick(state: PlayerState, input: PlayerInput) -> PlayerState
         wish.z /= wish_len;
     }
 
-    let desired_speed = if input.sprinting {
+    let wants_crouch = input.crouching;
+    let wants_sprint = input.sprinting
+        && !wants_crouch
+        && !input.scoped
+        && input.move_z > 0.35
+        && updated.on_ground;
+    let desired_speed = if wants_crouch {
         CROUCH_SPEED
+    } else if wants_sprint {
+        SPRINT_SPEED
     } else {
         WALK_SPEED
     } * move_len;
@@ -2411,7 +2711,7 @@ fn simulate_movement_tick(state: PlayerState, input: PlayerInput) -> PlayerState
             desired_vel_z,
             ground_control * dt,
         );
-        if input.jumping {
+        if input.jumping && !wants_crouch {
             updated.vel_y = JUMP_SPEED;
             updated.on_ground = false;
         } else {
@@ -2427,14 +2727,16 @@ fn simulate_movement_tick(state: PlayerState, input: PlayerInput) -> PlayerState
         updated.vel_y -= GRAVITY * dt;
     }
 
-    let mut collision_height = if input.sprinting {
+    let mut collision_height = if wants_crouch {
         CROUCH_HEIGHT
     } else {
         PLAYER_HEIGHT
     };
-    if !input.sprinting && collides_at_with_height(updated.x, updated.y, updated.z, PLAYER_HEIGHT) {
+    if !wants_crouch && collides_at_with_height(updated.x, updated.y, updated.z, PLAYER_HEIGHT) {
         collision_height = CROUCH_HEIGHT;
     }
+    updated.sprinting = wants_sprint;
+    updated.crouching = collision_height == CROUCH_HEIGHT;
 
     let horizontal_delta_x = updated.vel_x * dt;
     let horizontal_delta_z = updated.vel_z * dt;
@@ -3143,11 +3445,11 @@ fn apply_damage(
         if let Some(mut attacker_weapon) = ctx.db.weapon_state().identity().find(attacker_identity)
         {
             let rewarded_ammo = attacker_weapon
-                .ammo_in_mag
+                .reserve_ammo
                 .saturating_add(KILL_AMMO_REWARD)
-                .min(RIFLE_MAGAZINE);
-            if rewarded_ammo != attacker_weapon.ammo_in_mag {
-                attacker_weapon.ammo_in_mag = rewarded_ammo;
+                .min(RIFLE_RESERVE_CAPACITY);
+            if rewarded_ammo != attacker_weapon.reserve_ammo {
+                attacker_weapon.reserve_ammo = rewarded_ammo;
                 ctx.db.weapon_state().identity().update(attacker_weapon);
             }
         }
@@ -3157,6 +3459,8 @@ fn apply_damage(
         victim_state.vel_x = 0.0;
         victim_state.vel_y = 0.0;
         victim_state.vel_z = 0.0;
+        victim_state.sprinting = false;
+        victim_state.crouching = false;
         victim_state.server_tick = tick;
         ctx.db.player_state().identity().update(victim_state);
         ctx.db.player().identity().update(Player {
@@ -3211,6 +3515,8 @@ fn respawn_player(ctx: &ReducerContext, identity: Identity, room_code: String) {
     state.health = MAX_HEALTH;
     state.alive = true;
     state.on_ground = true;
+    state.sprinting = false;
+    state.crouching = false;
     state.last_damage_tick = current_tick(ctx);
     state.regen_progress = 0.0;
     state.yaw = spawn_yaw;
@@ -3220,7 +3526,12 @@ fn respawn_player(ctx: &ReducerContext, identity: Identity, room_code: String) {
     state.last_processed_input = 0;
     state.respawn_tick = current_tick(ctx);
 
-    weapon.ammo_in_mag = RIFLE_MAGAZINE;
+    weapon.ammo_in_mag = RIFLE_CLIP_SIZE;
+    weapon.reserve_ammo = RIFLE_RESERVE_CAPACITY;
+    weapon.reload_started_tick = 0;
+    weapon.reload_complete_tick = 0;
+    weapon.reloading = false;
+    weapon.selected_weapon_slot = WEAPON_SLOT_RIFLE;
     weapon.next_ready_tick = current_tick(ctx);
 
     reset_player_input(ctx, identity, current_tick(ctx));
@@ -3489,6 +3800,11 @@ fn process_ammo_packs(ctx: &ReducerContext, tick: u32) {
                         identity,
                         room_code: Some(pack.room_code.clone()),
                         ammo_in_mag: 0,
+                        reserve_ammo: 0,
+                        reload_started_tick: 0,
+                        reload_complete_tick: 0,
+                        reloading: false,
+                        selected_weapon_slot: WEAPON_SLOT_RIFLE,
                         next_ready_tick: tick,
                     });
                     match ctx.db.weapon_state().identity().find(identity) {
@@ -3503,17 +3819,14 @@ fn process_ammo_packs(ctx: &ReducerContext, tick: u32) {
                 weapon.room_code = Some(pack.room_code.clone());
                 dirty = true;
             }
-            if weapon.ammo_in_mag >= RIFLE_MAGAZINE {
+            if weapon.reserve_ammo >= RIFLE_RESERVE_CAPACITY {
                 if dirty {
                     ctx.db.weapon_state().identity().update(weapon);
                 }
                 continue;
             }
 
-            weapon.ammo_in_mag = weapon
-                .ammo_in_mag
-                .saturating_add(AMMO_PACK_AMOUNT)
-                .min(RIFLE_MAGAZINE);
+            weapon.reserve_ammo = reserve_after_ammo_pickup(weapon.reserve_ammo);
             ctx.db.weapon_state().identity().update(weapon);
             collected = true;
             collected_by = Some(identity);
@@ -3731,6 +4044,11 @@ fn reset_player_input(ctx: &ReducerContext, identity: Identity, tick: u32) {
         pitch: 0.0,
         jumping: false,
         sprinting: false,
+        crouching: false,
+        scoped: false,
+        fire_held: false,
+        reload_pressed: false,
+        weapon_slot: WEAPON_SLOT_RIFLE,
         last_received_tick: tick,
     };
 
@@ -3744,8 +4062,10 @@ fn reset_player_input(ctx: &ReducerContext, identity: Identity, tick: u32) {
 #[cfg(test)]
 mod tests {
     use super::{
-        can_fire_weapon_at_tick, inputs_are_finite, room_membership_is_consistent,
-        should_accept_input_sequence, validate_room_code,
+        can_fire_weapon_at_tick, inputs_are_finite, normalize_weapon_slot, reload_transfer_amount,
+        reserve_after_ammo_pickup, room_membership_is_consistent, should_accept_input_sequence,
+        validate_room_code, RIFLE_CLIP_SIZE, RIFLE_RESERVE_CAPACITY, WEAPON_SLOT_RIFLE,
+        WEAPON_SLOT_SHOTGUN, WEAPON_SLOT_SNIPER,
     };
 
     #[test]
@@ -3786,5 +4106,46 @@ mod tests {
         assert!(inputs_are_finite([0.0, 1.0, -1.2, 0.3]));
         assert!(!inputs_are_finite([f32::NAN, 0.0, 0.0, 0.0]));
         assert!(!inputs_are_finite([0.0, f32::INFINITY, 0.0, 0.0]));
+    }
+
+    #[test]
+    fn reload_transfer_never_overfills_magazine_or_overdraws_reserve() {
+        assert_eq!(
+            reload_transfer_amount(0, RIFLE_RESERVE_CAPACITY),
+            RIFLE_CLIP_SIZE
+        );
+        assert_eq!(reload_transfer_amount(7, RIFLE_RESERVE_CAPACITY), 3);
+        assert_eq!(reload_transfer_amount(0, 4), 4);
+        assert_eq!(
+            reload_transfer_amount(RIFLE_CLIP_SIZE, RIFLE_RESERVE_CAPACITY),
+            0
+        );
+    }
+
+    #[test]
+    fn ammo_pickups_fill_reserve_and_respect_cap() {
+        assert_eq!(reserve_after_ammo_pickup(0), 6);
+        assert_eq!(
+            reserve_after_ammo_pickup(RIFLE_RESERVE_CAPACITY - 1),
+            RIFLE_RESERVE_CAPACITY
+        );
+        assert_eq!(
+            reserve_after_ammo_pickup(RIFLE_RESERVE_CAPACITY),
+            RIFLE_RESERVE_CAPACITY
+        );
+    }
+
+    #[test]
+    fn weapon_slot_inputs_are_normalized() {
+        assert_eq!(normalize_weapon_slot(WEAPON_SLOT_RIFLE), WEAPON_SLOT_RIFLE);
+        assert_eq!(
+            normalize_weapon_slot(WEAPON_SLOT_SNIPER),
+            WEAPON_SLOT_SNIPER
+        );
+        assert_eq!(
+            normalize_weapon_slot(WEAPON_SLOT_SHOTGUN),
+            WEAPON_SLOT_SHOTGUN
+        );
+        assert_eq!(normalize_weapon_slot(99), WEAPON_SLOT_RIFLE);
     }
 }

@@ -2,7 +2,7 @@ import {
   MAX_HEALTH,
   RIFLE_MAGAZINE,
   type LocalPlayerState,
-  type Vec3
+  type Vec3,
 } from '@arena/shared';
 
 const isFiniteNumber = (value: unknown): value is number =>
@@ -14,7 +14,7 @@ const sanitizeScalar = (
   {
     min,
     max,
-    round = false
+    round = false,
   }: {
     min?: number;
     max?: number;
@@ -36,7 +36,7 @@ const sanitizeVec3 = (value: unknown, fallback: Vec3): Vec3 => {
   return {
     x: sanitizeScalar(candidate.x, fallback.x),
     y: sanitizeScalar(candidate.y, fallback.y),
-    z: sanitizeScalar(candidate.z, fallback.z)
+    z: sanitizeScalar(candidate.z, fallback.z),
   };
 };
 
@@ -58,19 +58,27 @@ export const sanitizeLocalPlayerPatch = (
   if ('serverTick' in patch) {
     next.serverTick = sanitizeScalar(patch.serverTick, fallback.serverTick, {
       min: 0,
-      round: true
+      round: true,
     });
   }
   if ('serverTimeMs' in patch) {
-    next.serverTimeMs = sanitizeScalar(patch.serverTimeMs, fallback.serverTimeMs, {
-      min: 0
-    });
+    next.serverTimeMs = sanitizeScalar(
+      patch.serverTimeMs,
+      fallback.serverTimeMs,
+      {
+        min: 0,
+      }
+    );
   }
   if ('inputPipelineMs' in patch) {
-    next.inputPipelineMs = sanitizeScalar(patch.inputPipelineMs, fallback.inputPipelineMs, {
-      min: 0,
-      round: true
-    });
+    next.inputPipelineMs = sanitizeScalar(
+      patch.inputPipelineMs,
+      fallback.inputPipelineMs,
+      {
+        min: 0,
+        round: true,
+      }
+    );
   }
   if ('yaw' in patch) {
     next.yaw = sanitizeScalar(patch.yaw, fallback.yaw);
@@ -81,6 +89,12 @@ export const sanitizeLocalPlayerPatch = (
   if (typeof patch.onGround === 'boolean') {
     next.onGround = patch.onGround;
   }
+  if (typeof patch.sprinting === 'boolean') {
+    next.sprinting = patch.sprinting;
+  }
+  if (typeof patch.crouching === 'boolean') {
+    next.crouching = patch.crouching;
+  }
   if (typeof patch.alive === 'boolean') {
     next.alive = patch.alive;
   }
@@ -88,14 +102,14 @@ export const sanitizeLocalPlayerPatch = (
     next.health = sanitizeScalar(patch.health, fallback.health, {
       min: 0,
       max: MAX_HEALTH,
-      round: true
+      round: true,
     });
   }
   if ('ammo' in patch) {
     next.ammo = sanitizeScalar(patch.ammo, fallback.ammo, {
       min: 0,
       max: RIFLE_MAGAZINE,
-      round: true
+      round: true,
     });
   }
   if ('lastProcessedInput' in patch) {
@@ -108,7 +122,7 @@ export const sanitizeLocalPlayerPatch = (
   if ('respawnTick' in patch) {
     next.respawnTick = sanitizeScalar(patch.respawnTick, fallback.respawnTick, {
       min: 0,
-      round: true
+      round: true,
     });
   }
 

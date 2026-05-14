@@ -10,9 +10,16 @@ import {
   PLAYER_RADIUS,
   PLAYER_STEP_HEIGHT,
   SERVER_TICK_SECONDS,
-  WALK_SPEED
+  SPRINT_SPEED,
+  WALK_SPEED,
 } from './gameplay';
-import { ARENA_BLOCKS, ARENA_MAX_X, ARENA_MAX_Z, ARENA_MIN_X, ARENA_MIN_Z } from './map';
+import {
+  ARENA_BLOCKS,
+  ARENA_MAX_X,
+  ARENA_MAX_Z,
+  ARENA_MIN_X,
+  ARENA_MIN_Z,
+} from './map';
 import type { InputCommand, LocalPlayerState, Vec3 } from './netcode';
 
 const clamp = (value: number, min: number, max: number): number =>
@@ -45,7 +52,7 @@ const moveHorizontalTowards = (
     return {
       ...velocity,
       x: target.x,
-      z: target.z
+      z: target.z,
     };
   }
 
@@ -53,7 +60,7 @@ const moveHorizontalTowards = (
   return {
     ...velocity,
     x: velocity.x + deltaX * scale,
-    z: velocity.z + deltaZ * scale
+    z: velocity.z + deltaZ * scale,
   };
 };
 
@@ -68,7 +75,7 @@ const toBlockLocal = (
   const sin = Math.sin(block.yaw);
   return {
     x: dx * cos + dz * sin,
-    z: -dx * sin + dz * cos
+    z: -dx * sin + dz * cos,
   };
 };
 
@@ -84,11 +91,15 @@ const normalizeCollisionBlock = (
 ): (typeof ARENA_BLOCKS)[number] => {
   return {
     ...block,
-    yaw: normalizeAngle(block.yaw)
+    yaw: normalizeAngle(block.yaw),
   };
 };
 
-const overlapsBlock = (x: number, z: number, block: (typeof ARENA_BLOCKS)[number]): boolean => {
+const overlapsBlock = (
+  x: number,
+  z: number,
+  block: (typeof ARENA_BLOCKS)[number]
+): boolean => {
   const normalized = normalizeCollisionBlock(block);
   const local = toBlockLocal(x, z, normalized);
   const closestX = clamp(local.x, -normalized.halfX, normalized.halfX);
@@ -116,7 +127,12 @@ const groundHeightAt = (x: number, z: number, currentFeetY: number): number => {
   return ground;
 };
 
-const collidesAt = (x: number, y: number, z: number, playerHeight: number): boolean => {
+const collidesAt = (
+  x: number,
+  y: number,
+  z: number,
+  playerHeight: number
+): boolean => {
   if (
     x - PLAYER_RADIUS < ARENA_MIN_X ||
     x + PLAYER_RADIUS > ARENA_MAX_X ||
@@ -149,7 +165,10 @@ const resolveHorizontalMotion = (
   const deltaX = velocity.x * dtSeconds;
   const deltaZ = velocity.z * dtSeconds;
   const maxDelta = Math.max(Math.abs(deltaX), Math.abs(deltaZ));
-  const steps = Math.max(1, Math.ceil(maxDelta / MOVEMENT_SUBSTEP_MAX_DISTANCE));
+  const steps = Math.max(
+    1,
+    Math.ceil(maxDelta / MOVEMENT_SUBSTEP_MAX_DISTANCE)
+  );
   const stepX = deltaX / steps;
   const stepZ = deltaZ / steps;
 
@@ -186,7 +205,7 @@ const resolveHorizontalMotion = (
 
   return {
     position: nextPosition,
-    velocity: nextVelocity
+    velocity: nextVelocity,
   };
 };
 
@@ -201,7 +220,7 @@ export const simulatePlayerTick = (
     position: { ...state.position },
     velocity: { ...state.velocity },
     yaw: input.yaw,
-    pitch: clampedPitch
+    pitch: clampedPitch,
   };
 
   const moveMagnitude = Math.min(1, length2D(input.moveX, input.moveZ));
@@ -211,36 +230,56 @@ export const simulatePlayerTick = (
   const right = { x: Math.cos(next.yaw), z: -Math.sin(next.yaw) };
   const wish = {
     x: right.x * move.x + forward.x * move.z,
-    z: right.z * move.x + forward.z * move.z
+    z: right.z * move.x + forward.z * move.z,
   };
   const wishDir = normalize2D(wish.x, wish.z);
-  const wishSpeed = (input.sprinting ? CROUCH_SPEED : WALK_SPEED) * moveMagnitude;
+  const wantsCrouch = input.crouchHeld;
+  const wantsSprint =
+    input.sprintHeld &&
+    !wantsCrouch &&
+    !input.scoped &&
+    input.moveZ > 0.35 &&
+    next.onGround;
+  const wishSpeed =
+    (wantsCrouch ? CROUCH_SPEED : wantsSprint ? SPRINT_SPEED : WALK_SPEED) *
+    moveMagnitude;
   const desiredVelocity = {
     x: wishDir.x * wishSpeed,
-    z: wishDir.z * wishSpeed
+    z: wishDir.z * wishSpeed,
   };
 
   if (next.onGround) {
-    const groundControl = moveMagnitude > 0 ? GROUND_ACCELERATION : GROUND_FRICTION;
-    next.velocity = moveHorizontalTowards(next.velocity, desiredVelocity, groundControl * dtSeconds);
-    if (input.jumping) {
+    const groundControl =
+      moveMagnitude > 0 ? GROUND_ACCELERATION : GROUND_FRICTION;
+    next.velocity = moveHorizontalTowards(
+      next.velocity,
+      desiredVelocity,
+      groundControl * dtSeconds
+    );
+    if (input.jumpHeld && !wantsCrouch) {
       next.velocity.y = JUMP_SPEED;
       next.onGround = false;
     } else {
       next.velocity.y = 0;
     }
   } else {
-    next.velocity = moveHorizontalTowards(next.velocity, desiredVelocity, AIR_ACCELERATION * dtSeconds);
+    next.velocity = moveHorizontalTowards(
+      next.velocity,
+      desiredVelocity,
+      AIR_ACCELERATION * dtSeconds
+    );
     next.velocity.y -= GRAVITY * dtSeconds;
   }
 
-  let collisionHeight = input.sprinting ? CROUCH_HEIGHT : PLAYER_HEIGHT;
+  let collisionHeight = wantsCrouch ? CROUCH_HEIGHT : PLAYER_HEIGHT;
   if (
-    !input.sprinting &&
+    !wantsCrouch &&
     collidesAt(next.position.x, next.position.y, next.position.z, PLAYER_HEIGHT)
   ) {
     collisionHeight = CROUCH_HEIGHT;
   }
+  next.sprinting = wantsSprint;
+  next.crouching = collisionHeight === CROUCH_HEIGHT;
 
   const resolved = resolveHorizontalMotion(
     next.position,
@@ -263,7 +302,9 @@ export const simulatePlayerTick = (
     let high = proposedY;
     for (let index = 0; index < 8; index += 1) {
       const midpoint = (low + high) * 0.5;
-      if (collidesAt(next.position.x, midpoint, next.position.z, collisionHeight)) {
+      if (
+        collidesAt(next.position.x, midpoint, next.position.z, collisionHeight)
+      ) {
         high = midpoint;
       } else {
         low = midpoint;
@@ -272,7 +313,11 @@ export const simulatePlayerTick = (
     proposedY = low;
     next.velocity.y = 0;
   }
-  const groundHeight = groundHeightAt(next.position.x, next.position.z, next.position.y);
+  const groundHeight = groundHeightAt(
+    next.position.x,
+    next.position.z,
+    next.position.y
+  );
 
   if (proposedY <= groundHeight) {
     next.position.y = groundHeight;

@@ -14,10 +14,13 @@ import {
   setBackendTarget,
   setCustomBackendSettings,
   type CustomBackendSettings,
-  type BackendTarget
+  type BackendTarget,
 } from './utils/env';
 import { CyberGlobalStyles, CyberScanFx } from './ui/cyberTheme';
-import { fetchOpenRoomsSnapshot, startLiveRoomDirectory } from './netcode/roomDirectory';
+import {
+  fetchOpenRoomsSnapshot,
+  startLiveRoomDirectory,
+} from './netcode/roomDirectory';
 import { type ConnectionStage } from './netcode/connectionProgress';
 import { getLatencyTailMs, percentile } from './netcode/pingStats';
 import {
@@ -26,7 +29,7 @@ import {
   fetchAuthSnapshot,
   loginAccount,
   logoutAccount,
-  registerAccount
+  registerAccount,
 } from './netcode/authClient';
 
 const copyTextToClipboard = async (text: string): Promise<void> => {
@@ -72,69 +75,93 @@ export default function App(): React.JSX.Element {
   const [authSnapshot, setAuthSnapshot] = useState<AuthSnapshot | null>(null);
   const [authBusy, setAuthBusy] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
-  const [backendTarget, setBackendTargetState] = useState<BackendTarget>(() => getBackendTarget());
+  const [backendTarget, setBackendTargetState] = useState<BackendTarget>(() =>
+    getBackendTarget()
+  );
   const [customBackendSettings, setCustomBackendSettingsState] =
     useState<CustomBackendSettings>(() => getCustomBackendSettings());
   const [loadingStage, setLoadingStage] = useState<ConnectionStage>('idle');
   const loadingReadyHideTimerRef = useRef<number | null>(null);
-  const connectionStatus = useGameStore(state => state.connectionStatus);
-  const connectionError = useGameStore(state => state.connectionError);
-  const networkReconnecting = useGameStore(state => state.networkReconnecting);
-  const networkReconnectAttempt = useGameStore(state => state.networkReconnectAttempt);
-  const networkReconnectStartedAtMs = useGameStore(state => state.networkReconnectStartedAtMs);
-  const nickname = useGameStore(state => state.nickname);
-  const roomCode = useGameStore(state => state.roomCode);
-  const match = useGameStore(state => state.match);
-  const killFeed = useGameStore(state => state.killFeed);
-  const scoreboardOpen = useGameStore(state => state.scoreboardOpen);
-  const hitmarkerUntil = useGameStore(state => state.hitmarkerUntil);
-  const damageFlashToken = useGameStore(state => state.damageFlashToken);
-  const crosshairSpread = useGameStore(state => state.crosshairSpread);
-  const scoped = useGameStore(state => state.scoped);
-  const selectedWeaponSlot = useGameStore(state => state.selectedWeaponSlot);
-  const sniperCooldownRemainingMs = useGameStore(state => state.sniperCooldownRemainingMs);
-  const localPlayer = useGameStore(state => state.localPlayer);
-  const localIdentity = useGameStore(state => state.localIdentity);
-  const players = useGameStore(state => state.players);
-  const rooms = useGameStore(state => state.rooms);
-  const connectedRoomCode = useGameStore(state => state.connectedRoomCode);
-  const graphicsQuality = useGameStore(state => state.graphicsQuality);
-  const lookSensitivity = useGameStore(state => state.lookSensitivity);
-  const fov = useGameStore(state => state.fov);
-  const sfxVolume = useGameStore(state => state.sfxVolume);
-  const musicVolume = useGameStore(state => state.musicVolume);
-  const localPingMs = useGameStore(state => state.localPingMs);
-  const localPingLowMs = useGameStore(state => state.localPingLowMs);
-  const localPingJitterMs = useGameStore(state => state.localPingJitterMs);
-  const serverPipelineMs = useGameStore(state => state.serverPipelineMs);
-  const serverPipelineLowMs = useGameStore(state => state.serverPipelineLowMs);
-  const nerdPingsEnabled = useGameStore(state => state.nerdPingsEnabled);
-  const serverPingHistory = useGameStore(state => state.serverPingHistory);
-  const playerPings = useGameStore(state => state.playerPings);
-  const setNickname = useGameStore(state => state.setNickname);
-  const setRoomCode = useGameStore(state => state.setRoomCode);
-  const setGraphicsQuality = useGameStore(state => state.setGraphicsQuality);
-  const setLookSensitivity = useGameStore(state => state.setLookSensitivity);
-  const setFov = useGameStore(state => state.setFov);
-  const setSfxVolume = useGameStore(state => state.setSfxVolume);
-  const setMusicVolume = useGameStore(state => state.setMusicVolume);
-  const setRoomDirectory = useGameStore(state => state.setRoomDirectory);
-  const setLocalPing = useGameStore(state => state.setLocalPing);
-  const setLocalPingLow = useGameStore(state => state.setLocalPingLow);
-  const setLocalPingJitter = useGameStore(state => state.setLocalPingJitter);
-  const setServerPipeline = useGameStore(state => state.setServerPipeline);
-  const setServerPipelineLow = useGameStore(state => state.setServerPipelineLow);
-  const setNerdPingsEnabled = useGameStore(state => state.setNerdPingsEnabled);
-  const pushServerPingSample = useGameStore(state => state.pushServerPingSample);
+  const connectionStatus = useGameStore((state) => state.connectionStatus);
+  const connectionError = useGameStore((state) => state.connectionError);
+  const networkReconnecting = useGameStore(
+    (state) => state.networkReconnecting
+  );
+  const networkReconnectAttempt = useGameStore(
+    (state) => state.networkReconnectAttempt
+  );
+  const networkReconnectStartedAtMs = useGameStore(
+    (state) => state.networkReconnectStartedAtMs
+  );
+  const nickname = useGameStore((state) => state.nickname);
+  const roomCode = useGameStore((state) => state.roomCode);
+  const match = useGameStore((state) => state.match);
+  const killFeed = useGameStore((state) => state.killFeed);
+  const scoreboardOpen = useGameStore((state) => state.scoreboardOpen);
+  const hitmarkerUntil = useGameStore((state) => state.hitmarkerUntil);
+  const damageFlashToken = useGameStore((state) => state.damageFlashToken);
+  const crosshairSpread = useGameStore((state) => state.crosshairSpread);
+  const scoped = useGameStore((state) => state.scoped);
+  const selectedWeaponSlot = useGameStore((state) => state.selectedWeaponSlot);
+  const sniperCooldownRemainingMs = useGameStore(
+    (state) => state.sniperCooldownRemainingMs
+  );
+  const localPlayer = useGameStore((state) => state.localPlayer);
+  const magAmmo = useGameStore((state) => state.magAmmo);
+  const reserveAmmo = useGameStore((state) => state.reserveAmmo);
+  const localIdentity = useGameStore((state) => state.localIdentity);
+  const players = useGameStore((state) => state.players);
+  const rooms = useGameStore((state) => state.rooms);
+  const connectedRoomCode = useGameStore((state) => state.connectedRoomCode);
+  const graphicsQuality = useGameStore((state) => state.graphicsQuality);
+  const lookSensitivity = useGameStore((state) => state.lookSensitivity);
+  const fov = useGameStore((state) => state.fov);
+  const sfxVolume = useGameStore((state) => state.sfxVolume);
+  const musicVolume = useGameStore((state) => state.musicVolume);
+  const localPingMs = useGameStore((state) => state.localPingMs);
+  const localPingLowMs = useGameStore((state) => state.localPingLowMs);
+  const localPingJitterMs = useGameStore((state) => state.localPingJitterMs);
+  const serverPipelineMs = useGameStore((state) => state.serverPipelineMs);
+  const serverPipelineLowMs = useGameStore(
+    (state) => state.serverPipelineLowMs
+  );
+  const nerdPingsEnabled = useGameStore((state) => state.nerdPingsEnabled);
+  const serverPingHistory = useGameStore((state) => state.serverPingHistory);
+  const playerPings = useGameStore((state) => state.playerPings);
+  const setNickname = useGameStore((state) => state.setNickname);
+  const setRoomCode = useGameStore((state) => state.setRoomCode);
+  const setGraphicsQuality = useGameStore((state) => state.setGraphicsQuality);
+  const setLookSensitivity = useGameStore((state) => state.setLookSensitivity);
+  const setFov = useGameStore((state) => state.setFov);
+  const setSfxVolume = useGameStore((state) => state.setSfxVolume);
+  const setMusicVolume = useGameStore((state) => state.setMusicVolume);
+  const setRoomDirectory = useGameStore((state) => state.setRoomDirectory);
+  const setLocalPing = useGameStore((state) => state.setLocalPing);
+  const setLocalPingLow = useGameStore((state) => state.setLocalPingLow);
+  const setLocalPingJitter = useGameStore((state) => state.setLocalPingJitter);
+  const setServerPipeline = useGameStore((state) => state.setServerPipeline);
+  const setServerPipelineLow = useGameStore(
+    (state) => state.setServerPipelineLow
+  );
+  const setNerdPingsEnabled = useGameStore(
+    (state) => state.setNerdPingsEnabled
+  );
+  const pushServerPingSample = useGameStore(
+    (state) => state.pushServerPingSample
+  );
   const lobbyPingSamplesRef = useRef<Array<{ at: number; rttMs: number }>>([]);
-  const lobbyServerSamplesRef = useRef<Array<{ at: number; pipelineMs: number }>>([]);
+  const lobbyServerSamplesRef = useRef<
+    Array<{ at: number; pipelineMs: number }>
+  >([]);
 
   const syncViewportMode = useCallback((): void => {
     const coarsePointer =
-      typeof window !== 'undefined' && window.matchMedia('(pointer: coarse)').matches;
+      typeof window !== 'undefined' &&
+      window.matchMedia('(pointer: coarse)').matches;
     const touchCapable =
       typeof navigator !== 'undefined' &&
-      (navigator.maxTouchPoints > 0 || /android|iphone|ipad|ipod/i.test(navigator.userAgent));
+      (navigator.maxTouchPoints > 0 ||
+        /android|iphone|ipad|ipod/i.test(navigator.userAgent));
     const mobile = coarsePointer || touchCapable;
     setTouchControls(mobile);
     setPortrait(mobile && window.innerHeight > window.innerWidth);
@@ -170,22 +197,36 @@ export default function App(): React.JSX.Element {
       setRuntimeError(null);
       return runtime;
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Game runtime failed to initialize.';
+      const message =
+        error instanceof Error
+          ? error.message
+          : 'Game runtime failed to initialize.';
       setRuntimeError(message);
       return null;
     }
   };
 
-  useEffect(() => () => { runtimeRef.current?.dispose(); runtimeRef.current = null; }, []);
-  useEffect(() => () => {
-    if (loadingReadyHideTimerRef.current != null) {
-      window.clearTimeout(loadingReadyHideTimerRef.current);
-    }
-  }, []);
+  useEffect(
+    () => () => {
+      runtimeRef.current?.dispose();
+      runtimeRef.current = null;
+    },
+    []
+  );
+  useEffect(
+    () => () => {
+      if (loadingReadyHideTimerRef.current != null) {
+        window.clearTimeout(loadingReadyHideTimerRef.current);
+      }
+    },
+    []
+  );
 
   useEffect(() => {
     ensureRuntime();
-    const unlockAudio = (): void => { runtimeRef.current?.unlockAudio(); };
+    const unlockAudio = (): void => {
+      runtimeRef.current?.unlockAudio();
+    };
     window.addEventListener('pointerdown', unlockAudio, { once: true });
     window.addEventListener('keydown', unlockAudio, { once: true });
     return () => {
@@ -217,7 +258,8 @@ export default function App(): React.JSX.Element {
     if (!trimmed) return null;
     return trimmed.slice(0, 16);
   }, [authUsername]);
-  const effectiveNickname = authLoggedIn && authCallsign ? authCallsign : nickname;
+  const effectiveNickname =
+    authLoggedIn && authCallsign ? authCallsign : nickname;
   const customBackendLabel = useMemo(() => {
     const host = customBackendSettings.host.trim();
     const port = customBackendSettings.port.trim();
@@ -233,24 +275,33 @@ export default function App(): React.JSX.Element {
       setAuthSnapshot(snapshot);
       setAuthError(null);
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unable to reach auth backend';
+      const message =
+        error instanceof Error ? error.message : 'Unable to reach auth backend';
       setAuthError(message);
     }
   }, []);
 
-  useEffect(() => { void refreshAuthSnapshot(); }, [refreshAuthSnapshot]);
+  useEffect(() => {
+    void refreshAuthSnapshot();
+  }, [refreshAuthSnapshot]);
 
   useEffect(() => {
     let cancelled = false;
     let timeoutId: number | null = null;
     const schedule = (): void => {
       timeoutId = window.setTimeout(() => {
-        if (cancelled || document.visibilityState !== 'visible') { schedule(); return; }
+        if (cancelled || document.visibilityState !== 'visible') {
+          schedule();
+          return;
+        }
         void refreshAuthSnapshot().finally(schedule);
       }, 20_000);
     };
     schedule();
-    return () => { cancelled = true; if (timeoutId != null) window.clearTimeout(timeoutId); };
+    return () => {
+      cancelled = true;
+      if (timeoutId != null) window.clearTimeout(timeoutId);
+    };
   }, [refreshAuthSnapshot]);
 
   useEffect(() => {
@@ -264,27 +315,31 @@ export default function App(): React.JSX.Element {
     setServerPipelineLow(null);
     const live = startLiveRoomDirectory(
       {
-        onSnapshot: rows => {
+        onSnapshot: (rows) => {
           setRoomDirectory(rows);
         },
-        onPingSample: measuredLobbyPing => {
+        onPingSample: (measuredLobbyPing) => {
           const now = performance.now();
-          lobbyPingSamplesRef.current.push({ at: now, rttMs: measuredLobbyPing });
+          lobbyPingSamplesRef.current.push({
+            at: now,
+            rttMs: measuredLobbyPing,
+          });
           const lowsCutoff = now - 10_000;
           while (
-            (lobbyPingSamplesRef.current.at(0)?.at ?? Number.POSITIVE_INFINITY) <
-            lowsCutoff
+            (lobbyPingSamplesRef.current.at(0)?.at ??
+              Number.POSITIVE_INFINITY) < lowsCutoff
           ) {
             lobbyPingSamplesRef.current.shift();
           }
 
           const rttValues = lobbyPingSamplesRef.current
-            .filter(sample => sample.at >= now - 5_000)
-            .map(sample => sample.rttMs);
+            .filter((sample) => sample.at >= now - 5_000)
+            .map((sample) => sample.rttMs);
           const avgPing =
             rttValues.length === 0
               ? measuredLobbyPing
-              : rttValues.reduce((sum, sample) => sum + sample, 0) / rttValues.length;
+              : rttValues.reduce((sum, sample) => sum + sample, 0) /
+                rttValues.length;
           const variance =
             rttValues.length === 0
               ? 0
@@ -294,41 +349,60 @@ export default function App(): React.JSX.Element {
                 }, 0) / rttValues.length;
           const jitterMs = Math.sqrt(variance);
           const baselinePing = percentile(rttValues, 0.05);
-          const pipelineSampleMs = Math.max(0, measuredLobbyPing - baselinePing);
+          const pipelineSampleMs = Math.max(
+            0,
+            measuredLobbyPing - baselinePing
+          );
           pushServerPingSample({
             atMs: now,
             source: 'lobby',
             pingMs: measuredLobbyPing,
-            pipelineMs: pipelineSampleMs
+            pipelineMs: pipelineSampleMs,
           });
-          lobbyServerSamplesRef.current.push({ at: now, pipelineMs: pipelineSampleMs });
+          lobbyServerSamplesRef.current.push({
+            at: now,
+            pipelineMs: pipelineSampleMs,
+          });
           while (
-            (lobbyServerSamplesRef.current.at(0)?.at ?? Number.POSITIVE_INFINITY) <
-            lowsCutoff
+            (lobbyServerSamplesRef.current.at(0)?.at ??
+              Number.POSITIVE_INFINITY) < lowsCutoff
           ) {
             lobbyServerSamplesRef.current.shift();
           }
 
           const serverAverageValues = lobbyServerSamplesRef.current
-            .filter(sample => sample.at >= now - 5_000)
-            .map(sample => sample.pipelineMs);
+            .filter((sample) => sample.at >= now - 5_000)
+            .map((sample) => sample.pipelineMs);
           const serverAverageMs =
             serverAverageValues.length === 0
               ? pipelineSampleMs
-              : serverAverageValues.reduce((sum, value) => sum + value, 0) / serverAverageValues.length;
-          const pingLowWindowValues = lobbyPingSamplesRef.current.map(sample => sample.rttMs);
-          const serverLowWindowValues = lobbyServerSamplesRef.current.map(sample => sample.pipelineMs);
+              : serverAverageValues.reduce((sum, value) => sum + value, 0) /
+                serverAverageValues.length;
+          const pingLowWindowValues = lobbyPingSamplesRef.current.map(
+            (sample) => sample.rttMs
+          );
+          const serverLowWindowValues = lobbyServerSamplesRef.current.map(
+            (sample) => sample.pipelineMs
+          );
           setLocalPing(Math.max(1, Math.round(avgPing)));
           setLocalPingJitter(Math.max(0, Math.round(jitterMs)));
           setServerPipeline(Math.max(0, Math.round(serverAverageMs)));
           setLocalPingLow(
-            Math.max(1, Math.round(getLatencyTailMs(pingLowWindowValues, avgPing)))
+            Math.max(
+              1,
+              Math.round(getLatencyTailMs(pingLowWindowValues, avgPing))
+            )
           );
           setServerPipelineLow(
-            Math.max(0, Math.round(getLatencyTailMs(serverLowWindowValues, serverAverageMs)))
+            Math.max(
+              0,
+              Math.round(
+                getLatencyTailMs(serverLowWindowValues, serverAverageMs)
+              )
+            )
           );
         },
-        onStateChange: liveConnected => {
+        onStateChange: (liveConnected) => {
           if (liveConnected) {
             return;
           }
@@ -337,7 +411,7 @@ export default function App(): React.JSX.Element {
           setLocalPingJitter(null);
           setServerPipeline(null);
           setServerPipelineLow(null);
-        }
+        },
       },
       backendTarget
     );
@@ -353,7 +427,7 @@ export default function App(): React.JSX.Element {
     setServerPipeline,
     setServerPipelineLow,
     setRoomDirectory,
-    pushServerPingSample
+    pushServerPingSample,
   ]);
 
   useEffect(() => {
@@ -365,7 +439,14 @@ export default function App(): React.JSX.Element {
     runtime.setSfxVolume(sfxVolume);
     runtime.setMusicVolume(musicVolume);
     runtime.setTouchControlsActive(touchControls);
-  }, [fov, graphicsQuality, lookSensitivity, musicVolume, sfxVolume, touchControls]);
+  }, [
+    fov,
+    graphicsQuality,
+    lookSensitivity,
+    musicVolume,
+    sfxVolume,
+    touchControls,
+  ]);
 
   useEffect(() => {
     runtimeRef.current?.setPointerLockEnabled(connected && !touchControls);
@@ -375,12 +456,15 @@ export default function App(): React.JSX.Element {
     runtimeRef.current?.setLobbyMusicActive(!connected);
   }, [connected]);
 
-  useEffect(() => { pausedRef.current = paused; }, [paused]);
+  useEffect(() => {
+    pausedRef.current = paused;
+  }, [paused]);
 
   useEffect(() => {
     runtimeRef.current?.setTextInputActive(chatOpen);
     if (!chatOpen) return;
-    if (!touchControls && document.pointerLockElement) document.exitPointerLock();
+    if (!touchControls && document.pointerLockElement)
+      document.exitPointerLock();
   }, [chatOpen, touchControls]);
 
   const resumeFromPause = useCallback((deferPointerLock = false): void => {
@@ -388,13 +472,19 @@ export default function App(): React.JSX.Element {
     setPauseView('pause');
     runtimeRef.current?.setPaused(false);
     runtimeRef.current?.unlockAudio();
-    if (deferPointerLock) { resumeOnEscapeKeyupRef.current = true; return; }
+    if (deferPointerLock) {
+      resumeOnEscapeKeyupRef.current = true;
+      return;
+    }
     runtimeRef.current?.requestPointerLock();
   }, []);
 
   useEffect(() => {
     if (!connected) {
-      setPaused(false); setPauseView('pause'); setChatOpen(false); setChatDraft('');
+      setPaused(false);
+      setPauseView('pause');
+      setChatOpen(false);
+      setChatDraft('');
       runtimeRef.current?.setPaused(false);
       hadPointerLockRef.current = false;
       pointerLockedRef.current = false;
@@ -422,8 +512,12 @@ export default function App(): React.JSX.Element {
       }
       if (event.repeat) return;
       event.preventDefault();
-      if (pausedRef.current) { resumeFromPause(true); return; }
-      setPaused(true); setPauseView('pause');
+      if (pausedRef.current) {
+        resumeFromPause(true);
+        return;
+      }
+      setPaused(true);
+      setPauseView('pause');
       runtimeRef.current?.setPaused(true);
     };
     window.addEventListener('keydown', handleKeyDown);
@@ -470,7 +564,10 @@ export default function App(): React.JSX.Element {
         active instanceof HTMLTextAreaElement ||
         (active instanceof HTMLElement && active.isContentEditable);
       pointerLockedRef.current = hasPointerLock;
-      if (hasPointerLock) { hadPointerLockRef.current = true; return; }
+      if (hasPointerLock) {
+        hadPointerLockRef.current = true;
+        return;
+      }
       if (
         wasPointerLocked &&
         hadPointerLockRef.current &&
@@ -483,35 +580,51 @@ export default function App(): React.JSX.Element {
       }
     };
     document.addEventListener('pointerlockchange', handlePointerLockChange);
-    return () => document.removeEventListener('pointerlockchange', handlePointerLockChange);
+    return () =>
+      document.removeEventListener(
+        'pointerlockchange',
+        handlePointerLockChange
+      );
   }, [chatOpen, connected, touchControls]);
 
   const hitmarkerVisible = hitmarkerUntil > performance.now();
   const scoreboard = useMemo(
     () =>
       Object.values(players)
-        .filter(p => p.connected && p.roomCode === connectedRoomCode)
+        .filter((p) => p.connected && p.roomCode === connectedRoomCode)
         .sort((a, b) => b.kills - a.kills || a.deaths - b.deaths)
-        .map(p => ({ ...p, kdr: p.deaths === 0 ? p.kills : p.kills / p.deaths, pingMs: playerPings[p.identity] ?? null })),
+        .map((p) => ({
+          ...p,
+          kdr: p.deaths === 0 ? p.kills : p.kills / p.deaths,
+          pingMs: playerPings[p.identity] ?? null,
+        })),
     [connectedRoomCode, playerPings, players]
   );
   const openRooms = useMemo(
     () =>
       Object.values(rooms)
-        .filter(r => r.playerCount > 0 && r.playerCount < 5)
-        .sort((a, b) => b.playerCount - a.playerCount || a.code.localeCompare(b.code))
+        .filter((r) => r.playerCount > 0 && r.playerCount < 5)
+        .sort(
+          (a, b) =>
+            b.playerCount - a.playerCount || a.code.localeCompare(b.code)
+        )
         .slice(0, 6),
     [rooms]
   );
   const localMeta = useMemo(
-    () => (localIdentity ? scoreboard.find(player => player.identity === localIdentity) : undefined),
+    () =>
+      localIdentity
+        ? scoreboard.find((player) => player.identity === localIdentity)
+        : undefined,
     [localIdentity, scoreboard]
   );
   const eliminated = connected && !localPlayer.alive;
 
   useEffect(() => {
     if (!eliminated) return;
-    setPaused(false); setPauseView('pause'); setChatOpen(false);
+    setPaused(false);
+    setPauseView('pause');
+    setChatOpen(false);
     runtimeRef.current?.setPaused(false);
   }, [eliminated]);
 
@@ -523,7 +636,8 @@ export default function App(): React.JSX.Element {
       void document.exitPointerLock();
     };
     window.addEventListener('mousemove', releasePointerOnMouseMove);
-    return () => window.removeEventListener('mousemove', releasePointerOnMouseMove);
+    return () =>
+      window.removeEventListener('mousemove', releasePointerOnMouseMove);
   }, [eliminated, touchControls]);
 
   const triggerRespawn = useCallback((): void => {
@@ -550,21 +664,31 @@ export default function App(): React.JSX.Element {
     setChatOpen(false);
     const active = document.activeElement;
     if (active instanceof HTMLElement) active.blur();
-    if (!touchControls && connected && localPlayer.alive && !pausedRef.current) {
+    if (
+      !touchControls &&
+      connected &&
+      localPlayer.alive &&
+      !pausedRef.current
+    ) {
       runtime.requestPointerLock();
     }
     void runtime
       .sendChatMessage(text)
-      .then(() => { setChatDraft(''); })
+      .then(() => {
+        setChatDraft('');
+      })
       .catch(() => undefined)
-      .finally(() => { setChatBusy(false); });
+      .finally(() => {
+        setChatBusy(false);
+      });
   }, [chatBusy, chatDraft, connected, localPlayer.alive, touchControls]);
 
   const hudProps = useMemo(
     () => ({
       localIdentity,
       health: localPlayer.health,
-      ammo: localPlayer.ammo,
+      ammo: magAmmo,
+      reserveAmmo,
       localKills: localMeta?.kills ?? 0,
       localDeaths: localMeta?.deaths ?? 0,
       match,
@@ -591,24 +715,55 @@ export default function App(): React.JSX.Element {
       chatOpen,
       chatDraft,
       chatBusy,
-      onChatOpen:       () => setChatOpen(true),
-      onChatClose:      () => setChatOpen(false),
-      onChatDraftChange:(v: string) => setChatDraft(v),
-      onChatSend:       sendChat,
+      onChatOpen: () => setChatOpen(true),
+      onChatClose: () => setChatOpen(false),
+      onChatDraftChange: (v: string) => setChatDraft(v),
+      onChatSend: sendChat,
     }),
     [
-      connected, crosshairSpread, damageFlashToken,
-      chatBusy, chatDraft, chatOpen,
-      hitmarkerVisible, killFeed, localIdentity,
-      localPlayer.health, localPlayer.ammo,
-      localMeta?.deaths, localMeta?.kills,
-      localPingMs, localPingLowMs, localPingJitterMs, serverPipelineMs, serverPipelineLowMs, nerdPingsEnabled,
-      match, networkReconnecting, networkReconnectAttempt, networkReconnectStartedAtMs, paused, selectedWeaponSlot, sendChat, sniperCooldownRemainingMs, scoped, scoreboard, scoreboardOpen,
+      connected,
+      crosshairSpread,
+      damageFlashToken,
+      chatBusy,
+      chatDraft,
+      chatOpen,
+      hitmarkerVisible,
+      killFeed,
+      localIdentity,
+      localPlayer.health,
+      magAmmo,
+      reserveAmmo,
+      localMeta?.deaths,
+      localMeta?.kills,
+      localPingMs,
+      localPingLowMs,
+      localPingJitterMs,
+      serverPipelineMs,
+      serverPipelineLowMs,
+      nerdPingsEnabled,
+      match,
+      networkReconnecting,
+      networkReconnectAttempt,
+      networkReconnectStartedAtMs,
+      paused,
+      selectedWeaponSlot,
+      sendChat,
+      sniperCooldownRemainingMs,
+      scoped,
+      scoreboard,
+      scoreboardOpen,
     ]
   );
 
-  const connectToRoom = (createRoom: boolean, explicitRoomCode?: string): void => {
-    if (connectInFlightRef.current || useGameStore.getState().connectionStatus === 'connecting') return;
+  const connectToRoom = (
+    createRoom: boolean,
+    explicitRoomCode?: string
+  ): void => {
+    if (
+      connectInFlightRef.current ||
+      useGameStore.getState().connectionStatus === 'connecting'
+    )
+      return;
     const runtime = ensureRuntime();
     if (!runtime) return;
     const setConnectStage = (stage: ConnectionStage): void => {
@@ -635,7 +790,11 @@ export default function App(): React.JSX.Element {
           try {
             const snapshot = await fetchOpenRoomsSnapshot(backendTarget);
             setRoomDirectory(snapshot);
-            if (snapshot.some(room => normalizeRoomCode(room.code) === targetRoomCode)) {
+            if (
+              snapshot.some(
+                (room) => normalizeRoomCode(room.code) === targetRoomCode
+              )
+            ) {
               useGameStore
                 .getState()
                 .setConnection('error', 'Room already exists, hit "Join".');
@@ -658,16 +817,19 @@ export default function App(): React.JSX.Element {
           { nickname: effectiveNickname, roomCode: targetRoomCode, createRoom },
           setConnectStage
         );
-        if (useGameStore.getState().connectionStatus === 'connected' && !touchControls) {
+        if (
+          useGameStore.getState().connectionStatus === 'connected' &&
+          !touchControls
+        ) {
           runtime.setPointerLockEnabled(true);
           runtime.requestPointerLock();
         }
       } catch (error) {
-        const rawMessage = error instanceof Error ? error.message : 'Connection failed';
-        const message =
-          /already exists/i.test(rawMessage)
-            ? 'Room already exists, hit "Join".'
-            : rawMessage;
+        const rawMessage =
+          error instanceof Error ? error.message : 'Connection failed';
+        const message = /already exists/i.test(rawMessage)
+          ? 'Room already exists, hit "Join".'
+          : rawMessage;
         useGameStore.getState().setConnection('error', message);
       } finally {
         connectInFlightRef.current = false;
@@ -675,48 +837,81 @@ export default function App(): React.JSX.Element {
     })();
   };
 
-  const handleLogin = useCallback(async (identifier: string, password: string): Promise<void> => {
-    setAuthBusy(true); setAuthError(null);
-    try {
-      const snapshot = await loginAccount(identifier, password);
-      setAuthSnapshot(snapshot); setAuthError(null);
-    } catch (error) {
-      setAuthError(error instanceof Error ? error.message : 'Login failed');
-    } finally { setAuthBusy(false); }
-  }, []);
+  const handleLogin = useCallback(
+    async (identifier: string, password: string): Promise<void> => {
+      setAuthBusy(true);
+      setAuthError(null);
+      try {
+        const snapshot = await loginAccount(identifier, password);
+        setAuthSnapshot(snapshot);
+        setAuthError(null);
+      } catch (error) {
+        setAuthError(error instanceof Error ? error.message : 'Login failed');
+      } finally {
+        setAuthBusy(false);
+      }
+    },
+    []
+  );
 
-  const handleRegister = useCallback(async (email: string, username: string, password: string): Promise<void> => {
-    setAuthBusy(true); setAuthError(null);
-    try {
-      const snapshot = await registerAccount(email, username, password);
-      setAuthSnapshot(snapshot); setAuthError(null);
-    } catch (error) {
-      setAuthError(error instanceof Error ? error.message : 'Registration failed');
-    } finally { setAuthBusy(false); }
-  }, []);
+  const handleRegister = useCallback(
+    async (
+      email: string,
+      username: string,
+      password: string
+    ): Promise<void> => {
+      setAuthBusy(true);
+      setAuthError(null);
+      try {
+        const snapshot = await registerAccount(email, username, password);
+        setAuthSnapshot(snapshot);
+        setAuthError(null);
+      } catch (error) {
+        setAuthError(
+          error instanceof Error ? error.message : 'Registration failed'
+        );
+      } finally {
+        setAuthBusy(false);
+      }
+    },
+    []
+  );
 
   const handleLogout = useCallback(async (): Promise<void> => {
-    setAuthBusy(true); setAuthError(null);
+    setAuthBusy(true);
+    setAuthError(null);
     try {
       const snapshot = await logoutAccount();
-      setAuthSnapshot(snapshot); setAuthError(null);
+      setAuthSnapshot(snapshot);
+      setAuthError(null);
     } catch (error) {
       setAuthError(error instanceof Error ? error.message : 'Logout failed');
-    } finally { setAuthBusy(false); }
+    } finally {
+      setAuthBusy(false);
+    }
   }, []);
 
-  const handleBackendTargetChange = useCallback((target: BackendTarget): void => {
-    setBackendTargetState(current => {
-      if (current === target) return current;
-      setBackendTarget(target);
-      setLocalPing(null);
-      setLocalPingLow(null);
-      setLocalPingJitter(null);
-      setServerPipeline(null);
-      setServerPipelineLow(null);
-      return target;
-    });
-  }, [setLocalPing, setLocalPingLow, setLocalPingJitter, setServerPipeline, setServerPipelineLow]);
+  const handleBackendTargetChange = useCallback(
+    (target: BackendTarget): void => {
+      setBackendTargetState((current) => {
+        if (current === target) return current;
+        setBackendTarget(target);
+        setLocalPing(null);
+        setLocalPingLow(null);
+        setLocalPingJitter(null);
+        setServerPipeline(null);
+        setServerPipelineLow(null);
+        return target;
+      });
+    },
+    [
+      setLocalPing,
+      setLocalPingLow,
+      setLocalPingJitter,
+      setServerPipeline,
+      setServerPipelineLow,
+    ]
+  );
 
   const handleCopyServerPings = useCallback(async (): Promise<boolean> => {
     const samples: ServerPingSample[] = serverPingHistory.slice(-100);
@@ -726,9 +921,10 @@ export default function App(): React.JSX.Element {
     const text = [
       `server_ping_samples=${samples.length}`,
       'timestamp_iso\tsource\tping_ms\tpipeline_ms',
-      ...samples.map(sample =>
-        `${new Date(sample.atMs).toISOString()}\t${sample.source}\t${Math.round(sample.pingMs)}\t${Math.round(sample.pipelineMs)}`
-      )
+      ...samples.map(
+        (sample) =>
+          `${new Date(sample.atMs).toISOString()}\t${sample.source}\t${Math.round(sample.pingMs)}\t${Math.round(sample.pipelineMs)}`
+      ),
     ].join('\n');
 
     try {
@@ -808,7 +1004,9 @@ export default function App(): React.JSX.Element {
         onLogin={handleLogin}
         onRegister={handleRegister}
         onLogout={handleLogout}
-        onRefreshStats={() => { void refreshAuthSnapshot(); }}
+        onRefreshStats={() => {
+          void refreshAuthSnapshot();
+        }}
         onGraphicsQualityChange={setGraphicsQuality}
         onLookSensitivityChange={setLookSensitivity}
         onFovChange={setFov}
@@ -817,11 +1015,14 @@ export default function App(): React.JSX.Element {
         onNerdPingsChange={setNerdPingsEnabled}
         hasServerPings={serverPingHistory.length > 0}
         onCopyServerPings={handleCopyServerPings}
-        onNicknameChange={value => { if (authLoggedIn) return; setNickname(value); }}
-        onRoomCodeChange={value => setRoomCode(normalizeRoomCode(value))}
+        onNicknameChange={(value) => {
+          if (authLoggedIn) return;
+          setNickname(value);
+        }}
+        onRoomCodeChange={(value) => setRoomCode(normalizeRoomCode(value))}
         onCreateRoom={() => connectToRoom(true)}
         onJoinRoom={() => connectToRoom(false)}
-        onJoinOpenRoom={code => connectToRoom(false, code)}
+        onJoinOpenRoom={(code) => connectToRoom(false, code)}
         onBackendTargetChange={handleBackendTargetChange}
         onCustomBackendHostChange={handleCustomBackendHostChange}
         onCustomBackendPortChange={handleCustomBackendPortChange}
@@ -869,16 +1070,17 @@ export default function App(): React.JSX.Element {
           runtimeRef.current?.disconnect();
         }}
       />
-      <EliminatedOverlay
-        visible={eliminated}
-        onRespawn={triggerRespawn}
-      />
+      <EliminatedOverlay visible={eliminated} onRespawn={triggerRespawn} />
       <MobileControls
         visible={connected && touchControls}
         portrait={portrait}
-        onMoveChange={(moveX, moveZ) => runtimeRef.current?.setVirtualMove(moveX, moveZ)}
-        onLookChange={(lookX, lookY) => runtimeRef.current?.setVirtualLook(lookX, lookY)}
-        onFireChange={held => runtimeRef.current?.setVirtualFireHeld(held)}
+        onMoveChange={(moveX, moveZ) =>
+          runtimeRef.current?.setVirtualMove(moveX, moveZ)
+        }
+        onLookChange={(lookX, lookY) =>
+          runtimeRef.current?.setVirtualLook(lookX, lookY)
+        }
+        onFireChange={(held) => runtimeRef.current?.setVirtualFireHeld(held)}
       />
     </div>
   );

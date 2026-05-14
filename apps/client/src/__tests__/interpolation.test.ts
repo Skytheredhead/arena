@@ -11,11 +11,13 @@ const snapshot = (serverTimeMs: number, x: number): RemotePlayerState => ({
   serverTimeMs,
   yaw: 0,
   pitch: 0,
+  sprinting: false,
+  crouching: false,
   alive: true,
   health: 100,
   kills: 0,
   deaths: 0,
-  roomCode: 'ARENA'
+  roomCode: 'ARENA',
 });
 
 describe('SnapshotBuffer', () => {

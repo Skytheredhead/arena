@@ -12,11 +12,13 @@ const makeState = (): LocalPlayerState => ({
   yaw: 0,
   pitch: 0,
   onGround: true,
+  sprinting: false,
+  crouching: false,
   alive: true,
   health: 100,
   ammo: 30,
   lastProcessedInput: 0,
-  respawnTick: 0
+  respawnTick: 0,
 });
 
 const command = (sequence: number): InputCommand => ({
@@ -25,8 +27,13 @@ const command = (sequence: number): InputCommand => ({
   moveZ: 1,
   yaw: 0,
   pitch: 0,
-  jumping: false,
-  sprinting: false
+  jumpHeld: false,
+  sprintHeld: false,
+  crouchHeld: false,
+  scoped: false,
+  fireHeld: false,
+  reloadPressed: false,
+  weaponSlot: 1,
 });
 
 describe('PredictionController', () => {
@@ -40,7 +47,7 @@ describe('PredictionController', () => {
       position: { x: 8, y: 0, z: -0.02 },
       serverTick: 11,
       serverTimeMs: 550,
-      lastProcessedInput: 1
+      lastProcessedInput: 1,
     });
 
     expect(reconciled.lastProcessedInput).toBe(1);
@@ -54,7 +61,7 @@ describe('PredictionController', () => {
       ...makeState(),
       serverTick: 12,
       serverTimeMs: 600,
-      lastProcessedInput: 1
+      lastProcessedInput: 1,
     });
 
     const before = controller.getState();
@@ -62,7 +69,7 @@ describe('PredictionController', () => {
       ...makeState(),
       serverTick: 11,
       serverTimeMs: 550,
-      lastProcessedInput: 0
+      lastProcessedInput: 0,
     });
 
     expect(after).toEqual(before);
@@ -78,7 +85,7 @@ describe('PredictionController', () => {
       serverTimeMs: 550,
       yaw: 0,
       pitch: 0,
-      lastProcessedInput: 0
+      lastProcessedInput: 0,
     });
 
     expect(reconciled.yaw).toBeCloseTo(-0.35);
@@ -94,11 +101,11 @@ describe('PredictionController', () => {
       position: {
         x: predicted.position.x + 0.12,
         y: predicted.position.y,
-        z: predicted.position.z - 0.08
+        z: predicted.position.z - 0.08,
       },
       serverTick: 11,
       serverTimeMs: 550,
-      lastProcessedInput: 1
+      lastProcessedInput: 1,
     });
 
     expect(reconciled.position.x).toBeCloseTo(predicted.position.x + 0.12, 6);
@@ -115,7 +122,7 @@ describe('PredictionController', () => {
       velocity: { x: 0, y: 0, z: 0 },
       serverTick: 11,
       serverTimeMs: 550,
-      lastProcessedInput: 1
+      lastProcessedInput: 1,
     });
 
     expect(snapped.position.x).toBeCloseTo(24, 5);

@@ -6,21 +6,10 @@ import {
   WEAPON_SLOT_RIFLE,
   WEAPON_SLOT_SHOTGUN,
   WEAPON_SLOT_SNIPER,
+  type FrameInput,
   type WeaponSlot,
-  type InputCommand
+  type InputCommand,
 } from '@arena/shared';
-
-interface FrameInput {
-  moveX: number;
-  moveZ: number;
-  jumping: boolean;
-  sprinting: boolean;
-  scoped: boolean;
-  scoreboardHeld: boolean;
-  wantsFire: boolean;
-  wantsReload: boolean;
-  weaponSlot: WeaponSlot;
-}
 
 export class InputController {
   private readonly pressed = new Set<string>();
@@ -44,7 +33,10 @@ export class InputController {
     window.removeEventListener('keydown', this.handleKeyDown);
     window.removeEventListener('keyup', this.handleKeyUp);
     window.removeEventListener('mouseup', this.handleMouseUp);
-    document.removeEventListener('pointerlockchange', this.handlePointerLockChange);
+    document.removeEventListener(
+      'pointerlockchange',
+      this.handlePointerLockChange
+    );
     this.element.removeEventListener('click', this.handleClick);
     this.element.removeEventListener('contextmenu', this.handleContextMenu);
     this.element.removeEventListener('mousedown', this.handleMouseDown);
@@ -107,14 +99,14 @@ export class InputController {
   setVirtualMove(moveX: number, moveZ: number): void {
     this.virtualMove = {
       x: Math.max(-1, Math.min(1, moveX)),
-      z: Math.max(-1, Math.min(1, moveZ))
+      z: Math.max(-1, Math.min(1, moveZ)),
     };
   }
 
   setVirtualLook(lookX: number, lookY: number): void {
     this.virtualLook = {
       x: Math.max(-1, Math.min(1, lookX)),
-      y: Math.max(-1, Math.min(1, lookY))
+      y: Math.max(-1, Math.min(1, lookY)),
     };
   }
 
@@ -130,7 +122,10 @@ export class InputController {
     window.addEventListener('keydown', this.handleKeyDown);
     window.addEventListener('keyup', this.handleKeyUp);
     window.addEventListener('mouseup', this.handleMouseUp);
-    document.addEventListener('pointerlockchange', this.handlePointerLockChange);
+    document.addEventListener(
+      'pointerlockchange',
+      this.handlePointerLockChange
+    );
     this.element.addEventListener('click', this.handleClick);
     this.element.addEventListener('contextmenu', this.handleContextMenu);
     this.element.addEventListener('mousedown', this.handleMouseDown);
@@ -240,13 +235,21 @@ export class InputController {
   consumeLook(): { yawDelta: number; pitchDelta: number } {
     const delta = {
       yawDelta: this.lookDelta.x,
-      pitchDelta: this.lookDelta.y
+      pitchDelta: this.lookDelta.y,
     };
     this.lookDelta = { x: 0, y: 0 };
     return delta;
   }
 
+  peekFrameInput(): FrameInput {
+    return this.readFrameInput(false);
+  }
+
   getFrameInput(): FrameInput {
+    return this.readFrameInput(true);
+  }
+
+  private readFrameInput(consumeReload: boolean): FrameInput {
     const keyboardMoveX =
       (this.pressed.has('KeyD') ? 1 : 0) - (this.pressed.has('KeyA') ? 1 : 0);
     const keyboardMoveZ =
@@ -254,26 +257,29 @@ export class InputController {
     const moveX = Math.max(-1, Math.min(1, keyboardMoveX + this.virtualMove.x));
     const moveZ = Math.max(-1, Math.min(1, keyboardMoveZ + this.virtualMove.z));
     const sprinting =
-      this.pressed.has('ShiftLeft') ||
-      this.pressed.has('ShiftRight') ||
+      this.pressed.has('ShiftLeft') || this.pressed.has('ShiftRight');
+    const crouching =
       this.pressed.has('Control') ||
       this.pressed.has('ControlLeft') ||
       this.pressed.has('ControlRight') ||
-      this.pressed.has('MetaLeft') ||
-      this.pressed.has('MetaRight');
+      this.pressed.has('KeyC');
     return {
       moveX,
       moveZ,
       jumping: this.pressed.has('Space'),
       sprinting,
+      crouching,
       scoped: this.pressed.has('KeyF') || this.rightMouseScoped,
       scoreboardHeld: this.pressed.has(SCOREBOARD_KEY),
       wantsFire:
         this.virtualFireHeld ||
         (this.fireHeld &&
-          (this.touchControlsActive || document.pointerLockElement === this.element)),
-      wantsReload: this.consumeReloadQueued(),
-      weaponSlot: this.selectedWeaponSlot
+          (this.touchControlsActive ||
+            document.pointerLockElement === this.element)),
+      wantsReload: consumeReload
+        ? this.consumeReloadQueued()
+        : this.reloadQueued,
+      weaponSlot: this.selectedWeaponSlot,
     };
   }
 
@@ -292,9 +298,9 @@ export class InputController {
   buildInputCommand(
     sequence: number,
     yaw: number,
-    pitch: number
+    pitch: number,
+    frame = this.getFrameInput()
   ): InputCommand {
-    const frame = this.getFrameInput();
     const scopedMoveScale = frame.scoped ? SCOPED_MOVE_SCALE : 1;
     return {
       sequence,
@@ -302,8 +308,13 @@ export class InputController {
       moveZ: frame.moveZ * scopedMoveScale,
       yaw,
       pitch: Math.max(-MAX_PITCH, Math.min(MAX_PITCH, pitch)),
-      jumping: frame.jumping,
-      sprinting: frame.sprinting
+      jumpHeld: frame.jumping,
+      sprintHeld: frame.sprinting,
+      crouchHeld: frame.crouching,
+      scoped: frame.scoped,
+      fireHeld: frame.wantsFire,
+      reloadPressed: frame.wantsReload,
+      weaponSlot: frame.weaponSlot,
     };
   }
 }

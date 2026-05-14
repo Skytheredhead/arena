@@ -8,9 +8,9 @@ import {
   t as __t,
   type AlgebraicTypeType as __AlgebraicTypeType,
   type Infer as __Infer,
-} from "spacetimedb";
+} from 'spacetimedb';
 
-export const AmmoPack = __t.object("AmmoPack", {
+export const AmmoPack = __t.object('AmmoPack', {
   id: __t.u32(),
   roomCode: __t.string(),
   x: __t.f32(),
@@ -22,7 +22,7 @@ export const AmmoPack = __t.object("AmmoPack", {
 });
 export type AmmoPack = __Infer<typeof AmmoPack>;
 
-export const DamageEvent = __t.object("DamageEvent", {
+export const DamageEvent = __t.object('DamageEvent', {
   id: __t.u32(),
   roomCode: __t.string(),
   attackerIdentity: __t.identity(),
@@ -33,7 +33,7 @@ export const DamageEvent = __t.object("DamageEvent", {
 });
 export type DamageEvent = __Infer<typeof DamageEvent>;
 
-export const ChatEvent = __t.object("ChatEvent", {
+export const ChatEvent = __t.object('ChatEvent', {
   id: __t.u32(),
   roomCode: __t.string(),
   senderIdentity: __t.identity(),
@@ -43,7 +43,7 @@ export const ChatEvent = __t.object("ChatEvent", {
 });
 export type ChatEvent = __Infer<typeof ChatEvent>;
 
-export const HealthPack = __t.object("HealthPack", {
+export const HealthPack = __t.object('HealthPack', {
   id: __t.u32(),
   roomCode: __t.string(),
   x: __t.f32(),
@@ -55,7 +55,7 @@ export const HealthPack = __t.object("HealthPack", {
 });
 export type HealthPack = __Infer<typeof HealthPack>;
 
-export const ImpactMark = __t.object("ImpactMark", {
+export const ImpactMark = __t.object('ImpactMark', {
   id: __t.u32(),
   roomCode: __t.string(),
   x: __t.f32(),
@@ -68,7 +68,7 @@ export const ImpactMark = __t.object("ImpactMark", {
 });
 export type ImpactMark = __Infer<typeof ImpactMark>;
 
-export const KillFeedEvent = __t.object("KillFeedEvent", {
+export const KillFeedEvent = __t.object('KillFeedEvent', {
   id: __t.u32(),
   roomCode: __t.string(),
   attackerIdentity: __t.identity(),
@@ -79,7 +79,7 @@ export const KillFeedEvent = __t.object("KillFeedEvent", {
 });
 export type KillFeedEvent = __Infer<typeof KillFeedEvent>;
 
-export const MatchState = __t.object("MatchState", {
+export const MatchState = __t.object('MatchState', {
   roomCode: __t.string(),
   active: __t.bool(),
   tick: __t.u32(),
@@ -89,7 +89,7 @@ export const MatchState = __t.object("MatchState", {
 });
 export type MatchState = __Infer<typeof MatchState>;
 
-export const Player = __t.object("Player", {
+export const Player = __t.object('Player', {
   identity: __t.identity(),
   nickname: __t.string(),
   roomCode: __t.option(__t.string()),
@@ -99,7 +99,7 @@ export const Player = __t.object("Player", {
 });
 export type Player = __Infer<typeof Player>;
 
-export const PlayerInput = __t.object("PlayerInput", {
+export const PlayerInput = __t.object('PlayerInput', {
   identity: __t.identity(),
   sequence: __t.u32(),
   moveX: __t.f32(),
@@ -108,11 +108,16 @@ export const PlayerInput = __t.object("PlayerInput", {
   pitch: __t.f32(),
   jumping: __t.bool(),
   sprinting: __t.bool(),
+  crouching: __t.bool(),
+  scoped: __t.bool(),
+  fireHeld: __t.bool(),
+  reloadPressed: __t.bool(),
+  weaponSlot: __t.u8(),
   lastReceivedTick: __t.u32(),
 });
 export type PlayerInput = __Infer<typeof PlayerInput>;
 
-export const PlayerRateLimit = __t.object("PlayerRateLimit", {
+export const PlayerRateLimit = __t.object('PlayerRateLimit', {
   identity: __t.identity(),
   lastNicknameTick: __t.u32(),
   lastCreateRoomTick: __t.u32(),
@@ -122,7 +127,7 @@ export const PlayerRateLimit = __t.object("PlayerRateLimit", {
 });
 export type PlayerRateLimit = __Infer<typeof PlayerRateLimit>;
 
-export const PlayerState = __t.object("PlayerState", {
+export const PlayerState = __t.object('PlayerState', {
   identity: __t.identity(),
   roomCode: __t.option(__t.string()),
   x: __t.f32(),
@@ -137,6 +142,8 @@ export const PlayerState = __t.object("PlayerState", {
   health: __t.u16(),
   alive: __t.bool(),
   onGround: __t.bool(),
+  sprinting: __t.bool(),
+  crouching: __t.bool(),
   lastDamageTick: __t.u32(),
   regenProgress: __t.f32(),
   lastProcessedInput: __t.u32(),
@@ -145,7 +152,7 @@ export const PlayerState = __t.object("PlayerState", {
 });
 export type PlayerState = __Infer<typeof PlayerState>;
 
-export const Room = __t.object("Room", {
+export const Room = __t.object('Room', {
   code: __t.string(),
   playerCount: __t.u16(),
   active: __t.bool(),
@@ -153,13 +160,13 @@ export const Room = __t.object("Room", {
 });
 export type Room = __Infer<typeof Room>;
 
-export const SimTickSchedule = __t.object("SimTickSchedule", {
+export const SimTickSchedule = __t.object('SimTickSchedule', {
   scheduledId: __t.u64(),
   scheduledAt: __t.scheduleAt(),
 });
 export type SimTickSchedule = __Infer<typeof SimTickSchedule>;
 
-export const SpawnPoint = __t.object("SpawnPoint", {
+export const SpawnPoint = __t.object('SpawnPoint', {
   id: __t.u16(),
   x: __t.f32(),
   y: __t.f32(),
@@ -167,15 +174,20 @@ export const SpawnPoint = __t.object("SpawnPoint", {
 });
 export type SpawnPoint = __Infer<typeof SpawnPoint>;
 
-export const WeaponState = __t.object("WeaponState", {
+export const WeaponState = __t.object('WeaponState', {
   identity: __t.identity(),
   roomCode: __t.option(__t.string()),
   ammoInMag: __t.u16(),
+  reserveAmmo: __t.u16(),
+  reloadStartedTick: __t.u32(),
+  reloadCompleteTick: __t.u32(),
+  reloading: __t.bool(),
+  selectedWeaponSlot: __t.u8(),
   nextReadyTick: __t.u32(),
 });
 export type WeaponState = __Infer<typeof WeaponState>;
 
-export const WorldState = __t.object("WorldState", {
+export const WorldState = __t.object('WorldState', {
   singleton: __t.u8(),
   currentTick: __t.u32(),
 });

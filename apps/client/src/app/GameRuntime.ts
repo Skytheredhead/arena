@@ -2,6 +2,8 @@ import {
   MAX_PITCH,
   RIFLE_CLIP_SIZE,
   RIFLE_CARRY_CAPACITY,
+  RIFLE_RESERVE_CAPACITY,
+  RELOAD_DURATION_MS,
   SERVER_TICK_MS,
   WEAPON_SLOT_RIFLE,
   WEAPON_SLOT_SNIPER,
@@ -14,7 +16,8 @@ import {
   type ImpactMarkView,
   type LocalPlayerState,
   type Vec3,
-  type RemotePlayerState
+  type RemotePlayerState,
+  type WeaponSnapshot,
 } from '@arena/shared';
 import { InputController } from '../input/InputController';
 import { PredictionController } from '../player/PredictionController';
@@ -26,7 +29,7 @@ import {
   getLocalCorrectionDeadzoneMeters,
   getLocalCorrectionDecayRate,
   getLocalCorrectionHardSnapDistanceMeters,
-  getMaxLocalCorrectionOffsetMeters
+  getMaxLocalCorrectionOffsetMeters,
 } from '../netcode/localCorrection';
 import { type ConnectionStage } from '../netcode/connectionProgress';
 import { ConnectOptions, SpacetimeBridge } from '../netcode/SpacetimeBridge';
@@ -55,7 +58,6 @@ declare global {
 
 export class GameRuntime {
   private static readonly MOBILE_LOOK_SPEED = 2.8;
-  private static readonly RELOAD_DURATION_MS = 980;
   private static readonly DRY_FIRE_COOLDOWN_MS = 180;
   private static readonly FOOTSTEP_MIN_INTERVAL_MS = 430;
   private static readonly REMOTE_FOOTSTEP_MIN_INTERVAL_MS = 300;
@@ -101,17 +103,21 @@ export class GameRuntime {
   private crosshairKick = 0;
   private totalAmmo = RIFLE_CARRY_CAPACITY;
   private magAmmo = RIFLE_CLIP_SIZE;
-  private reserveAmmo = RIFLE_CARRY_CAPACITY - RIFLE_CLIP_SIZE;
+  private reserveAmmo = RIFLE_RESERVE_CAPACITY;
   private reloadStartedAt = -1;
   private reloadCompletesAt = -1;
   private nextDryFireAt = 0;
   private smoothedPingMs = 48;
   private readonly pendingInputSentAt = new Map<number, number>();
   private readonly pingSamples: Array<{ at: number; rttMs: number }> = [];
-  private readonly serverPipelineSamples: Array<{ at: number; pipelineMs: number }> = [];
+  private readonly serverPipelineSamples: Array<{
+    at: number;
+    pipelineMs: number;
+  }> = [];
   private smoothedServerPipelineMs = 0;
   private lastAuthoritativePipelineMs = 0;
-  private adaptiveInterpolationDelayMs = GameRuntime.BASE_REMOTE_INTERPOLATION_DELAY_MS;
+  private adaptiveInterpolationDelayMs =
+    GameRuntime.BASE_REMOTE_INTERPOLATION_DELAY_MS;
   private lastPingUiUpdateAt = 0;
   private pingProbeTimer: ReturnType<typeof setTimeout> | null = null;
   private pingProbeInFlight = false;
@@ -124,7 +130,8 @@ export class GameRuntime {
   private lastLocalShotAt = -1000;
   private deathViewState: LocalPlayerState | null = null;
   private sniperCooldownEndsAt = 0;
-  private onConnectionStageChange: ((stage: ConnectionStage) => void) | null = null;
+  private onConnectionStageChange: ((stage: ConnectionStage) => void) | null =
+    null;
   private hasReceivedInitialLocalState = false;
   private renderErrorReported = false;
 
@@ -243,26 +250,31 @@ export class GameRuntime {
     this.onConnectionStageChange?.('opening_socket');
 
     this.bridge = new SpacetimeBridge({
-      onLocalState: state => this.handleAuthoritativeLocalState(state),
-      onRemoteState: state => this.handleRemoteState(state),
-      onDamageEvent: event => this.handleDamageEvent(event),
-      onImpactMark: mark => this.handleImpactMark(mark),
-      onImpactMarkRemoved: id => this.impactMarks.delete(id),
-      onServerTick: serverTimeMs => this.observeServerTime(serverTimeMs),
-      onWeaponAmmo: ammo => this.syncAuthoritativeAmmo(ammo),
-      onReconnectStateChange: state =>
+      onLocalState: (state) => this.handleAuthoritativeLocalState(state),
+      onRemoteState: (state) => this.handleRemoteState(state),
+      onDamageEvent: (event) => this.handleDamageEvent(event),
+      onImpactMark: (mark) => this.handleImpactMark(mark),
+      onImpactMarkRemoved: (id) => this.impactMarks.delete(id),
+      onServerTick: (serverTimeMs) => this.observeServerTime(serverTimeMs),
+      onWeaponState: (weapon) => this.syncAuthoritativeWeaponState(weapon),
+      onReconnectStateChange: (state) =>
         useGameStore
           .getState()
-          .setNetworkReconnectState(state.reconnecting, state.attempt, state.startedAtMs),
-      onConnectionStageChange: stage => this.onConnectionStageChange?.(stage),
-      onDisconnected: () => this.disconnect(false)
+          .setNetworkReconnectState(
+            state.reconnecting,
+            state.attempt,
+            state.startedAtMs
+          ),
+      onConnectionStageChange: (stage) => this.onConnectionStageChange?.(stage),
+      onDisconnected: () => this.disconnect(false),
     });
 
     try {
       await this.bridge.connect(options);
       this.startInGamePingProbe();
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Connection failed';
+      const message =
+        error instanceof Error ? error.message : 'Connection failed';
       useGameStore.getState().setConnection('error', message);
       this.disconnect(false);
       throw new Error(message);
@@ -291,13 +303,14 @@ export class GameRuntime {
     this.crosshairKick = 0;
     this.totalAmmo = RIFLE_CARRY_CAPACITY;
     this.magAmmo = RIFLE_CLIP_SIZE;
-    this.reserveAmmo = RIFLE_CARRY_CAPACITY - RIFLE_CLIP_SIZE;
+    this.reserveAmmo = RIFLE_RESERVE_CAPACITY;
     this.pendingInputSentAt.clear();
     this.smoothedPingMs = 48;
     this.pingSamples.length = 0;
     this.serverPipelineSamples.length = 0;
     this.smoothedServerPipelineMs = 0;
-    this.adaptiveInterpolationDelayMs = GameRuntime.BASE_REMOTE_INTERPOLATION_DELAY_MS;
+    this.adaptiveInterpolationDelayMs =
+      GameRuntime.BASE_REMOTE_INTERPOLATION_DELAY_MS;
     this.lastPingUiUpdateAt = 0;
     this.preferAckPingSampling = false;
     this.cancelReload();
@@ -333,10 +346,12 @@ export class GameRuntime {
         : {
             ...state,
             position: { ...state.position },
-            velocity: { x: 0, y: 0, z: 0 }
+            velocity: { x: 0, y: 0, z: 0 },
           };
       useGameStore.getState().setLocalPlayer(state);
-      useGameStore.getState().setPredictionDebug(this.prediction.getDebugState());
+      useGameStore
+        .getState()
+        .setPredictionDebug(this.prediction.getDebugState());
       return;
     }
 
@@ -345,36 +360,46 @@ export class GameRuntime {
     const correction = {
       x: before.position.x - reconciled.position.x,
       y: before.position.y - reconciled.position.y,
-      z: before.position.z - reconciled.position.z
+      z: before.position.z - reconciled.position.z,
     };
-    const correctionMagnitude = Math.hypot(correction.x, correction.y, correction.z);
+    const correctionMagnitude = Math.hypot(
+      correction.x,
+      correction.y,
+      correction.z
+    );
     const store = useGameStore.getState();
     const predictionDebug = this.prediction.getDebugState();
     const correctionMetrics = {
       pingMs: store.localPingMs ?? this.smoothedPingMs,
       jitterMs: store.localPingJitterMs,
       inputPipelineMs: reconciled.inputPipelineMs,
-      pendingInputs: predictionDebug.pendingInputs
+      pendingInputs: predictionDebug.pendingInputs,
     };
     if (
       !before.alive ||
       !reconciled.alive ||
-      correctionMagnitude > getLocalCorrectionHardSnapDistanceMeters(correctionMetrics)
+      correctionMagnitude >
+        getLocalCorrectionHardSnapDistanceMeters(correctionMetrics)
     ) {
       this.localCorrectionOffset = { x: 0, y: 0, z: 0 };
-    } else if (correctionMagnitude >= getLocalCorrectionDeadzoneMeters(correctionMetrics)) {
-      this.localCorrectionOffset = clampCorrectionOffset({
-        x: this.localCorrectionOffset.x + correction.x,
-        y: this.localCorrectionOffset.y + correction.y,
-        z: this.localCorrectionOffset.z + correction.z
-      }, getMaxLocalCorrectionOffsetMeters(correctionMetrics));
+    } else if (
+      correctionMagnitude >= getLocalCorrectionDeadzoneMeters(correctionMetrics)
+    ) {
+      this.localCorrectionOffset = clampCorrectionOffset(
+        {
+          x: this.localCorrectionOffset.x + correction.x,
+          y: this.localCorrectionOffset.y + correction.y,
+          z: this.localCorrectionOffset.z + correction.z,
+        },
+        getMaxLocalCorrectionOffsetMeters(correctionMetrics)
+      );
     }
 
     if (before.alive && !reconciled.alive) {
       this.deathViewState = {
         ...reconciled,
         position: { ...reconciled.position },
-        velocity: { x: 0, y: 0, z: 0 }
+        velocity: { x: 0, y: 0, z: 0 },
       };
     } else if (!before.alive && reconciled.alive) {
       // On respawn, clear stale pre-death prediction/input history so movement resumes immediately.
@@ -402,12 +427,21 @@ export class GameRuntime {
     buffer.push(state);
   }
 
-  private syncAuthoritativeAmmo(ammo: number): void {
-    const authoritative = Math.max(0, Math.min(RIFLE_CARRY_CAPACITY, ammo));
+  private syncAuthoritativeWeaponState(weapon: WeaponSnapshot): void {
+    const nextMagAmmo = Math.max(
+      0,
+      Math.min(RIFLE_CLIP_SIZE, weapon.ammoInMag)
+    );
+    const nextReserveAmmo = Math.max(
+      0,
+      Math.min(RIFLE_RESERVE_CAPACITY, weapon.reserveAmmo)
+    );
     const previousVisualAmmo = this.totalAmmo;
-    const nextVisualAmmo = authoritative;
+    const nextVisualAmmo = nextMagAmmo + nextReserveAmmo;
 
     const ammoGain = nextVisualAmmo - previousVisualAmmo;
+    this.magAmmo = nextMagAmmo;
+    this.reserveAmmo = nextReserveAmmo;
     this.totalAmmo = nextVisualAmmo;
     if (this.prediction) {
       this.prediction.setAmmo(nextVisualAmmo);
@@ -416,29 +450,49 @@ export class GameRuntime {
 
     if (ammoGain > 0 && ammoGain <= 8) {
       const store = useGameStore.getState();
-      this.audio.play('bulletPickup', { volume: 0.65, playbackRateMin: 0.93, playbackRateMax: 1.07 });
-      store.consumeNearestAmmoPack(store.connectedRoomCode, store.localPlayer.position, 2.4);
+      this.audio.play('bulletPickup', {
+        volume: 0.65,
+        playbackRateMin: 0.93,
+        playbackRateMax: 1.07,
+      });
+      store.consumeNearestAmmoPack(
+        store.connectedRoomCode,
+        store.localPlayer.position,
+        2.4
+      );
     }
 
-    this.magAmmo = Math.min(RIFLE_CLIP_SIZE, nextVisualAmmo);
-    this.reloadStartedAt = -1;
-    this.reloadCompletesAt = -1;
+    if (weapon.reloading) {
+      this.reloadStartedAt = weapon.reloadStartedTick * SERVER_TICK_MS;
+      this.reloadCompletesAt = weapon.reloadCompleteTick * SERVER_TICK_MS;
+    } else {
+      this.reloadStartedAt = -1;
+      this.reloadCompletesAt = -1;
+    }
+    useGameStore.getState().setSelectedWeaponSlot(weapon.selectedWeaponSlot);
     this.applyDisplayedAmmo();
   }
 
-  private setLocalAmmo(ammo: number): void {
-    const clamped = Math.max(0, Math.min(RIFLE_CARRY_CAPACITY, ammo));
-    this.totalAmmo = clamped;
-    this.magAmmo = Math.min(RIFLE_CLIP_SIZE, clamped);
+  private setLocalWeaponAmmo(
+    magAmmo: number,
+    reserveAmmo = this.reserveAmmo
+  ): void {
+    const safeMag = Math.max(0, Math.min(RIFLE_CLIP_SIZE, magAmmo));
+    const safeReserve = Math.max(
+      0,
+      Math.min(RIFLE_RESERVE_CAPACITY, reserveAmmo)
+    );
+    this.magAmmo = safeMag;
+    this.reserveAmmo = safeReserve;
+    this.totalAmmo = safeMag + safeReserve;
     if (this.prediction) {
-      this.prediction.setAmmo(clamped);
+      this.prediction.setAmmo(this.totalAmmo);
     }
-    useGameStore.getState().setLocalPlayer({ ammo: clamped });
+    useGameStore.getState().setLocalPlayer({ ammo: this.totalAmmo });
     this.applyDisplayedAmmo();
   }
 
   private applyDisplayedAmmo(): void {
-    this.reserveAmmo = Math.max(0, this.totalAmmo - this.magAmmo);
     useGameStore.getState().setDisplayedAmmo(this.magAmmo, this.reserveAmmo);
   }
 
@@ -446,6 +500,7 @@ export class GameRuntime {
     const clamped = Math.max(0, Math.min(RIFLE_CARRY_CAPACITY, totalAmmo));
     this.totalAmmo = clamped;
     this.magAmmo = Math.min(RIFLE_CLIP_SIZE, clamped);
+    this.reserveAmmo = Math.max(0, clamped - this.magAmmo);
     this.applyDisplayedAmmo();
   }
 
@@ -461,16 +516,18 @@ export class GameRuntime {
     }
 
     this.reloadStartedAt = now;
-    this.reloadCompletesAt = now + GameRuntime.RELOAD_DURATION_MS;
-    this.audio.play('reload', { volume: 0.45, playbackRateMin: 0.96, playbackRateMax: 1.04 });
+    this.reloadCompletesAt = now + RELOAD_DURATION_MS;
+    this.audio.play('reload', {
+      volume: 0.45,
+      playbackRateMin: 0.96,
+      playbackRateMax: 1.04,
+    });
   }
 
   private completeReloadIfReady(now: number): void {
     if (this.reloadCompletesAt < 0 || now < this.reloadCompletesAt) {
       return;
     }
-    const fill = Math.min(RIFLE_CLIP_SIZE, this.totalAmmo);
-    this.magAmmo = fill;
     this.reloadStartedAt = -1;
     this.reloadCompletesAt = -1;
     this.applyDisplayedAmmo();
@@ -493,7 +550,11 @@ export class GameRuntime {
     this.impactMarks.set(mark.id, mark);
     const now = performance.now();
     if (now - this.lastLocalShotAt <= 220) {
-      this.audio.play('bulletWallHit', { volume: 0.55, playbackRateMin: 0.94, playbackRateMax: 1.06 });
+      this.audio.play('bulletWallHit', {
+        volume: 0.55,
+        playbackRateMin: 0.94,
+        playbackRateMax: 1.06,
+      });
     }
   }
 
@@ -514,9 +575,17 @@ export class GameRuntime {
 
     if (event.victimIdentity === localIdentity) {
       store.triggerDamageFlash();
-      this.audio.play('flyby', { volume: 0.5, playbackRateMin: 0.95, playbackRateMax: 1.07 });
+      this.audio.play('flyby', {
+        volume: 0.5,
+        playbackRateMin: 0.95,
+        playbackRateMax: 1.07,
+      });
       if (event.causedDeath) {
-        this.audio.play('death', { volume: 0.68, playbackRateMin: 0.94, playbackRateMax: 1.05 });
+        this.audio.play('death', {
+          volume: 0.68,
+          playbackRateMin: 0.94,
+          playbackRateMax: 1.05,
+        });
         const predicted = this.prediction?.getState() ?? store.localPlayer;
         const deadState: LocalPlayerState = {
           ...predicted,
@@ -526,7 +595,7 @@ export class GameRuntime {
           serverTick: Math.max(predicted.serverTick, event.tick),
           serverTimeMs: event.tick * SERVER_TICK_MS,
           inputPipelineMs: predicted.inputPipelineMs,
-          respawnTick: event.tick
+          respawnTick: event.tick,
         };
         if (this.prediction) {
           this.prediction.hydrate(deadState);
@@ -534,13 +603,16 @@ export class GameRuntime {
         this.deathViewState = {
           ...deadState,
           position: { ...deadState.position },
-          velocity: { x: 0, y: 0, z: 0 }
+          velocity: { x: 0, y: 0, z: 0 },
         };
         store.setLocalPlayer(deadState);
       }
     }
 
-    if (event.attackerIdentity !== localIdentity || event.victimIdentity === localIdentity) {
+    if (
+      event.attackerIdentity !== localIdentity ||
+      event.victimIdentity === localIdentity
+    ) {
       return;
     }
 
@@ -554,12 +626,16 @@ export class GameRuntime {
       position: {
         x: victim.position.x,
         y: victim.position.y + 1.0,
-        z: victim.position.z
+        z: victim.position.z,
       },
       createdAt: now,
-      expiresAt: now + 320
+      expiresAt: now + 320,
     });
-    this.audio.play('bulletBodyHit', { volume: 0.65, playbackRateMin: 0.92, playbackRateMax: 1.05 });
+    this.audio.play('bulletBodyHit', {
+      volume: 0.65,
+      playbackRateMin: 0.92,
+      playbackRateMax: 1.05,
+    });
   }
 
   private readonly frame = (now: number): void => {
@@ -577,30 +653,39 @@ export class GameRuntime {
     const store = useGameStore.getState();
     store.pruneKillFeed(now);
     this.completeReloadIfReady(now);
-    const frameInput = this.input.getFrameInput();
+    const frameInput = this.input.peekFrameInput();
     store.setScoreboardOpen(frameInput.scoreboardHeld);
     store.setScoped(frameInput.scoped);
     store.setSelectedWeaponSlot(frameInput.weaponSlot);
     if (frameInput.weaponSlot === WEAPON_SLOT_SNIPER) {
-      store.setSniperCooldownRemainingMs(Math.max(0, this.sniperCooldownEndsAt - now));
+      store.setSniperCooldownRemainingMs(
+        Math.max(0, this.sniperCooldownEndsAt - now)
+      );
     } else {
       store.setSniperCooldownRemainingMs(0);
     }
 
     const predictedForLook = this.prediction?.getState();
-    if (this.prediction && predictedForLook && !this.paused && predictedForLook.alive) {
+    if (
+      this.prediction &&
+      predictedForLook &&
+      !this.paused &&
+      predictedForLook.alive
+    ) {
       const look = this.input.consumeLook();
       const lookStick = this.input.getVirtualLook();
       if (lookStick.x !== 0 || lookStick.y !== 0) {
-        look.yawDelta += lookStick.x * GameRuntime.MOBILE_LOOK_SPEED * deltaSeconds;
-        look.pitchDelta += lookStick.y * GameRuntime.MOBILE_LOOK_SPEED * deltaSeconds;
+        look.yawDelta +=
+          lookStick.x * GameRuntime.MOBILE_LOOK_SPEED * deltaSeconds;
+        look.pitchDelta +=
+          lookStick.y * GameRuntime.MOBILE_LOOK_SPEED * deltaSeconds;
       }
       if (look.yawDelta !== 0 || look.pitchDelta !== 0) {
         this.prediction.applyLook(look.yawDelta, look.pitchDelta);
         const predicted = this.prediction.getState();
         useGameStore.getState().setLocalPlayer({
           yaw: predicted.yaw,
-          pitch: Math.max(-MAX_PITCH, Math.min(MAX_PITCH, predicted.pitch))
+          pitch: Math.max(-MAX_PITCH, Math.min(MAX_PITCH, predicted.pitch)),
         });
       }
     }
@@ -621,12 +706,16 @@ export class GameRuntime {
     }
 
     const renderDelayMs = this.getAdaptiveInterpolationDelayMs();
-    const renderServerTimeMs = Math.max(0, this.estimateServerTimeMs(now) - renderDelayMs);
+    const renderServerTimeMs = Math.max(
+      0,
+      this.estimateServerTimeMs(now) - renderDelayMs
+    );
     const connectedRoomCode = useGameStore.getState().connectedRoomCode;
     const remotePlayers: RemotePlayerState[] = [];
     for (const [identity, buffer] of this.remoteBuffers) {
       const meta = useGameStore.getState().players[identity];
-      const staleBuffer = now - buffer.lastPushAtMsValue() > GameRuntime.REMOTE_BUFFER_STALE_MS;
+      const staleBuffer =
+        now - buffer.lastPushAtMsValue() > GameRuntime.REMOTE_BUFFER_STALE_MS;
       if (staleBuffer) {
         this.remoteBuffers.delete(identity);
         useGameStore.getState().removeRemotePlayer(identity);
@@ -660,26 +749,31 @@ export class GameRuntime {
 
     const currentLocal = this.getPresentedLocalState(deltaSeconds);
     const speed = Math.hypot(currentLocal.velocity.x, currentLocal.velocity.z);
-    const movingOnGround = currentLocal.onGround && currentLocal.alive && speed > 1.25;
-    const crouchTarget = frameInput.sprinting ? 1 : 0;
-    this.crouchAmount += (crouchTarget - this.crouchAmount) * Math.min(1, deltaSeconds * 12);
+    const movingOnGround =
+      currentLocal.onGround && currentLocal.alive && speed > 1.25;
+    const crouchTarget = frameInput.crouching || currentLocal.crouching ? 1 : 0;
+    this.crouchAmount +=
+      (crouchTarget - this.crouchAmount) * Math.min(1, deltaSeconds * 12);
     const targetWalkIntensity = movingOnGround
       ? Math.max(0.12, Math.min(1, speed / Math.max(0.01, WALK_SPEED)))
       : 0;
-    this.walkIntensity += (targetWalkIntensity - this.walkIntensity) * Math.min(1, deltaSeconds * 9);
+    this.walkIntensity +=
+      (targetWalkIntensity - this.walkIntensity) *
+      Math.min(1, deltaSeconds * 9);
     if (movingOnGround) {
       this.walkPhase += deltaSeconds * (7.3 + this.walkIntensity * 4.2);
       const stride = Math.max(0.35, 0.58 - this.walkIntensity * 0.12);
       this.walkStrideDistance += speed * deltaSeconds;
       const enoughStride = this.walkStrideDistance >= stride;
-      const footstepReady = now - this.lastFootstepAt >= GameRuntime.FOOTSTEP_MIN_INTERVAL_MS;
+      const footstepReady =
+        now - this.lastFootstepAt >= GameRuntime.FOOTSTEP_MIN_INTERVAL_MS;
       if (enoughStride && footstepReady) {
         this.walkStrideDistance -= stride;
         this.lastFootstepAt = now;
         this.audio.play('footstep', {
           volume: 0.32 + this.walkIntensity * 0.16,
           playbackRateMin: 0.9,
-          playbackRateMax: 1.1
+          playbackRateMax: 1.1,
         });
       } else if (this.walkStrideDistance > stride * 2.4) {
         // Prevent huge backlog bursts after long frames/background tab throttling.
@@ -704,15 +798,23 @@ export class GameRuntime {
           : frameInput.scoped
             ? Math.min(12, speed * 1.2)
             : Math.min(20, speed * 2.4);
-    useGameStore.getState().setCrosshairSpread(Math.max(0, weaponSpread + this.crosshairKick));
+    useGameStore
+      .getState()
+      .setCrosshairSpread(Math.max(0, weaponSpread + this.crosshairKick));
 
-    const ammoPacks: AmmoPackView[] = Object.values(useGameStore.getState().ammoPacks).filter(
-      pack => !connectedRoomCode || pack.roomCode === connectedRoomCode
+    const ammoPacks: AmmoPackView[] = Object.values(
+      useGameStore.getState().ammoPacks
+    ).filter(
+      (pack) => !connectedRoomCode || pack.roomCode === connectedRoomCode
     );
-    const healthPacks: HealthPackView[] = Object.values(useGameStore.getState().healthPacks).filter(
-      pack => !connectedRoomCode || pack.roomCode === connectedRoomCode
+    const healthPacks: HealthPackView[] = Object.values(
+      useGameStore.getState().healthPacks
+    ).filter(
+      (pack) => !connectedRoomCode || pack.roomCode === connectedRoomCode
     );
-    const bloodBursts = this.bloodBursts.filter(burst => burst.expiresAt > now);
+    const bloodBursts = this.bloodBursts.filter(
+      (burst) => burst.expiresAt > now
+    );
     if (bloodBursts.length !== this.bloodBursts.length) {
       this.bloodBursts.length = 0;
       this.bloodBursts.push(...bloodBursts);
@@ -725,7 +827,7 @@ export class GameRuntime {
       ammoPacks,
       healthPacks,
       impactMarks: Array.from(this.impactMarks.values()).filter(
-        mark => !connectedRoomCode || mark.roomCode === connectedRoomCode
+        (mark) => !connectedRoomCode || mark.roomCode === connectedRoomCode
       ),
       bloodBursts,
       scoped: frameInput.scoped,
@@ -736,23 +838,26 @@ export class GameRuntime {
       walkPhase: this.walkPhase,
       walkIntensity: this.walkIntensity,
       crouchAmount: this.crouchAmount,
-      crouched: frameInput.sprinting,
+      crouched: frameInput.crouching || currentLocal.crouching,
       reloadProgress: this.getReloadProgress(now),
-      estimatedServerTimeMs
+      estimatedServerTimeMs,
     };
     try {
       this.renderer.render(renderFrame);
     } catch (error) {
       if (!this.renderErrorReported) {
         this.renderErrorReported = true;
-        console.error('Render frame failed; retrying without transient shot effects.', error);
+        console.error(
+          'Render frame failed; retrying without transient shot effects.',
+          error
+        );
       }
       try {
         this.renderer.render({
           ...renderFrame,
           impactMarks: [],
           bloodBursts: [],
-          muzzleFlashVisible: false
+          muzzleFlashVisible: false,
         });
       } catch (retryError) {
         if (!this.renderErrorReported) {
@@ -770,7 +875,7 @@ export class GameRuntime {
     deltaSeconds: number,
     now: number
   ): void {
-    const activeIds = new Set(remotePlayers.map(player => player.identity));
+    const activeIds = new Set(remotePlayers.map((player) => player.identity));
     for (const identity of Array.from(this.remoteFootsteps.keys())) {
       if (!activeIds.has(identity)) {
         this.remoteFootsteps.delete(identity);
@@ -783,7 +888,7 @@ export class GameRuntime {
         footprint = {
           lastPosition: { ...remote.position },
           strideDistance: 0,
-          lastStepAt: Number.NEGATIVE_INFINITY
+          lastStepAt: Number.NEGATIVE_INFINITY,
         };
       }
 
@@ -800,9 +905,10 @@ export class GameRuntime {
       footprint.lastPosition = { ...remote.position };
 
       const horizontalSpeed = Math.hypot(remote.velocity.x, remote.velocity.z);
-      const inferredSpeed = movedDistance > 0
-        ? movedDistance / Math.max(0.001, deltaSeconds)
-        : horizontalSpeed;
+      const inferredSpeed =
+        movedDistance > 0
+          ? movedDistance / Math.max(0.001, deltaSeconds)
+          : horizontalSpeed;
       const roughlyGrounded = Math.abs(remote.velocity.y) < 1.6;
       const movingOnGround = inferredSpeed > 1.2 && roughlyGrounded;
       if (!movingOnGround) {
@@ -811,10 +917,16 @@ export class GameRuntime {
         continue;
       }
 
-      const stride = Math.max(0.33, 0.56 - Math.min(1, inferredSpeed / Math.max(0.01, WALK_SPEED)) * 0.1);
-      footprint.strideDistance += movedDistance > 0 ? movedDistance : inferredSpeed * deltaSeconds;
+      const stride = Math.max(
+        0.33,
+        0.56 - Math.min(1, inferredSpeed / Math.max(0.01, WALK_SPEED)) * 0.1
+      );
+      footprint.strideDistance +=
+        movedDistance > 0 ? movedDistance : inferredSpeed * deltaSeconds;
       const readyByStride = footprint.strideDistance >= stride;
-      const readyByTime = now - footprint.lastStepAt >= GameRuntime.REMOTE_FOOTSTEP_MIN_INTERVAL_MS;
+      const readyByTime =
+        now - footprint.lastStepAt >=
+        GameRuntime.REMOTE_FOOTSTEP_MIN_INTERVAL_MS;
       if (readyByStride && readyByTime) {
         const distanceToLocal = Math.hypot(
           remote.position.x - localPlayer.position.x,
@@ -825,17 +937,21 @@ export class GameRuntime {
             sourcePosition: {
               x: remote.position.x,
               y: remote.position.y + 0.1,
-              z: remote.position.z
+              z: remote.position.z,
             },
             listenerPosition: {
               x: localPlayer.position.x,
               y: localPlayer.position.y + 1.58,
-              z: localPlayer.position.z
+              z: localPlayer.position.z,
             },
             listenerYaw: localPlayer.yaw,
-            volume: Math.max(0.12, 0.5 * (1 - distanceToLocal / GameRuntime.REMOTE_FOOTSTEP_MAX_DISTANCE)),
+            volume: Math.max(
+              0.12,
+              0.5 *
+                (1 - distanceToLocal / GameRuntime.REMOTE_FOOTSTEP_MAX_DISTANCE)
+            ),
             playbackRateMin: 0.92,
-            playbackRateMax: 1.08
+            playbackRateMax: 1.08,
           });
         }
 
@@ -861,7 +977,7 @@ export class GameRuntime {
         position: { ...this.deathViewState.position },
         velocity: { ...this.deathViewState.velocity },
         yaw: this.deathViewState.yaw,
-        pitch: this.deathViewState.pitch
+        pitch: this.deathViewState.pitch,
       };
     }
 
@@ -873,9 +989,14 @@ export class GameRuntime {
     const previewCommand = this.input.buildInputCommand(
       this.sequence,
       predicted.yaw,
-      predicted.pitch
+      predicted.pitch,
+      this.input.peekFrameInput()
     );
-    const preview = simulatePlayerTick(predicted, previewCommand, partialTickSeconds);
+    const preview = simulatePlayerTick(
+      predicted,
+      previewCommand,
+      partialTickSeconds
+    );
 
     const store = useGameStore.getState();
     const decay = Math.exp(
@@ -883,13 +1004,13 @@ export class GameRuntime {
         pingMs: store.localPingMs ?? this.smoothedPingMs,
         jitterMs: store.localPingJitterMs,
         inputPipelineMs: predicted.inputPipelineMs,
-        pendingInputs: this.prediction?.getDebugState().pendingInputs ?? 0
+        pendingInputs: this.prediction?.getDebugState().pendingInputs ?? 0,
       }) * deltaSeconds
     );
     this.localCorrectionOffset = {
       x: this.localCorrectionOffset.x * decay,
       y: this.localCorrectionOffset.y * decay,
-      z: this.localCorrectionOffset.z * decay
+      z: this.localCorrectionOffset.z * decay,
     };
 
     return {
@@ -897,8 +1018,8 @@ export class GameRuntime {
       position: {
         x: preview.position.x + this.localCorrectionOffset.x,
         y: preview.position.y + this.localCorrectionOffset.y,
-        z: preview.position.z + this.localCorrectionOffset.z
-      }
+        z: preview.position.z + this.localCorrectionOffset.z,
+      },
     };
   }
 
@@ -918,7 +1039,12 @@ export class GameRuntime {
     if (!predicted.alive) {
       return;
     }
-    const command = this.input.buildInputCommand(++this.sequence, predicted.yaw, predicted.pitch);
+    const command = this.input.buildInputCommand(
+      ++this.sequence,
+      predicted.yaw,
+      predicted.pitch,
+      frameInput
+    );
     this.pendingInputSentAt.set(command.sequence, now);
     if (this.pendingInputSentAt.size > 256) {
       const staleSequences = Array.from(this.pendingInputSentAt.keys())
@@ -938,18 +1064,26 @@ export class GameRuntime {
     }
 
     if (frameInput.wantsFire) {
-      if (this.totalAmmo <= 0) {
+      if (this.magAmmo <= 0) {
         if (now >= this.nextDryFireAt) {
-          this.audio.play('magEmpty', { volume: 0.6, playbackRateMin: 0.96, playbackRateMax: 1.05 });
+          this.audio.play('magEmpty', {
+            volume: 0.6,
+            playbackRateMin: 0.96,
+            playbackRateMax: 1.05,
+          });
           this.nextDryFireAt = now + GameRuntime.DRY_FIRE_COOLDOWN_MS;
+        }
+        if (this.reserveAmmo > 0 && frameInput.wantsReload) {
+          this.startReload(now);
         }
         return;
       }
 
-      const fireIntervalTicks = this.bridge.getFireIntervalTicks(frameInput.weaponSlot);
+      const fireIntervalTicks = this.bridge.getFireIntervalTicks(
+        frameInput.weaponSlot
+      );
       if (this.rifle.tryFire(now, fireIntervalTicks)) {
-        const visualAmmoBeforeShot = this.totalAmmo;
-        this.setLocalAmmo(visualAmmoBeforeShot - 1);
+        this.setLocalWeaponAmmo(this.magAmmo - 1);
         this.cancelReload();
         const fireSfxKey =
           frameInput.weaponSlot === WEAPON_SLOT_SNIPER
@@ -970,13 +1104,15 @@ export class GameRuntime {
               ? 1.015
               : frameInput.weaponSlot === WEAPON_SLOT_SHOTGUN
                 ? 1.02
-                : 1.05
+                : 1.05,
         });
         this.lastLocalShotAt = now;
         if (frameInput.weaponSlot === WEAPON_SLOT_SNIPER) {
           this.sniperCooldownEndsAt = now + fireIntervalTicks * SERVER_TICK_MS;
         }
-        useGameStore.getState().triggerMuzzleFlash(this.rifle.getMuzzleFlashUntil(now));
+        useGameStore
+          .getState()
+          .triggerMuzzleFlash(this.rifle.getMuzzleFlashUntil(now));
         const kick =
           frameInput.weaponSlot === WEAPON_SLOT_SNIPER
             ? frameInput.scoped
@@ -991,13 +1127,12 @@ export class GameRuntime {
                 : 1.4;
         this.crosshairKick = Math.min(20, this.crosshairKick + kick);
         const shotYaw = localState.yaw;
-        const shotPitch = Math.max(-MAX_PITCH, Math.min(MAX_PITCH, localState.pitch));
-        void this.bridge
-          .fireWeapon(shotYaw, shotPitch, frameInput.scoped, frameInput.weaponSlot)
-          .catch(() => {
-            useGameStore.getState().incrementRejectedShots();
-            this.setLocalAmmo(visualAmmoBeforeShot);
-          });
+        const shotPitch = Math.max(
+          -MAX_PITCH,
+          Math.min(MAX_PITCH, localState.pitch)
+        );
+        void shotYaw;
+        void shotPitch;
       }
     }
   }
@@ -1057,28 +1192,39 @@ export class GameRuntime {
   ): void {
     const clampedPipelineMs = Math.max(0, Math.min(999, measuredPipelineMs));
     this.lastAuthoritativePipelineMs = clampedPipelineMs;
-    this.smoothedServerPipelineMs = this.smoothedServerPipelineMs * 0.8 + clampedPipelineMs * 0.2;
+    this.smoothedServerPipelineMs =
+      this.smoothedServerPipelineMs * 0.8 + clampedPipelineMs * 0.2;
     this.serverPipelineSamples.push({
       at: now,
-      pipelineMs: clampedPipelineMs
+      pipelineMs: clampedPipelineMs,
     });
     const lowsCutoff = now - GameRuntime.LOWS_WINDOW_MS;
-    while ((this.serverPipelineSamples.at(0)?.at ?? Number.POSITIVE_INFINITY) < lowsCutoff) {
+    while (
+      (this.serverPipelineSamples.at(0)?.at ?? Number.POSITIVE_INFINITY) <
+      lowsCutoff
+    ) {
       this.serverPipelineSamples.shift();
     }
   }
 
-  private recordMeasuredRttSample(measuredRttMs: number, now = performance.now()): void {
+  private recordMeasuredRttSample(
+    measuredRttMs: number,
+    now = performance.now()
+  ): void {
     const clampedRttMs = Math.max(1, Math.min(999, measuredRttMs));
     this.smoothedPingMs = this.smoothedPingMs * 0.8 + clampedRttMs * 0.2;
     this.pingSamples.push({ at: now, rttMs: clampedRttMs });
     const lowsCutoff = now - GameRuntime.LOWS_WINDOW_MS;
-    while ((this.pingSamples.at(0)?.at ?? Number.POSITIVE_INFINITY) < lowsCutoff) {
+    while (
+      (this.pingSamples.at(0)?.at ?? Number.POSITIVE_INFINITY) < lowsCutoff
+    ) {
       this.pingSamples.shift();
     }
 
     const pingCutoff = now - GameRuntime.PING_AVERAGE_WINDOW_MS;
-    const averageWindowSamples = this.pingSamples.filter(sample => sample.at >= pingCutoff);
+    const averageWindowSamples = this.pingSamples.filter(
+      (sample) => sample.at >= pingCutoff
+    );
     const sampleSet =
       averageWindowSamples.length > 0
         ? averageWindowSamples
@@ -1086,30 +1232,40 @@ export class GameRuntime {
           ? this.pingSamples
           : [{ at: now, rttMs: this.smoothedPingMs }];
     const averagePing =
-      sampleSet.reduce((acc, sample) => acc + sample.rttMs, 0) / sampleSet.length;
+      sampleSet.reduce((acc, sample) => acc + sample.rttMs, 0) /
+      sampleSet.length;
     const variance =
       sampleSet.reduce((acc, sample) => {
         const delta = sample.rttMs - averagePing;
         return acc + delta * delta;
       }, 0) / sampleSet.length;
     const jitterMs = Math.sqrt(variance);
-    const pingLowWindowValues = this.pingSamples.map(sample => sample.rttMs);
-    const pingOnePercentLowMs = getLatencyTailMs(pingLowWindowValues, averagePing);
+    const pingLowWindowValues = this.pingSamples.map((sample) => sample.rttMs);
+    const pingOnePercentLowMs = getLatencyTailMs(
+      pingLowWindowValues,
+      averagePing
+    );
 
     const roundedPingMs = Math.max(1, Math.round(averagePing));
-    const roundedPingOnePercentLowMs = Math.max(1, Math.round(pingOnePercentLowMs));
+    const roundedPingOnePercentLowMs = Math.max(
+      1,
+      Math.round(pingOnePercentLowMs)
+    );
     const store = useGameStore.getState();
     store.pushServerPingSample({
       atMs: now,
       source: 'ingame',
       pingMs: clampedRttMs,
-      pipelineMs: this.lastAuthoritativePipelineMs
+      pipelineMs: this.lastAuthoritativePipelineMs,
     });
-    const serverAverageCutoff = now - GameRuntime.SERVER_PIPELINE_AVERAGE_WINDOW_MS;
+    const serverAverageCutoff =
+      now - GameRuntime.SERVER_PIPELINE_AVERAGE_WINDOW_MS;
     const pipelineValues = this.serverPipelineSamples
-      .filter(sample => sample.at >= serverAverageCutoff)
-      .map(sample => sample.pipelineMs);
-    const serverLowWindowValues = this.serverPipelineSamples.map(sample => sample.pipelineMs);
+      .filter((sample) => sample.at >= serverAverageCutoff)
+      .map((sample) => sample.pipelineMs);
+    const serverLowWindowValues = this.serverPipelineSamples.map(
+      (sample) => sample.pipelineMs
+    );
     const serverOnePercentLowMs = getLatencyTailMs(
       serverLowWindowValues,
       this.smoothedServerPipelineMs
@@ -1126,9 +1282,12 @@ export class GameRuntime {
       const pipelineAverage =
         pipelineValues.length === 0
           ? this.smoothedServerPipelineMs
-          : pipelineValues.reduce((sum, value) => sum + value, 0) / pipelineValues.length;
+          : pipelineValues.reduce((sum, value) => sum + value, 0) /
+            pipelineValues.length;
       store.setServerPipeline(Math.max(0, Math.round(pipelineAverage)));
-      store.setServerPipelineLow(Math.max(0, Math.round(serverOnePercentLowMs)));
+      store.setServerPipelineLow(
+        Math.max(0, Math.round(serverOnePercentLowMs))
+      );
       if (store.localIdentity) {
         store.setPlayerPing(store.localIdentity, roundedPingMs);
       }
@@ -1139,7 +1298,8 @@ export class GameRuntime {
     if (typeof document === 'undefined') {
       return GameRuntime.INGAME_PING_INTERVAL_MS;
     }
-    const active = document.visibilityState === 'visible' && document.hasFocus();
+    const active =
+      document.visibilityState === 'visible' && document.hasFocus();
     return active
       ? GameRuntime.INGAME_PING_INTERVAL_MS
       : GameRuntime.INGAME_PING_BACKGROUND_INTERVAL_MS;
@@ -1206,7 +1366,7 @@ export class GameRuntime {
       remoteBuffers: Object.fromEntries(
         Array.from(this.remoteBuffers.entries()).map(([identity, buffer]) => [
           identity,
-          buffer.size()
+          buffer.size(),
         ])
       ),
       spamFire: async (count = 3) => {
@@ -1214,16 +1374,29 @@ export class GameRuntime {
           return;
         }
 
-        const state = this.prediction.getState();
         const weaponSlot = this.input.getSelectedWeaponSlot();
         for (let index = 0; index < count; index += 1) {
+          const state = this.prediction.getState();
           try {
-            await this.bridge.fireWeapon(state.yaw, state.pitch, false, weaponSlot);
+            await this.bridge.submitInput({
+              sequence: ++this.sequence,
+              moveX: 0,
+              moveZ: 0,
+              yaw: state.yaw,
+              pitch: state.pitch,
+              jumpHeld: false,
+              sprintHeld: false,
+              crouchHeld: false,
+              scoped: false,
+              fireHeld: true,
+              reloadPressed: false,
+              weaponSlot,
+            });
           } catch {
             useGameStore.getState().incrementRejectedShots();
           }
         }
-      }
+      },
     };
   }
 }

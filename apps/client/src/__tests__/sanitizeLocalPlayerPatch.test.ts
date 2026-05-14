@@ -11,11 +11,13 @@ const fallback = {
   yaw: 0.4,
   pitch: -0.3,
   onGround: true,
+  sprinting: false,
+  crouching: false,
   alive: true,
   health: 100,
   ammo: 30,
   lastProcessedInput: 18,
-  respawnTick: 0
+  respawnTick: 0,
 };
 
 describe('sanitizeLocalPlayerPatch', () => {
@@ -26,7 +28,7 @@ describe('sanitizeLocalPlayerPatch', () => {
         velocity: { x: 1, y: Number.NaN, z: 3 },
         yaw: Number.NaN,
         serverTick: -8,
-        alive: false
+        alive: false,
       },
       fallback
     );

@@ -8,7 +8,7 @@ import {
   t as __t,
   type AlgebraicTypeType as __AlgebraicTypeType,
   type Infer as __Infer,
-} from "spacetimedb";
+} from 'spacetimedb';
 
 export default {
   sequence: __t.u32(),
@@ -18,4 +18,9 @@ export default {
   pitch: __t.f32(),
   jumping: __t.bool(),
   sprinting: __t.bool(),
+  crouching: __t.bool(),
+  scoped: __t.bool(),
+  fireHeld: __t.bool().name('fire_held'),
+  reloadPressed: __t.bool().name('reload_pressed'),
+  weaponSlot: __t.u8().name('weapon_slot'),
 };
