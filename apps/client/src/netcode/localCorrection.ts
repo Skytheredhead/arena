@@ -33,17 +33,17 @@ export const getLocalCorrectionNetworkPressure = ({
 };
 
 export const getLocalCorrectionDeadzoneMeters = (metrics: LocalCorrectionMetrics): number =>
-  0.025 + getLocalCorrectionNetworkPressure(metrics) * 0.14;
+  0.08 + getLocalCorrectionNetworkPressure(metrics) * 0.18;
 
 export const getLocalCorrectionDecayRate = (metrics: LocalCorrectionMetrics): number =>
-  13 - getLocalCorrectionNetworkPressure(metrics) * 9;
+  10 - getLocalCorrectionNetworkPressure(metrics) * 6;
 
 export const getMaxLocalCorrectionOffsetMeters = (metrics: LocalCorrectionMetrics): number =>
-  0.8 + getLocalCorrectionNetworkPressure(metrics) * 1.4;
+  0.45 + getLocalCorrectionNetworkPressure(metrics) * 1;
 
 export const getLocalCorrectionHardSnapDistanceMeters = (
   metrics: LocalCorrectionMetrics
-): number => 1.8 + getLocalCorrectionNetworkPressure(metrics) * 4.8;
+): number => 2.4 + getLocalCorrectionNetworkPressure(metrics) * 4.8;
 
 export const clampCorrectionOffset = (offset: Vec3, maxMagnitude: number): Vec3 => {
   const magnitude = Math.hypot(offset.x, offset.y, offset.z);
