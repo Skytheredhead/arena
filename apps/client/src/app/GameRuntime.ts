@@ -14,6 +14,7 @@ import {
   type DamageEvent,
   type HealthPackView,
   type ImpactMarkView,
+  type InputCommand,
   type LocalPlayerState,
   type Vec3,
   type RemotePlayerState,
@@ -74,6 +75,7 @@ export class GameRuntime {
   private static readonly BASE_REMOTE_INTERPOLATION_DELAY_MS = 42;
   private static readonly MAX_FRAME_DELTA_MS = 250;
   private static readonly MAX_FIXED_TICKS_PER_FRAME = 8;
+  private static readonly INPUT_SEND_INTERVAL_MS = 33;
   private readonly renderer: GameRenderer;
   private readonly input: InputController;
   private readonly rifle = new RifleController();
@@ -109,6 +111,10 @@ export class GameRuntime {
   private nextDryFireAt = 0;
   private smoothedPingMs = 48;
   private readonly pendingInputSentAt = new Map<number, number>();
+  private queuedNetworkInput: InputCommand | null = null;
+  private inputSendInFlight = false;
+  private inputFlushTimer: ReturnType<typeof setTimeout> | null = null;
+  private lastInputSendAt = 0;
   private readonly pingSamples: Array<{ at: number; rttMs: number }> = [];
   private readonly serverPipelineSamples: Array<{
     at: number;
@@ -151,6 +157,7 @@ export class GameRuntime {
 
   dispose(): void {
     cancelAnimationFrame(this.frameHandle);
+    this.clearInputFlushTimer();
     this.bridge?.disconnect();
     this.input.dispose();
     this.renderer.dispose();
@@ -305,6 +312,10 @@ export class GameRuntime {
     this.magAmmo = RIFLE_CLIP_SIZE;
     this.reserveAmmo = RIFLE_RESERVE_CAPACITY;
     this.pendingInputSentAt.clear();
+    this.queuedNetworkInput = null;
+    this.inputSendInFlight = false;
+    this.clearInputFlushTimer();
+    this.lastInputSendAt = 0;
     this.smoothedPingMs = 48;
     this.pingSamples.length = 0;
     this.serverPipelineSamples.length = 0;
@@ -458,7 +469,7 @@ export class GameRuntime {
       store.consumeNearestAmmoPack(
         store.connectedRoomCode,
         store.localPlayer.position,
-        2.4
+        4
       );
     }
 
@@ -1045,19 +1056,10 @@ export class GameRuntime {
       predicted.pitch,
       frameInput
     );
-    this.pendingInputSentAt.set(command.sequence, now);
-    if (this.pendingInputSentAt.size > 256) {
-      const staleSequences = Array.from(this.pendingInputSentAt.keys())
-        .sort((left, right) => left - right)
-        .slice(0, this.pendingInputSentAt.size - 256);
-      for (const sequence of staleSequences) {
-        this.pendingInputSentAt.delete(sequence);
-      }
-    }
     const localState = this.prediction.queueInput(command);
     useGameStore.getState().setLocalPlayer(localState);
     useGameStore.getState().setPredictionDebug(this.prediction.getDebugState());
-    void this.bridge.submitInput(command).catch(() => undefined);
+    this.enqueueNetworkInput(command, now);
 
     if (frameInput.wantsReload) {
       this.startReload(now);
@@ -1135,6 +1137,99 @@ export class GameRuntime {
         void shotPitch;
       }
     }
+  }
+
+  private enqueueNetworkInput(command: InputCommand, now: number): void {
+    this.queuedNetworkInput = this.mergeQueuedNetworkInput(
+      this.queuedNetworkInput,
+      command
+    );
+    const mustFlush = command.reloadPressed;
+    if (this.inputSendInFlight) {
+      return;
+    }
+    if (
+      !mustFlush &&
+      now - this.lastInputSendAt < GameRuntime.INPUT_SEND_INTERVAL_MS
+    ) {
+      this.scheduleInputFlush();
+      return;
+    }
+
+    this.flushQueuedNetworkInput(now);
+  }
+
+  private mergeQueuedNetworkInput(
+    previous: InputCommand | null,
+    next: InputCommand
+  ): InputCommand {
+    if (!previous) {
+      return next;
+    }
+
+    return {
+      ...next,
+      fireHeld: previous.fireHeld || next.fireHeld,
+      reloadPressed: previous.reloadPressed || next.reloadPressed,
+    };
+  }
+
+  private flushQueuedNetworkInput(now = performance.now()): void {
+    if (!this.bridge || !this.queuedNetworkInput || this.inputSendInFlight) {
+      return;
+    }
+
+    if (now - this.lastInputSendAt < GameRuntime.INPUT_SEND_INTERVAL_MS) {
+      this.scheduleInputFlush();
+      return;
+    }
+
+    const command = this.queuedNetworkInput;
+    this.queuedNetworkInput = null;
+    this.inputSendInFlight = true;
+    this.lastInputSendAt = now;
+    this.pendingInputSentAt.set(command.sequence, now);
+    if (this.pendingInputSentAt.size > 128) {
+      const staleSequences = Array.from(this.pendingInputSentAt.keys())
+        .sort((left, right) => left - right)
+        .slice(0, this.pendingInputSentAt.size - 128);
+      for (const sequence of staleSequences) {
+        this.pendingInputSentAt.delete(sequence);
+      }
+    }
+
+    void this.bridge
+      .submitInput(command)
+      .catch(() => undefined)
+      .finally(() => {
+        this.inputSendInFlight = false;
+        if (this.queuedNetworkInput) {
+          this.scheduleInputFlush();
+        }
+      });
+  }
+
+  private scheduleInputFlush(): void {
+    if (this.inputFlushTimer || !this.queuedNetworkInput) {
+      return;
+    }
+    const delay = Math.max(
+      0,
+      GameRuntime.INPUT_SEND_INTERVAL_MS -
+        (performance.now() - this.lastInputSendAt)
+    );
+    this.inputFlushTimer = setTimeout(() => {
+      this.inputFlushTimer = null;
+      this.flushQueuedNetworkInput();
+    }, delay);
+  }
+
+  private clearInputFlushTimer(): void {
+    if (!this.inputFlushTimer) {
+      return;
+    }
+    clearTimeout(this.inputFlushTimer);
+    this.inputFlushTimer = null;
   }
 
   private observeServerTime(serverTimeMs: number): void {
@@ -1253,7 +1348,7 @@ export class GameRuntime {
     );
     const store = useGameStore.getState();
     store.pushServerPingSample({
-      atMs: now,
+      atMs: Date.now(),
       source: 'ingame',
       pingMs: clampedRttMs,
       pipelineMs: this.lastAuthoritativePipelineMs,

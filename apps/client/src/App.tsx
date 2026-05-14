@@ -354,7 +354,7 @@ export default function App(): React.JSX.Element {
             measuredLobbyPing - baselinePing
           );
           pushServerPingSample({
-            atMs: now,
+            atMs: Date.now(),
             source: 'lobby',
             pingMs: measuredLobbyPing,
             pipelineMs: pipelineSampleMs,

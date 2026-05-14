@@ -2454,10 +2454,19 @@ fn reload_transfer_amount(ammo_in_mag: u16, reserve_ammo: u16) -> u16 {
         .min(reserve_ammo)
 }
 
-fn reserve_after_ammo_pickup(reserve_ammo: u16) -> u16 {
-    reserve_ammo
-        .saturating_add(AMMO_PACK_AMOUNT)
-        .min(RIFLE_RESERVE_CAPACITY)
+fn ammo_after_pickup(ammo_in_mag: u16, reserve_ammo: u16) -> (u16, u16) {
+    let magazine_room = RIFLE_CLIP_SIZE.saturating_sub(ammo_in_mag);
+    let magazine_gain = AMMO_PACK_AMOUNT.min(magazine_room);
+    let remaining_pickup = AMMO_PACK_AMOUNT.saturating_sub(magazine_gain);
+    let reserve_gain = remaining_pickup.min(RIFLE_RESERVE_CAPACITY.saturating_sub(reserve_ammo));
+    (
+        ammo_in_mag
+            .saturating_add(magazine_gain)
+            .min(RIFLE_CLIP_SIZE),
+        reserve_ammo
+            .saturating_add(reserve_gain)
+            .min(RIFLE_RESERVE_CAPACITY),
+    )
 }
 
 fn start_reload_if_possible(weapon: &mut WeaponState, tick: u32) {
@@ -3824,14 +3833,19 @@ fn process_ammo_packs(ctx: &ReducerContext, tick: u32) {
                 weapon.room_code = Some(pack.room_code.clone());
                 dirty = true;
             }
-            if weapon.reserve_ammo >= RIFLE_RESERVE_CAPACITY {
+            if weapon.ammo_in_mag >= RIFLE_CLIP_SIZE
+                && weapon.reserve_ammo >= RIFLE_RESERVE_CAPACITY
+            {
                 if dirty {
                     ctx.db.weapon_state().identity().update(weapon);
                 }
                 continue;
             }
 
-            weapon.reserve_ammo = reserve_after_ammo_pickup(weapon.reserve_ammo);
+            let (next_mag, next_reserve) =
+                ammo_after_pickup(weapon.ammo_in_mag, weapon.reserve_ammo);
+            weapon.ammo_in_mag = next_mag;
+            weapon.reserve_ammo = next_reserve;
             ctx.db.weapon_state().identity().update(weapon);
             collected = true;
             collected_by = Some(identity);
@@ -4067,8 +4081,8 @@ fn reset_player_input(ctx: &ReducerContext, identity: Identity, tick: u32) {
 #[cfg(test)]
 mod tests {
     use super::{
-        can_fire_weapon_at_tick, inputs_are_finite, normalize_weapon_slot, reload_transfer_amount,
-        reserve_after_ammo_pickup, room_membership_is_consistent, should_accept_input_sequence,
+        ammo_after_pickup, can_fire_weapon_at_tick, inputs_are_finite, normalize_weapon_slot,
+        reload_transfer_amount, room_membership_is_consistent, should_accept_input_sequence,
         validate_room_code, RIFLE_CLIP_SIZE, RIFLE_RESERVE_CAPACITY, WEAPON_SLOT_RIFLE,
         WEAPON_SLOT_SHOTGUN, WEAPON_SLOT_SNIPER,
     };
@@ -4128,15 +4142,16 @@ mod tests {
     }
 
     #[test]
-    fn ammo_pickups_fill_reserve_and_respect_cap() {
-        assert_eq!(reserve_after_ammo_pickup(0), 6);
+    fn ammo_pickups_fill_magazine_then_reserve_and_respect_cap() {
+        assert_eq!(ammo_after_pickup(0, 0), (6, 0));
+        assert_eq!(ammo_after_pickup(8, 0), (RIFLE_CLIP_SIZE, 4));
         assert_eq!(
-            reserve_after_ammo_pickup(RIFLE_RESERVE_CAPACITY - 1),
-            RIFLE_RESERVE_CAPACITY
+            ammo_after_pickup(RIFLE_CLIP_SIZE, RIFLE_RESERVE_CAPACITY - 1),
+            (RIFLE_CLIP_SIZE, RIFLE_RESERVE_CAPACITY)
         );
         assert_eq!(
-            reserve_after_ammo_pickup(RIFLE_RESERVE_CAPACITY),
-            RIFLE_RESERVE_CAPACITY
+            ammo_after_pickup(RIFLE_CLIP_SIZE, RIFLE_RESERVE_CAPACITY),
+            (RIFLE_CLIP_SIZE, RIFLE_RESERVE_CAPACITY)
         );
     }
 
