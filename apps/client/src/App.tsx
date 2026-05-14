@@ -815,7 +815,6 @@ export default function App(): React.JSX.Element {
           !touchControls
         ) {
           runtime.setPointerLockEnabled(true);
-          runtime.requestPointerLock();
         }
       } catch (error) {
         const rawMessage =

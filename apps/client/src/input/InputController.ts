@@ -49,7 +49,7 @@ export class InputController {
     }
     this.element.focus();
     if (document.pointerLockElement !== this.element) {
-      void this.element.requestPointerLock().catch(() => undefined);
+      this.tryRequestPointerLock();
     }
   }
 
@@ -141,9 +141,24 @@ export class InputController {
       return;
     }
     if (document.pointerLockElement !== this.element) {
-      void this.element.requestPointerLock().catch(() => undefined);
+      this.tryRequestPointerLock();
     }
   };
+
+  private tryRequestPointerLock(): void {
+    if (typeof this.element.requestPointerLock !== 'function') {
+      return;
+    }
+
+    try {
+      const request = this.element.requestPointerLock();
+      if (request && typeof request.catch === 'function') {
+        void request.catch(() => undefined);
+      }
+    } catch {
+      // Browsers can reject pointer lock outside trusted gameplay gestures.
+    }
+  }
 
   private readonly handleMouseDown = (event: MouseEvent): void => {
     if (event.button === 0) {
