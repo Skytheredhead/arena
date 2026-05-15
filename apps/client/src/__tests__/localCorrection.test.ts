@@ -4,6 +4,7 @@ import {
   getLocalCorrectionDeadzoneMeters,
   getLocalCorrectionDecayRate,
   getLocalCorrectionHardSnapDistanceMeters,
+  getLocalCorrectionSmoothThresholdMeters,
   getMaxLocalCorrectionOffsetMeters
 } from '../netcode/localCorrection';
 
@@ -33,6 +34,20 @@ describe('localCorrection', () => {
     );
     expect(getLocalCorrectionHardSnapDistanceMeters(unstable)).toBeGreaterThan(
       getLocalCorrectionHardSnapDistanceMeters(stable)
+    );
+  });
+
+  it('smooths visible local corrections well below the gameplay deadzone', () => {
+    const stable = {
+      pingMs: 28,
+      jitterMs: 3,
+      inputPipelineMs: 0,
+      pendingInputs: 1
+    };
+
+    expect(getLocalCorrectionSmoothThresholdMeters(stable)).toBeGreaterThan(0);
+    expect(getLocalCorrectionSmoothThresholdMeters(stable)).toBeLessThan(
+      getLocalCorrectionDeadzoneMeters(stable)
     );
   });
 

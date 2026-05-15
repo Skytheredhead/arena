@@ -151,10 +151,9 @@ export class InputController {
     }
 
     try {
-      const request = this.element.requestPointerLock();
-      if (request && typeof request.catch === 'function') {
-        void request.catch(() => undefined);
-      }
+      void Promise.resolve(this.element.requestPointerLock()).catch(
+        () => undefined
+      );
     } catch {
       // Browsers can reject pointer lock outside trusted gameplay gestures.
     }

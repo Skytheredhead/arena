@@ -34,10 +34,10 @@ import {
 } from '../netcode/interpolation';
 import {
   clampCorrectionOffset,
-  getLocalCorrectionDeadzoneMeters,
   getLocalCorrectionDecayRate,
   getLocalCorrectionHardSnapDistanceMeters,
   getMaxLocalCorrectionOffsetMeters,
+  getLocalCorrectionSmoothThresholdMeters,
 } from '../netcode/localCorrection';
 import { type ConnectionStage } from '../netcode/connectionProgress';
 import { ConnectOptions, SpacetimeBridge } from '../netcode/SpacetimeBridge';
@@ -64,6 +64,7 @@ declare global {
       remoteUnderrunMs: number;
       remoteSampleModes: Record<string, RemoteInterpolationSampleMode>;
       remoteBufferDepthMs: Record<string, number>;
+      localCorrectionOffsetMeters: number;
       spamFire: (count?: number) => Promise<void>;
     };
   }
@@ -415,7 +416,8 @@ export class GameRuntime {
     ) {
       this.localCorrectionOffset = { x: 0, y: 0, z: 0 };
     } else if (
-      correctionMagnitude >= getLocalCorrectionDeadzoneMeters(correctionMetrics)
+      correctionMagnitude >=
+      getLocalCorrectionSmoothThresholdMeters(correctionMetrics)
     ) {
       this.localCorrectionOffset = clampCorrectionOffset(
         {
@@ -1026,23 +1028,6 @@ export class GameRuntime {
       };
     }
 
-    const partialTickSeconds = this.accumulatorMs / 1000;
-    if (partialTickSeconds <= 0) {
-      return predicted;
-    }
-
-    const previewCommand = this.input.buildInputCommand(
-      this.sequence,
-      predicted.yaw,
-      predicted.pitch,
-      this.input.peekFrameInput()
-    );
-    const preview = simulatePlayerTick(
-      predicted,
-      previewCommand,
-      partialTickSeconds
-    );
-
     const store = useGameStore.getState();
     const decay = Math.exp(
       -getLocalCorrectionDecayRate({
@@ -1057,13 +1042,37 @@ export class GameRuntime {
       y: this.localCorrectionOffset.y * decay,
       z: this.localCorrectionOffset.z * decay,
     };
+    if (
+      Math.hypot(
+        this.localCorrectionOffset.x,
+        this.localCorrectionOffset.y,
+        this.localCorrectionOffset.z
+      ) < 0.0005
+    ) {
+      this.localCorrectionOffset = { x: 0, y: 0, z: 0 };
+    }
+
+    const partialTickSeconds = this.accumulatorMs / 1000;
+    const presented =
+      partialTickSeconds > 0
+        ? simulatePlayerTick(
+            predicted,
+            this.input.buildInputCommand(
+              this.sequence,
+              predicted.yaw,
+              predicted.pitch,
+              this.input.peekFrameInput()
+            ),
+            partialTickSeconds
+          )
+        : predicted;
 
     return {
-      ...preview,
+      ...presented,
       position: {
-        x: preview.position.x + this.localCorrectionOffset.x,
-        y: preview.position.y + this.localCorrectionOffset.y,
-        z: preview.position.z + this.localCorrectionOffset.z,
+        x: presented.position.x + this.localCorrectionOffset.x,
+        y: presented.position.y + this.localCorrectionOffset.y,
+        z: presented.position.z + this.localCorrectionOffset.z,
       },
     };
   }
@@ -1073,8 +1082,7 @@ export class GameRuntime {
       !this.prediction ||
       !this.bridge ||
       this.paused ||
-      useGameStore.getState().connectionStatus !== 'connected' ||
-      useGameStore.getState().networkReconnecting
+      useGameStore.getState().connectionStatus !== 'connected'
     ) {
       return;
     }
@@ -1506,6 +1514,11 @@ export class GameRuntime {
       remoteUnderrunMs: this.latestRemoteUnderrunMs,
       remoteSampleModes: this.latestRemoteSampleModes,
       remoteBufferDepthMs: this.latestRemoteBufferDepthMs,
+      localCorrectionOffsetMeters: Math.hypot(
+        this.localCorrectionOffset.x,
+        this.localCorrectionOffset.y,
+        this.localCorrectionOffset.z
+      ),
       spamFire: async (count = 3) => {
         if (!this.bridge || !this.prediction) {
           return;
