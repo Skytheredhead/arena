@@ -48,8 +48,8 @@ importers:
         specifier: ^19.0.0
         version: 19.2.4(react@19.2.4)
       spacetimedb:
-        specifier: 2.0.4
-        version: 2.0.4(react@19.2.4)
+        specifier: 2.1.0
+        version: 2.1.0(react@19.2.4)
       three:
         specifier: ^0.175.0
         version: 0.175.0
@@ -1492,8 +1492,8 @@ packages:
     resolution: {integrity: sha512-UXWMKhLOwVKb728IUtQPXxfYU+usdybtUrK/8uGE8CQMvrhOpwvzDBwj0QhSL7MQc7vIsISBG8VQ8+IDQxpfQA==}
     engines: {node: '>=0.10.0'}
 
-  spacetimedb@2.0.4:
-    resolution: {integrity: sha512-7GiZerC9SKXvHvcaOLCgLEjFL4XOcG30k5f/ogA9QqBuD+tO/om6DfhIplo5dUg976gfqxr3Hsp5XtY2pPSCKw==}
+  spacetimedb@2.1.0:
+    resolution: {integrity: sha512-Kzs+HXCRj15ryld03ztU4a2uQg0M8ivV/9Bk/gvMpb59lLc/A2/r7UkGCYBePsBL7Zwqgr8gE8FeufoZVXtPnA==}
     peerDependencies:
       '@angular/core': '>=17.0.0'
       '@tanstack/react-query': ^5.0.0
@@ -3097,7 +3097,7 @@ snapshots:
 
   source-map-js@1.2.1: {}
 
-  spacetimedb@2.0.4(react@19.2.4):
+  spacetimedb@2.1.0(react@19.2.4):
     dependencies:
       base64-js: 1.5.1
       headers-polyfill: 4.0.3
