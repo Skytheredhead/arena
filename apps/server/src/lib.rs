@@ -72,7 +72,7 @@ const AMMO_PACK_AMOUNT: u16 = 6;
 const AMMO_PACK_RESPAWN_TICKS: u32 = SERVER_TICK_RATE * 3;
 const AMMO_PACK_RADIUS: f32 = 1.35;
 const AMMO_PICKUP_HORIZONTAL_GRACE: f32 = 1.4;
-const AMMO_PICKUP_VERTICAL_GRACE: f32 = 1.25;
+const AMMO_PICKUP_VERTICAL_GRACE: f32 = 2.0;
 const AMMO_PACK_ACTIVE_COUNT: usize = 18;
 const HEALTH_PACK_AMOUNT: u16 = 50;
 const HEALTH_PACK_RESPAWN_TICKS: u32 = SERVER_TICK_RATE * 10;
@@ -1203,152 +1203,19 @@ pub fn fire_weapon(
     _scoped: bool,
     weapon_slot: u8,
 ) -> Result<(), String> {
+    require_room_membership(ctx, ctx.sender())?;
+    if !inputs_are_finite([yaw, pitch]) {
+        return Err("Invalid weapon payload".to_string());
+    }
     let tick = current_tick(ctx);
-    let player = require_player(ctx, ctx.sender())?;
-    let state = require_player_state(ctx, ctx.sender())?;
-    let shooter_input = require_input_state(ctx, ctx.sender())?;
-    let weapon = require_weapon_state(ctx, ctx.sender())?;
-    let room_code = require_room_membership(ctx, ctx.sender())?;
-    let weapon_kind = weapon_kind_from_slot(weapon_slot);
-    let spec = weapon_spec(weapon_kind);
-
-    let match_state = ctx
-        .db
-        .match_state()
-        .room_code()
-        .find(room_code.clone())
-        .ok_or_else(|| "Room match state missing".to_string())?;
-
-    if !match_state.active || !state.alive {
-        return Ok(());
-    }
-
-    if !room_membership_is_consistent(
-        player.room_code.as_deref(),
-        state.room_code.as_deref(),
-        weapon.room_code.as_deref(),
-    ) {
-        return Err("Weapon state is not in the active room".to_string());
-    }
-
-    if !can_fire_weapon_at_tick(weapon.next_ready_tick, tick) {
-        return Err("Weapon still on cooldown".to_string());
-    }
-
-    if weapon.ammo_in_mag == 0 {
-        return Ok(());
-    }
-    bump_stat_for_identity(ctx, ctx.sender(), |stats| {
-        stats.shots_fired = stats.shots_fired.saturating_add(1);
-    });
-
-    let spread = 0.0;
-    let shooter_crouching = shooter_input.crouching;
-    let rewind_ticks = estimate_hit_rewind_ticks(&shooter_input, tick);
-    let eye_height = if shooter_crouching {
-        CROUCH_EYE_HEIGHT
-    } else {
-        PLAYER_EYE_HEIGHT
-    };
-    let origin = Vec3 {
-        x: state.x,
-        y: state.y + eye_height,
-        z: state.z,
-    };
-
-    let mut impact_marks: Vec<(f32, Vec3, Vec3)> = Vec::with_capacity(spec.pellet_count as usize);
-    for pellet_index in 0..spec.pellet_count {
-        let base_seed = tick as f32 * 0.197
-            + state.x * 1.31
-            + state.z * 2.17
-            + state.yaw * 0.97
-            + pellet_index as f32 * 9.83
-            + weapon_slot as f32 * 4.71;
-        let yaw_offset = (hash01(base_seed) - 0.5) * 2.0 * spread;
-        let pitch_offset = (hash01(base_seed + 17.13) - 0.5) * 2.0 * spread;
-
-        let aim_yaw = yaw + yaw_offset;
-        let aim_pitch = (pitch + pitch_offset).clamp(-MAX_PITCH, MAX_PITCH);
-        let direction = direction_from_yaw_pitch(aim_yaw, aim_pitch);
-        let block_hit = ray_hits_environment(origin, direction);
-
-        let mut best_hit: Option<(Identity, PlayerHit)> = None;
-        for target in ctx.db.player_state().iter() {
-            if target.identity == ctx.sender() || !target.alive {
-                continue;
-            }
-            let Some(target_player) = ctx.db.player().identity().find(target.identity) else {
-                continue;
-            };
-            if !target_player.connected {
-                continue;
-            }
-            if target.room_code.as_deref() != Some(room_code.as_str()) {
-                continue;
-            }
-
-            let position = rewind_player_for_hit(&target, rewind_ticks);
-            if let Some(hit) = ray_hits_player(origin, direction, position, target.crouching) {
-                if hit.distance <= spec.max_range {
-                    match best_hit {
-                        Some((_, best)) if best.distance <= hit.distance => {}
-                        _ => best_hit = Some((target.identity, hit)),
-                    }
-                }
-            }
-        }
-
-        if let Some((victim_identity, victim_hit)) = best_hit {
-            if let Some(block) = block_hit {
-                if block.distance < victim_hit.distance {
-                    impact_marks.push((
-                        block.distance,
-                        point_along_ray(origin, direction, block.distance),
-                        block.normal,
-                    ));
-                    continue;
-                }
-            }
-
-            let headshot_bonus = if victim_hit.headshot {
-                HEADSHOT_MULTIPLIER
-            } else {
-                1
-            };
-            let damage = spec
-                .pellet_damage
-                .saturating_mul(headshot_bonus)
-                .min(MAX_HEALTH.saturating_mul(2));
-            apply_damage(
-                ctx,
-                room_code.clone(),
-                ctx.sender(),
-                victim_identity,
-                damage,
-            )?;
-            continue;
-        }
-
-        if let Some(block) = block_hit {
-            impact_marks.push((
-                block.distance,
-                point_along_ray(origin, direction, block.distance),
-                block.normal,
-            ));
-        }
-    }
-
-    impact_marks.sort_by(|left, right| left.0.total_cmp(&right.0));
-    let max_marks_to_insert = if matches!(weapon_kind, WeaponKind::Shotgun) {
-        spec.pellet_count as usize
-    } else {
-        1
-    };
-    for (_, impact_position, impact_normal) in impact_marks.into_iter().take(max_marks_to_insert) {
-        insert_impact_mark(ctx, &room_code, impact_position, impact_normal, tick);
-    }
-
-    apply_weapon_cooldown(ctx, weapon, tick, spec.fire_interval_ticks);
+    let mut input = require_input_state(ctx, ctx.sender())?;
+    input.sequence = input.sequence.saturating_add(1);
+    input.yaw = yaw;
+    input.pitch = pitch.clamp(-MAX_PITCH, MAX_PITCH);
+    input.fire_held = true;
+    input.weapon_slot = normalize_weapon_slot(weapon_slot);
+    input.last_received_tick = tick;
+    ctx.db.player_input().identity().update(input);
     Ok(())
 }
 
@@ -1585,10 +1452,9 @@ pub fn sim_tick(ctx: &ReducerContext, _schedule: SimTickSchedule) -> Result<(), 
 
     let states: Vec<PlayerState> = ctx.db.player_state().iter().collect();
     for state in states {
-        let room_code = match state.room_code.clone() {
-            Some(room_code) => room_code,
-            None => continue,
-        };
+        if state.room_code.is_none() {
+            continue;
+        }
         let player = match ctx.db.player().identity().find(state.identity) {
             Some(player) => player,
             None => continue,
@@ -1605,30 +1471,21 @@ pub fn sim_tick(ctx: &ReducerContext, _schedule: SimTickSchedule) -> Result<(), 
             Some(input) => input,
             None => continue,
         };
+        let input_sequence = input.sequence;
         let input_pipeline_ms = input_pipeline_ms_for_tick(tick, input.last_received_tick);
-
-        let effective_input = if tick.saturating_sub(input.last_received_tick) > INPUT_STALE_TICKS {
-            PlayerInput {
-                move_x: 0.0,
-                move_z: 0.0,
-                jumping: false,
-                sprinting: false,
-                crouching: false,
-                scoped: false,
-                fire_held: false,
-                reload_pressed: false,
-                ..input
-            }
+        let input_is_stale = tick.saturating_sub(input.last_received_tick) > INPUT_STALE_TICKS;
+        let effective_input = if input_is_stale {
+            make_stale_input(input)
         } else {
             input
         };
 
-        let mut updated = PlayerState {
-            room_code: Some(room_code),
-            server_tick: tick,
-            input_pipeline_ms,
-            ..simulate_movement_tick(state, effective_input)
-        };
+        let mut updated = simulate_player_tick(&state, &effective_input);
+        updated.server_tick = tick;
+        updated.input_pipeline_ms = input_pipeline_ms;
+        if !input_is_stale && input_sequence > updated.last_processed_input {
+            updated.last_processed_input = input_sequence;
+        }
         apply_passive_regen(&mut updated, tick);
         ctx.db.player_state().identity().update(updated);
     }
@@ -1643,11 +1500,7 @@ pub fn sim_tick(ctx: &ReducerContext, _schedule: SimTickSchedule) -> Result<(), 
             None => continue,
         };
         let effective_input = if tick.saturating_sub(input.last_received_tick) > INPUT_STALE_TICKS {
-            PlayerInput {
-                fire_held: false,
-                reload_pressed: false,
-                ..input
-            }
+            make_stale_input(input)
         } else {
             input
         };
@@ -2383,7 +2236,7 @@ fn should_accept_input_sequence(sequence: u32, previous_sequence: u32) -> bool {
     sequence > previous_sequence
 }
 
-fn inputs_are_finite(values: [f32; 4]) -> bool {
+fn inputs_are_finite<const N: usize>(values: [f32; N]) -> bool {
     values.into_iter().all(|value| value.is_finite())
 }
 
@@ -2660,138 +2513,6 @@ fn yaw_towards_arena_center(position: Vec3) -> f32 {
     (-to_center_x).atan2(-to_center_z)
 }
 
-fn simulate_movement_tick(state: PlayerState, input: PlayerInput) -> PlayerState {
-    let dt = 1.0 / SERVER_TICK_RATE as f32;
-    let mut updated = state;
-    updated.yaw = input.yaw;
-    updated.pitch = input.pitch.clamp(-MAX_PITCH, MAX_PITCH);
-
-    let move_len = (input.move_x * input.move_x + input.move_z * input.move_z)
-        .sqrt()
-        .min(1.0);
-    let (move_x, move_z) = if move_len > 0.0 {
-        let raw_len = (input.move_x * input.move_x + input.move_z * input.move_z).sqrt();
-        (input.move_x / raw_len, input.move_z / raw_len)
-    } else {
-        (0.0, 0.0)
-    };
-
-    let forward = Vec3 {
-        x: -updated.yaw.sin(),
-        y: 0.0,
-        z: -updated.yaw.cos(),
-    };
-    let right = Vec3 {
-        x: updated.yaw.cos(),
-        y: 0.0,
-        z: -updated.yaw.sin(),
-    };
-    let mut wish = Vec3 {
-        x: right.x * move_x + forward.x * move_z,
-        y: 0.0,
-        z: right.z * move_x + forward.z * move_z,
-    };
-    let wish_len = (wish.x * wish.x + wish.z * wish.z).sqrt();
-    if wish_len > 0.0 {
-        wish.x /= wish_len;
-        wish.z /= wish_len;
-    }
-
-    let wants_crouch = input.crouching;
-    let wants_sprint = input.sprinting
-        && !wants_crouch
-        && !input.scoped
-        && input.move_z > 0.35
-        && updated.on_ground;
-    let desired_speed = if wants_crouch {
-        CROUCH_SPEED
-    } else if wants_sprint {
-        SPRINT_SPEED
-    } else {
-        WALK_SPEED
-    } * move_len;
-    let desired_vel_x = wish.x * desired_speed;
-    let desired_vel_z = wish.z * desired_speed;
-
-    if updated.on_ground {
-        let ground_control = if move_len > 0.0 {
-            GROUND_ACCELERATION
-        } else {
-            GROUND_FRICTION
-        };
-        move_horizontal_towards(
-            &mut updated,
-            desired_vel_x,
-            desired_vel_z,
-            ground_control * dt,
-        );
-        if input.jumping && !wants_crouch {
-            updated.vel_y = JUMP_SPEED;
-            updated.on_ground = false;
-        } else {
-            updated.vel_y = 0.0;
-        }
-    } else {
-        move_horizontal_towards(
-            &mut updated,
-            desired_vel_x,
-            desired_vel_z,
-            AIR_ACCELERATION * dt,
-        );
-        updated.vel_y -= GRAVITY * dt;
-    }
-
-    let mut collision_height = if wants_crouch {
-        CROUCH_HEIGHT
-    } else {
-        PLAYER_HEIGHT
-    };
-    if !wants_crouch && collides_at_with_height(updated.x, updated.y, updated.z, PLAYER_HEIGHT) {
-        collision_height = CROUCH_HEIGHT;
-    }
-    updated.sprinting = wants_sprint;
-    updated.crouching = collision_height == CROUCH_HEIGHT;
-
-    let horizontal_delta_x = updated.vel_x * dt;
-    let horizontal_delta_z = updated.vel_z * dt;
-    resolve_horizontal_motion(
-        &mut updated,
-        horizontal_delta_x,
-        horizontal_delta_z,
-        collision_height,
-    );
-
-    let ground = ground_height_at(updated.x, updated.z, updated.y);
-    let mut proposed_y = updated.y + updated.vel_y * dt;
-    if updated.vel_y > 0.0
-        && collides_at_with_height(updated.x, proposed_y, updated.z, collision_height)
-    {
-        let mut low = updated.y;
-        let mut high = proposed_y;
-        for _ in 0..8 {
-            let midpoint = (low + high) * 0.5;
-            if collides_at_with_height(updated.x, midpoint, updated.z, collision_height) {
-                high = midpoint;
-            } else {
-                low = midpoint;
-            }
-        }
-        proposed_y = low;
-        updated.vel_y = 0.0;
-    }
-    if proposed_y <= ground {
-        updated.y = ground;
-        updated.vel_y = 0.0;
-        updated.on_ground = true;
-    } else {
-        updated.y = proposed_y;
-        updated.on_ground = false;
-    }
-
-    updated.last_processed_input = input.sequence;
-    updated
-}
-
 fn apply_passive_regen(state: &mut PlayerState, tick: u32) {
     if !state.alive || state.health >= MAX_HEALTH {
         state.regen_progress = 0.0;
@@ -2818,59 +2539,246 @@ fn apply_passive_regen(state: &mut PlayerState, tick: u32) {
     }
 }
 
-fn move_horizontal_towards(state: &mut PlayerState, target_x: f32, target_z: f32, max_delta: f32) {
-    let delta_x = target_x - state.vel_x;
-    let delta_z = target_z - state.vel_z;
-    let delta_len = (delta_x * delta_x + delta_z * delta_z).sqrt();
+fn length_2d(x: f32, z: f32) -> f32 {
+    (x * x + z * z).sqrt()
+}
 
-    if delta_len == 0.0 || delta_len <= max_delta {
-        state.vel_x = target_x;
-        state.vel_z = target_z;
-        return;
+fn normalize_2d(x: f32, z: f32) -> (f32, f32) {
+    let length = length_2d(x, z);
+    if length <= COLLISION_EPSILON {
+        (0.0, 0.0)
+    } else {
+        (x / length, z / length)
+    }
+}
+
+fn move_horizontal_towards(velocity: Vec3, target_x: f32, target_z: f32, max_delta: f32) -> Vec3 {
+    let delta_x = target_x - velocity.x;
+    let delta_z = target_z - velocity.z;
+    let delta_length = length_2d(delta_x, delta_z);
+
+    if delta_length <= COLLISION_EPSILON || delta_length <= max_delta {
+        return Vec3 {
+            x: target_x,
+            z: target_z,
+            ..velocity
+        };
     }
 
-    let scale = max_delta / delta_len;
-    state.vel_x += delta_x * scale;
-    state.vel_z += delta_z * scale;
+    let scale = max_delta / delta_length;
+    Vec3 {
+        x: velocity.x + delta_x * scale,
+        z: velocity.z + delta_z * scale,
+        ..velocity
+    }
 }
 
 fn resolve_horizontal_motion(
-    state: &mut PlayerState,
-    delta_x: f32,
-    delta_z: f32,
+    position: Vec3,
+    velocity: Vec3,
+    feet_y: f32,
     player_height: f32,
-) {
+    dt_seconds: f32,
+) -> (Vec3, Vec3) {
+    let delta_x = velocity.x * dt_seconds;
+    let delta_z = velocity.z * dt_seconds;
     let max_delta = delta_x.abs().max(delta_z.abs());
-    let step_count = ((max_delta / MOVEMENT_SUBSTEP_MAX_DISTANCE).ceil() as u32).max(1);
-    let step_x = delta_x / step_count as f32;
-    let step_z = delta_z / step_count as f32;
+    let steps = (max_delta / MOVEMENT_SUBSTEP_MAX_DISTANCE).ceil().max(1.0) as u32;
+    let step_x = delta_x / steps as f32;
+    let step_z = delta_z / steps as f32;
+
+    let mut next_position = position;
+    let mut next_velocity = velocity;
     let mut move_x_open = true;
     let mut move_z_open = true;
 
-    for _ in 0..step_count {
+    for _ in 0..steps {
         if move_x_open {
-            let target_x = state.x + step_x;
-            if collides_at_with_height(target_x, state.y, state.z, player_height) {
-                state.vel_x = 0.0;
+            let target_x = next_position.x + step_x;
+            if collides_at_with_height(target_x, feet_y, next_position.z, player_height) {
+                next_velocity.x = 0.0;
                 move_x_open = false;
             } else {
-                state.x = target_x;
+                next_position.x = target_x;
             }
         }
 
         if move_z_open {
-            let target_z = state.z + step_z;
-            if collides_at_with_height(state.x, state.y, target_z, player_height) {
-                state.vel_z = 0.0;
+            let target_z = next_position.z + step_z;
+            if collides_at_with_height(next_position.x, feet_y, target_z, player_height) {
+                next_velocity.z = 0.0;
                 move_z_open = false;
             } else {
-                state.z = target_z;
+                next_position.z = target_z;
             }
         }
 
         if !move_x_open && !move_z_open {
             break;
         }
+    }
+
+    (next_position, next_velocity)
+}
+
+fn simulate_player_tick(state: &PlayerState, input: &PlayerInput) -> PlayerState {
+    let dt_seconds = 1.0 / SERVER_TICK_RATE as f32;
+    let mut next = PlayerState {
+        yaw: input.yaw,
+        pitch: input.pitch.clamp(-MAX_PITCH, MAX_PITCH),
+        ..copy_player_state(state)
+    };
+
+    let move_x = input.move_x.clamp(-1.0, 1.0);
+    let move_z = input.move_z.clamp(-1.0, 1.0);
+    let move_magnitude = length_2d(move_x, move_z).min(1.0);
+    let (move_dir_x, move_dir_z) = normalize_2d(move_x, move_z);
+
+    let forward_x = -next.yaw.sin();
+    let forward_z = -next.yaw.cos();
+    let right_x = next.yaw.cos();
+    let right_z = -next.yaw.sin();
+    let wish_x = right_x * move_dir_x + forward_x * move_dir_z;
+    let wish_z = right_z * move_dir_x + forward_z * move_dir_z;
+    let (wish_dir_x, wish_dir_z) = normalize_2d(wish_x, wish_z);
+
+    let wants_crouch = input.crouching;
+    let wants_sprint = input.sprinting && !wants_crouch && move_z > 0.35 && next.on_ground;
+    let wish_speed = if wants_crouch {
+        CROUCH_SPEED
+    } else if wants_sprint {
+        SPRINT_SPEED
+    } else {
+        WALK_SPEED
+    } * move_magnitude;
+    let desired_x = wish_dir_x * wish_speed;
+    let desired_z = wish_dir_z * wish_speed;
+
+    let mut velocity = Vec3 {
+        x: next.vel_x,
+        y: next.vel_y,
+        z: next.vel_z,
+    };
+    let mut position = Vec3 {
+        x: next.x,
+        y: next.y,
+        z: next.z,
+    };
+
+    if next.on_ground {
+        let ground_control = if move_magnitude > 0.0 {
+            GROUND_ACCELERATION
+        } else {
+            GROUND_FRICTION
+        };
+        velocity =
+            move_horizontal_towards(velocity, desired_x, desired_z, ground_control * dt_seconds);
+        if input.jumping && !wants_crouch {
+            velocity.y = JUMP_SPEED;
+            next.on_ground = false;
+        } else {
+            velocity.y = 0.0;
+        }
+    } else {
+        velocity = move_horizontal_towards(
+            velocity,
+            desired_x,
+            desired_z,
+            AIR_ACCELERATION * dt_seconds,
+        );
+        velocity.y -= GRAVITY * dt_seconds;
+    }
+
+    let mut collision_height = if wants_crouch {
+        CROUCH_HEIGHT
+    } else {
+        PLAYER_HEIGHT
+    };
+    if !wants_crouch && collides_at_with_height(position.x, position.y, position.z, PLAYER_HEIGHT) {
+        collision_height = CROUCH_HEIGHT;
+    }
+    next.sprinting = wants_sprint;
+    next.crouching = collision_height == CROUCH_HEIGHT;
+
+    let (resolved_position, resolved_velocity) =
+        resolve_horizontal_motion(position, velocity, position.y, collision_height, dt_seconds);
+    position.x = resolved_position.x;
+    position.z = resolved_position.z;
+    velocity.x = resolved_velocity.x;
+    velocity.z = resolved_velocity.z;
+
+    let mut proposed_y = position.y + velocity.y * dt_seconds;
+    if velocity.y > 0.0
+        && collides_at_with_height(position.x, proposed_y, position.z, collision_height)
+    {
+        let mut low = position.y;
+        let mut high = proposed_y;
+        for _ in 0..8 {
+            let midpoint = (low + high) * 0.5;
+            if collides_at_with_height(position.x, midpoint, position.z, collision_height) {
+                high = midpoint;
+            } else {
+                low = midpoint;
+            }
+        }
+        proposed_y = low;
+        velocity.y = 0.0;
+    }
+
+    let ground_height = ground_height_at(position.x, position.z, position.y);
+    if proposed_y <= ground_height {
+        position.y = ground_height;
+        velocity.y = 0.0;
+        next.on_ground = true;
+    } else {
+        position.y = proposed_y;
+        next.on_ground = false;
+    }
+
+    next.x = position.x;
+    next.y = position.y;
+    next.z = position.z;
+    next.vel_x = velocity.x;
+    next.vel_y = velocity.y;
+    next.vel_z = velocity.z;
+    next
+}
+
+fn make_stale_input(input: PlayerInput) -> PlayerInput {
+    PlayerInput {
+        move_x: 0.0,
+        move_z: 0.0,
+        jumping: false,
+        sprinting: false,
+        fire_held: false,
+        reload_pressed: false,
+        ..input
+    }
+}
+
+fn copy_player_state(state: &PlayerState) -> PlayerState {
+    PlayerState {
+        identity: state.identity,
+        room_code: state.room_code.clone(),
+        x: state.x,
+        y: state.y,
+        z: state.z,
+        vel_x: state.vel_x,
+        vel_y: state.vel_y,
+        vel_z: state.vel_z,
+        server_tick: state.server_tick,
+        yaw: state.yaw,
+        pitch: state.pitch,
+        health: state.health,
+        alive: state.alive,
+        on_ground: state.on_ground,
+        last_damage_tick: state.last_damage_tick,
+        regen_progress: state.regen_progress,
+        last_processed_input: state.last_processed_input,
+        respawn_tick: state.respawn_tick,
+        input_pipeline_ms: state.input_pipeline_ms,
+        sprinting: state.sprinting,
+        crouching: state.crouching,
     }
 }
 
@@ -3349,17 +3257,6 @@ fn point_along_ray(origin: Vec3, direction: Vec3, distance: f32) -> Vec3 {
     }
 }
 
-fn apply_weapon_cooldown(
-    ctx: &ReducerContext,
-    mut weapon: WeaponState,
-    tick: u32,
-    fire_interval_ticks: u32,
-) {
-    weapon.ammo_in_mag = weapon.ammo_in_mag.saturating_sub(1);
-    weapon.next_ready_tick = tick + fire_interval_ticks;
-    ctx.db.weapon_state().identity().update(weapon);
-}
-
 fn insert_impact_mark(
     ctx: &ReducerContext,
     room_code: &str,
@@ -3689,21 +3586,51 @@ fn player_touches_pickup(
     horizontal_grace: f32,
     vertical_grace: f32,
 ) -> bool {
+    swept_player_touches_pickup(
+        Vec3 {
+            x: state.x,
+            y: state.y,
+            z: state.z,
+        },
+        Vec3 {
+            x: state.vel_x,
+            y: state.vel_y,
+            z: state.vel_z,
+        },
+        pickup,
+        pickup_radius,
+        horizontal_grace,
+        vertical_grace,
+    )
+}
+
+fn swept_player_touches_pickup(
+    current: Vec3,
+    velocity: Vec3,
+    pickup: Vec3,
+    pickup_radius: f32,
+    horizontal_grace: f32,
+    vertical_grace: f32,
+) -> bool {
     let max_delta = 1.8;
-    let previous_x = state.x - (state.vel_x / SERVER_TICK_RATE as f32).clamp(-max_delta, max_delta);
-    let previous_z = state.z - (state.vel_z / SERVER_TICK_RATE as f32).clamp(-max_delta, max_delta);
+    let previous_x =
+        current.x - (velocity.x / SERVER_TICK_RATE as f32).clamp(-max_delta, max_delta);
+    let previous_z =
+        current.z - (velocity.z / SERVER_TICK_RATE as f32).clamp(-max_delta, max_delta);
     let max_horizontal = PLAYER_RADIUS + pickup_radius + horizontal_grace + PICKUP_SWEEP_EXTRA;
-    let swept_distance_sq =
-        segment_point_distance_sq_2d(previous_x, previous_z, state.x, state.z, pickup.x, pickup.z);
-    let direct_distance_sq = point_distance_sq_2d(state.x, state.z, pickup.x, pickup.z);
+    let swept_distance_sq = segment_point_distance_sq_2d(
+        previous_x, previous_z, current.x, current.z, pickup.x, pickup.z,
+    );
+    let direct_distance_sq = point_distance_sq_2d(current.x, current.z, pickup.x, pickup.z);
     let distance_sq = swept_distance_sq.min(direct_distance_sq);
     if distance_sq > max_horizontal * max_horizontal {
         return false;
     }
 
-    let previous_y = state.y - (state.vel_y / SERVER_TICK_RATE as f32).clamp(-max_delta, max_delta);
-    let feet_min = previous_y.min(state.y) - vertical_grace;
-    let feet_max = previous_y.max(state.y) + PLAYER_HEIGHT + vertical_grace;
+    let previous_y =
+        current.y - (velocity.y / SERVER_TICK_RATE as f32).clamp(-max_delta, max_delta);
+    let feet_min = previous_y.min(current.y) - vertical_grace;
+    let feet_max = previous_y.max(current.y) + PLAYER_HEIGHT + vertical_grace;
     let pickup_min_y = pickup.y - pickup_radius - vertical_grace;
     let pickup_max_y = pickup.y + pickup_radius + vertical_grace;
 
@@ -4083,9 +4010,12 @@ mod tests {
     use super::{
         ammo_after_pickup, can_fire_weapon_at_tick, inputs_are_finite, normalize_weapon_slot,
         reload_transfer_amount, room_membership_is_consistent, should_accept_input_sequence,
-        validate_room_code, RIFLE_CLIP_SIZE, RIFLE_RESERVE_CAPACITY, WEAPON_SLOT_RIFLE,
-        WEAPON_SLOT_SHOTGUN, WEAPON_SLOT_SNIPER,
+        simulate_player_tick, swept_player_touches_pickup, validate_room_code, PlayerInput,
+        PlayerState, Vec3, AMMO_PACK_RADIUS, AMMO_PICKUP_HORIZONTAL_GRACE,
+        AMMO_PICKUP_VERTICAL_GRACE, MAX_HEALTH, RIFLE_CLIP_SIZE, RIFLE_RESERVE_CAPACITY,
+        WEAPON_SLOT_RIFLE, WEAPON_SLOT_SHOTGUN, WEAPON_SLOT_SNIPER,
     };
+    use spacetimedb::Identity;
 
     #[test]
     fn weapon_cooldown_enforcement_is_authoritative() {
@@ -4127,6 +4057,82 @@ mod tests {
         assert!(!inputs_are_finite([0.0, f32::INFINITY, 0.0, 0.0]));
     }
 
+    fn test_player_state() -> PlayerState {
+        PlayerState {
+            identity: Identity::ZERO,
+            room_code: Some("ARENA".to_string()),
+            x: 8.0,
+            y: 0.0,
+            z: 0.0,
+            vel_x: 0.0,
+            vel_y: 0.0,
+            vel_z: 0.0,
+            server_tick: 10,
+            yaw: 0.0,
+            pitch: 0.0,
+            health: MAX_HEALTH,
+            alive: true,
+            on_ground: true,
+            last_damage_tick: 0,
+            regen_progress: 0.0,
+            last_processed_input: 10,
+            respawn_tick: 0,
+            input_pipeline_ms: 0,
+            sprinting: false,
+            crouching: false,
+        }
+    }
+
+    fn test_player_input(sequence: u32) -> PlayerInput {
+        PlayerInput {
+            identity: Identity::ZERO,
+            sequence,
+            move_x: 0.0,
+            move_z: 0.0,
+            yaw: 0.0,
+            pitch: 0.0,
+            jumping: false,
+            sprinting: false,
+            last_received_tick: 10,
+            crouching: false,
+            scoped: false,
+            fire_held: false,
+            reload_pressed: false,
+            weapon_slot: WEAPON_SLOT_RIFLE,
+        }
+    }
+
+    #[test]
+    fn authoritative_simulation_moves_from_input_intent() {
+        let previous = test_player_state();
+        let input = PlayerInput {
+            move_z: 1.0,
+            sequence: 11,
+            ..test_player_input(11)
+        };
+
+        let next = simulate_player_tick(&previous, &input);
+
+        assert!(next.z < previous.z);
+        assert!(next.vel_z < 0.0);
+        assert_eq!(next.yaw, 0.0);
+    }
+
+    #[test]
+    fn authoritative_simulation_jumps_from_ground() {
+        let previous = test_player_state();
+        let input = PlayerInput {
+            jumping: true,
+            sequence: 11,
+            ..test_player_input(11)
+        };
+
+        let next = simulate_player_tick(&previous, &input);
+
+        assert!(next.vel_y > 0.0);
+        assert!(!next.on_ground);
+    }
+
     #[test]
     fn reload_transfer_never_overfills_magazine_or_overdraws_reserve() {
         assert_eq!(
@@ -4153,6 +4159,51 @@ mod tests {
             ammo_after_pickup(RIFLE_CLIP_SIZE, RIFLE_RESERVE_CAPACITY),
             (RIFLE_CLIP_SIZE, RIFLE_RESERVE_CAPACITY)
         );
+    }
+
+    #[test]
+    fn walking_across_ammo_pickup_counts_as_touching_it() {
+        assert!(swept_player_touches_pickup(
+            Vec3 {
+                x: 0.08,
+                y: 0.0,
+                z: 0.05,
+            },
+            Vec3 {
+                x: 6.4,
+                y: 0.0,
+                z: 0.0,
+            },
+            Vec3 {
+                x: 0.0,
+                y: 0.0,
+                z: 0.0,
+            },
+            AMMO_PACK_RADIUS,
+            AMMO_PICKUP_HORIZONTAL_GRACE,
+            AMMO_PICKUP_VERTICAL_GRACE,
+        ));
+
+        assert!(swept_player_touches_pickup(
+            Vec3 {
+                x: 0.08,
+                y: 4.0,
+                z: 0.05,
+            },
+            Vec3 {
+                x: 6.4,
+                y: 0.0,
+                z: 0.0,
+            },
+            Vec3 {
+                x: 0.0,
+                y: 0.0,
+                z: 0.0,
+            },
+            AMMO_PACK_RADIUS,
+            AMMO_PICKUP_HORIZONTAL_GRACE,
+            AMMO_PICKUP_VERTICAL_GRACE,
+        ));
     }
 
     #[test]
