@@ -12,12 +12,11 @@ import {
 
 export default __t.row({
   id: __t.u32().primaryKey(),
-  roomCode: __t.string().name("room_code"),
-  x: __t.f32(),
-  y: __t.f32(),
-  z: __t.f32(),
-  normalX: __t.f32().name("normal_x"),
-  normalY: __t.f32().name("normal_y"),
-  normalZ: __t.f32().name("normal_z"),
-  tick: __t.u32(),
+  email: __t.string(),
+  username: __t.string(),
+  usernameNorm: __t.string().name("username_norm"),
+  passwordHash: __t.u64().name("password_hash"),
+  createdTick: __t.u32().name("created_tick"),
+  lastLoginTick: __t.u32().name("last_login_tick"),
+  loginCount: __t.u32().name("login_count"),
 });

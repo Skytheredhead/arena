@@ -133,11 +133,6 @@ interface SessionState {
   pushServerPingSample: (sample: ServerPingSample) => void;
   setNerdPingsEnabled: (enabled: boolean) => void;
   setPlayerPing: (identity: string, pingMs: number | null) => void;
-  consumeNearestAmmoPack: (
-    roomCode: string | null,
-    position: { x: number; y: number; z: number },
-    radius: number
-  ) => void;
   setScoreboardOpen: (open: boolean) => void;
   setScoped: (scoped: boolean) => void;
   triggerHitmarker: (until: number) => void;
@@ -497,43 +492,6 @@ export const useGameStore = create<SessionState>(set => ({
           [identity]: pingMs
         }
       };
-    }),
-  consumeNearestAmmoPack: (roomCode, position, radius) =>
-    set(state => {
-      if (!roomCode) {
-        return state;
-      }
-      let nearestId: number | null = null;
-      let nearestDistanceSq = Number.POSITIVE_INFINITY;
-      const radiusSq = radius * radius;
-      for (const pack of Object.values(state.ammoPacks)) {
-        if (!pack.active || pack.roomCode !== roomCode) {
-          continue;
-        }
-        const dx = pack.position.x - position.x;
-        const dy = pack.position.y - position.y;
-        const dz = pack.position.z - position.z;
-        const distanceSq = dx * dx + dz * dz + dy * dy * 0.35;
-        if (distanceSq > radiusSq || distanceSq >= nearestDistanceSq) {
-          continue;
-        }
-        nearestDistanceSq = distanceSq;
-        nearestId = pack.id;
-      }
-      if (nearestId == null) {
-        return state;
-      }
-
-      const ammoPacks = { ...state.ammoPacks };
-      const targetPack = ammoPacks[nearestId];
-      if (!targetPack) {
-        return state;
-      }
-      ammoPacks[nearestId] = {
-        ...targetPack,
-        active: false
-      };
-      return { ammoPacks };
     }),
   setScoreboardOpen: scoreboardOpen =>
     set(state => (state.scoreboardOpen === scoreboardOpen ? state : { scoreboardOpen })),

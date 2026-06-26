@@ -10,17 +10,7 @@ import {
   type Infer as __Infer,
 } from "spacetimedb";
 
-export default {
-  sequence: __t.u32(),
-  moveX: __t.f32(),
-  moveZ: __t.f32(),
-  yaw: __t.f32(),
-  pitch: __t.f32(),
-  jumping: __t.bool(),
-  sprinting: __t.bool(),
-  crouching: __t.bool(),
-  scoped: __t.bool(),
-  fireHeld: __t.bool(),
-  reloadPressed: __t.bool(),
-  weaponSlot: __t.u8(),
-};
+export default __t.row({
+  singleton: __t.u8().primaryKey(),
+  currentTick: __t.u32().name("current_tick"),
+});

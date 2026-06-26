@@ -12,11 +12,15 @@ import {
 
 export default {
   sequence: __t.u32(),
-  moveX: __t.f32(),
-  moveZ: __t.f32(),
+  x: __t.f32(),
+  y: __t.f32(),
+  z: __t.f32(),
+  velX: __t.f32(),
+  velY: __t.f32(),
+  velZ: __t.f32(),
   yaw: __t.f32(),
   pitch: __t.f32(),
-  jumping: __t.bool(),
+  onGround: __t.bool(),
   sprinting: __t.bool(),
   crouching: __t.bool(),
   scoped: __t.bool(),

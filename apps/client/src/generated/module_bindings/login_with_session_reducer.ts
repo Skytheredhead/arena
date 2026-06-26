@@ -11,5 +11,5 @@ import {
 } from "spacetimedb";
 
 export default {
-  sessionToken: __t.string().name("session_token"),
+  sessionToken: __t.string(),
 };

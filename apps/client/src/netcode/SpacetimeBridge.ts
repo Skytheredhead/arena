@@ -49,6 +49,7 @@ const RECONNECT_RETRY_INTERVAL_MS = 500;
 const RECONNECT_WINDOW_MS = 10_000;
 const CONNECT_TIMEOUT_MS = 12_000;
 const MAX_REASONABLE_PIPELINE_MS = 5_000;
+const MATCH_UI_UPDATE_INTERVAL_MS = 250;
 const normalizeError = (error: unknown): Error =>
   error instanceof Error ? error : new Error(String(error));
 const shouldRetryWithoutStoredToken = (error: Error): boolean => {
@@ -127,6 +128,10 @@ export class SpacetimeBridge {
   private autoReconnectEnabled = false;
   private reconnectLoopId = 0;
   private lastConnectOptions: ConnectOptions | null = null;
+  private latestPublishedMatch: MatchView | null = null;
+  private pendingMatchForUi: MatchView | null = null;
+  private matchUiPublishTimer: number | null = null;
+  private lastMatchPublishedAt = 0;
   private connectionStage: ConnectionStage = 'idle';
   private schemaMismatchDetected = false;
   private connectionToken: string | undefined;
@@ -175,6 +180,13 @@ export class SpacetimeBridge {
     this.latestWeaponTick = -1;
     this.latestWeaponSignature = '';
     this.latestLocalState = null;
+    this.latestPublishedMatch = null;
+    this.pendingMatchForUi = null;
+    if (this.matchUiPublishTimer) {
+      window.clearTimeout(this.matchUiPublishTimer);
+      this.matchUiPublishTimer = null;
+    }
+    this.lastMatchPublishedAt = 0;
     this.localArrivalOffsetMs = 0;
     this.localArrivalOffsetInitialized = false;
     this.remoteArrivalOffsetMs.clear();
@@ -560,7 +572,9 @@ export class SpacetimeBridge {
     );
     connection.db.match_state.onDelete((_ctx, row) => {
       if (!this.isTrackedRoom(row.roomCode)) return;
-      useGameStore.getState().setMatch(null);
+      this.latestPublishedMatch = null;
+      this.pendingMatchForUi = null;
+      this.publishMatchToStore(null);
     });
     connection.db.ammo_pack.onInsert((_ctx, row) =>
       this.handleAmmoPackRow(row)
@@ -856,7 +870,46 @@ export class SpacetimeBridge {
       round: row.round,
     };
     this.callbacks.onServerTick(row.tick * SERVER_TICK_MS);
-    useGameStore.getState().setMatch(match);
+    const now = performance.now();
+    if (this.shouldPublishMatch(match, now)) {
+      this.latestPublishedMatch = match;
+      this.lastMatchPublishedAt = now;
+      this.publishMatchToStore(match);
+    }
+  }
+
+  private publishMatchToStore(match: MatchView | null): void {
+    this.pendingMatchForUi = match;
+    if (this.matchUiPublishTimer) {
+      return;
+    }
+    this.matchUiPublishTimer = window.setTimeout(() => {
+      this.matchUiPublishTimer = null;
+      const pendingMatch = this.pendingMatchForUi;
+      this.pendingMatchForUi = null;
+      useGameStore.getState().setMatch(pendingMatch);
+    }, 0);
+  }
+
+  private shouldPublishMatch(match: MatchView, now: number): boolean {
+    const previous = this.latestPublishedMatch;
+    if (!previous) {
+      return true;
+    }
+    if (
+      previous.roomCode !== match.roomCode ||
+      previous.active !== match.active ||
+      previous.round !== match.round
+    ) {
+      return true;
+    }
+    if (
+      Math.ceil(previous.remainingMs / 1000) !==
+      Math.ceil(match.remainingMs / 1000)
+    ) {
+      return true;
+    }
+    return now - this.lastMatchPublishedAt >= MATCH_UI_UPDATE_INTERVAL_MS;
   }
 
   private handleKillFeedRow(row: KillFeedEventRow): void {

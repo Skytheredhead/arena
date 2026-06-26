@@ -10,7 +10,6 @@ import {
   WEAPON_SLOT_SNIPER,
   WEAPON_SLOT_SHOTGUN,
   WALK_SPEED,
-  simulatePlayerTick,
   type AmmoPackView,
   type DamageEvent,
   type HealthPackView,
@@ -58,6 +57,13 @@ declare global {
       remoteSampleModes: Record<string, RemoteInterpolationSampleMode>;
       remoteBufferDepthMs: Record<string, number>;
       localCorrectionOffsetMeters: number;
+      frameAverageMs: number;
+      frameP95Ms: number;
+      frameMaxMs: number;
+      frameSlowCount: number;
+      renderAverageMs: number;
+      renderP95Ms: number;
+      renderMaxMs: number;
       spamFire: (count?: number) => Promise<void>;
     };
   }
@@ -81,12 +87,41 @@ export class GameRuntime {
   private static readonly MAX_FRAME_DELTA_MS = 250;
   private static readonly MAX_FIXED_TICKS_PER_FRAME = 8;
   private static readonly INPUT_SEND_INTERVAL_MS = 16;
+  private static readonly PERF_SAMPLE_COUNT = 180;
+  private static readonly PERF_STATS_INTERVAL_MS = 500;
   private readonly renderer: GameRenderer;
   private readonly input: InputController;
   private readonly rifle = new RifleController();
   private readonly audio = new AudioManager();
   private readonly remoteBuffers = new Map<string, SnapshotBuffer>();
   private readonly impactMarks = new Map<number, ImpactMarkView>();
+  private readonly presentedLocalPosition: Vec3 = { x: 0, y: 0, z: 0 };
+  private readonly presentedLocalVelocity: Vec3 = { x: 0, y: 0, z: 0 };
+  private presentedLocalState: LocalPlayerState | null = null;
+  private readonly presentedRemotePlayers: RemotePlayerState[] = [];
+  private readonly presentedAmmoPacks: AmmoPackView[] = [];
+  private readonly presentedHealthPacks: HealthPackView[] = [];
+  private readonly presentedImpactMarks: ImpactMarkView[] = [];
+  private readonly presentedBloodBursts: Array<{
+    id: number;
+    position: Vec3;
+    createdAt: number;
+    expiresAt: number;
+  }> = [];
+  private readonly remoteSampleModesScratch: Record<
+    string,
+    RemoteInterpolationSampleMode
+  > = {};
+  private readonly remoteBufferDepthScratch: Record<string, number> = {};
+  private readonly activeRemoteFootstepIds = new Set<string>();
+  private readonly frameDeltaSamples: number[] = Array.from(
+    { length: GameRuntime.PERF_SAMPLE_COUNT },
+    () => 0
+  );
+  private readonly renderDurationSamples: number[] = Array.from(
+    { length: GameRuntime.PERF_SAMPLE_COUNT },
+    () => 0
+  );
   private readonly bloodBursts: Array<{
     id: number;
     position: Vec3;
@@ -148,6 +183,16 @@ export class GameRuntime {
     null;
   private hasReceivedInitialLocalState = false;
   private renderErrorReported = false;
+  private perfSampleIndex = 0;
+  private perfSampleCount = 0;
+  private perfStatsLastComputedAt = 0;
+  private frameAverageMs = 0;
+  private frameP95Ms = 0;
+  private frameMaxMs = 0;
+  private frameSlowCount = 0;
+  private renderAverageMs = 0;
+  private renderP95Ms = 0;
+  private renderMaxMs = 0;
 
   constructor(mount: HTMLElement) {
     this.renderer = new GameRenderer(mount);
@@ -608,6 +653,7 @@ export class GameRuntime {
   private readonly frame = (now: number): void => {
     const rawDeltaMs = Math.max(0, now - this.lastFrameTime);
     this.lastFrameTime = now;
+    this.recordFrameTiming(rawDeltaMs);
     const deltaMs = Math.min(rawDeltaMs, GameRuntime.MAX_FRAME_DELTA_MS);
     const deltaSeconds = deltaMs / 1000;
     this.accumulatorMs = Math.min(
@@ -676,25 +722,33 @@ export class GameRuntime {
       0,
       this.estimateServerTimeMs(now) - renderDelayMs
     );
-    const connectedRoomCode = useGameStore.getState().connectedRoomCode;
-    const remotePlayers: RemotePlayerState[] = [];
-    const remoteSampleModes: Record<string, RemoteInterpolationSampleMode> = {};
-    const remoteBufferDepthMs: Record<string, number> = {};
+    const latestStore = useGameStore.getState();
+    const connectedRoomCode = latestStore.connectedRoomCode;
+    const remotePlayers = this.presentedRemotePlayers;
+    remotePlayers.length = 0;
+    const remoteSampleModes = this.remoteSampleModesScratch;
+    for (const identity in remoteSampleModes) {
+      delete remoteSampleModes[identity];
+    }
+    const remoteBufferDepthMs = this.remoteBufferDepthScratch;
+    for (const identity in remoteBufferDepthMs) {
+      delete remoteBufferDepthMs[identity];
+    }
     let maxRemoteUnderrunMs = 0;
     for (const [identity, buffer] of this.remoteBuffers) {
-      const meta = useGameStore.getState().players[identity];
+      const meta = latestStore.players[identity];
       const staleBuffer =
         now - buffer.lastPushAtMsValue() > GameRuntime.REMOTE_BUFFER_STALE_MS;
       if (staleBuffer) {
         this.remoteBuffers.delete(identity);
-        useGameStore.getState().removeRemotePlayer(identity);
-        useGameStore.getState().setPlayerPing(identity, null);
+        latestStore.removeRemotePlayer(identity);
+        latestStore.setPlayerPing(identity, null);
         continue;
       }
       if (meta && !meta.connected) {
         this.remoteBuffers.delete(identity);
-        useGameStore.getState().removeRemotePlayer(identity);
-        useGameStore.getState().setPlayerPing(identity, null);
+        latestStore.removeRemotePlayer(identity);
+        latestStore.setPlayerPing(identity, null);
         continue;
       }
 
@@ -714,12 +768,12 @@ export class GameRuntime {
         sample.roomCode &&
         sample.roomCode !== connectedRoomCode
       ) {
-        useGameStore.getState().removeRemotePlayer(identity);
-        useGameStore.getState().setPlayerPing(identity, null);
+        latestStore.removeRemotePlayer(identity);
+        latestStore.setPlayerPing(identity, null);
         continue;
       }
 
-      useGameStore.getState().upsertRemotePlayer(sample);
+      latestStore.upsertRemotePlayer(sample);
       remotePlayers.push(sample);
     }
     this.latestRemoteSampleModes = remoteSampleModes;
@@ -782,22 +836,39 @@ export class GameRuntime {
       sniperCooldownReady,
     });
 
-    const ammoPacks: AmmoPackView[] = Object.values(
-      useGameStore.getState().ammoPacks
-    ).filter(
-      (pack) => !connectedRoomCode || pack.roomCode === connectedRoomCode
-    );
-    const healthPacks: HealthPackView[] = Object.values(
-      useGameStore.getState().healthPacks
-    ).filter(
-      (pack) => !connectedRoomCode || pack.roomCode === connectedRoomCode
-    );
-    const bloodBursts = this.bloodBursts.filter(
-      (burst) => burst.expiresAt > now
-    );
-    if (bloodBursts.length !== this.bloodBursts.length) {
-      this.bloodBursts.length = 0;
-      this.bloodBursts.push(...bloodBursts);
+    const ammoPacks = this.presentedAmmoPacks;
+    ammoPacks.length = 0;
+    for (const pack of Object.values(latestStore.ammoPacks)) {
+      if (!connectedRoomCode || pack.roomCode === connectedRoomCode) {
+        ammoPacks.push(pack);
+      }
+    }
+    const healthPacks = this.presentedHealthPacks;
+    healthPacks.length = 0;
+    for (const pack of Object.values(latestStore.healthPacks)) {
+      if (!connectedRoomCode || pack.roomCode === connectedRoomCode) {
+        healthPacks.push(pack);
+      }
+    }
+    const bloodBursts = this.presentedBloodBursts;
+    bloodBursts.length = 0;
+    let writeIndex = 0;
+    for (let index = 0; index < this.bloodBursts.length; index += 1) {
+      const burst = this.bloodBursts[index];
+      if (!burst || burst.expiresAt <= now) {
+        continue;
+      }
+      this.bloodBursts[writeIndex] = burst;
+      writeIndex += 1;
+      bloodBursts.push(burst);
+    }
+    this.bloodBursts.length = writeIndex;
+    const impactMarks = this.presentedImpactMarks;
+    impactMarks.length = 0;
+    for (const mark of this.impactMarks.values()) {
+      if (!connectedRoomCode || mark.roomCode === connectedRoomCode) {
+        impactMarks.push(mark);
+      }
     }
     this.publishDebug(now);
     const estimatedServerTimeMs = this.estimateServerTimeMs(now);
@@ -806,15 +877,13 @@ export class GameRuntime {
       remotePlayers,
       ammoPacks,
       healthPacks,
-      impactMarks: Array.from(this.impactMarks.values()).filter(
-        (mark) => !connectedRoomCode || mark.roomCode === connectedRoomCode
-      ),
+      impactMarks,
       bloodBursts,
       scoped: frameInput.scoped,
       weaponSlot: frameInput.weaponSlot,
       deltaSeconds,
       recoil: this.rifle.getRecoil(),
-      muzzleFlashVisible: useGameStore.getState().muzzleFlashUntil > now,
+      muzzleFlashVisible: latestStore.muzzleFlashUntil > now,
       walkPhase: this.walkPhase,
       walkIntensity: this.walkIntensity,
       crouchAmount: this.crouchAmount,
@@ -822,6 +891,7 @@ export class GameRuntime {
       reloadProgress: this.getReloadProgress(now),
       estimatedServerTimeMs,
     };
+    const renderStartedAt = performance.now();
     try {
       this.renderer.render(renderFrame);
     } catch (error) {
@@ -844,10 +914,89 @@ export class GameRuntime {
           console.error('Render retry failed.', retryError);
         }
       }
+    } finally {
+      this.recordRenderTiming(performance.now() - renderStartedAt);
     }
 
     this.frameHandle = requestAnimationFrame(this.frame);
   };
+
+  private recordFrameTiming(deltaMs: number): void {
+    const sample = Math.max(0, Math.min(GameRuntime.MAX_FRAME_DELTA_MS, deltaMs));
+    this.frameDeltaSamples[this.perfSampleIndex] = sample;
+  }
+
+  private recordRenderTiming(durationMs: number): void {
+    this.renderDurationSamples[this.perfSampleIndex] = Math.max(
+      0,
+      Math.min(GameRuntime.MAX_FRAME_DELTA_MS, durationMs)
+    );
+    this.perfSampleIndex =
+      (this.perfSampleIndex + 1) % GameRuntime.PERF_SAMPLE_COUNT;
+    this.perfSampleCount = Math.min(
+      GameRuntime.PERF_SAMPLE_COUNT,
+      this.perfSampleCount + 1
+    );
+  }
+
+  private updatePerformanceStats(now: number): void {
+    if (
+      this.perfSampleCount === 0 ||
+      now - this.perfStatsLastComputedAt < GameRuntime.PERF_STATS_INTERVAL_MS
+    ) {
+      return;
+    }
+    this.perfStatsLastComputedAt = now;
+    const frameStats = this.calculateSampleStats(this.frameDeltaSamples);
+    const renderStats = this.calculateSampleStats(this.renderDurationSamples);
+    this.frameAverageMs = frameStats.averageMs;
+    this.frameP95Ms = frameStats.p95Ms;
+    this.frameMaxMs = frameStats.maxMs;
+    this.frameSlowCount = frameStats.slowCount;
+    this.renderAverageMs = renderStats.averageMs;
+    this.renderP95Ms = renderStats.p95Ms;
+    this.renderMaxMs = renderStats.maxMs;
+    this.publishPerformanceDataset();
+  }
+
+  private publishPerformanceDataset(): void {
+    const dataset = this.renderer.getInputElement().dataset;
+    dataset.frameAverageMs = (Math.round(this.frameAverageMs * 10) / 10).toString();
+    dataset.frameP95Ms = (Math.round(this.frameP95Ms * 10) / 10).toString();
+    dataset.frameMaxMs = (Math.round(this.frameMaxMs * 10) / 10).toString();
+    dataset.frameSlowCount = this.frameSlowCount.toString();
+    dataset.renderAverageMs = (
+      Math.round(this.renderAverageMs * 100) / 100
+    ).toString();
+    dataset.renderP95Ms = (Math.round(this.renderP95Ms * 100) / 100).toString();
+    dataset.renderMaxMs = (Math.round(this.renderMaxMs * 100) / 100).toString();
+  }
+
+  private calculateSampleStats(samples: number[]): {
+    averageMs: number;
+    p95Ms: number;
+    maxMs: number;
+    slowCount: number;
+  } {
+    const activeSamples = samples
+      .slice(0, this.perfSampleCount)
+      .filter((sample) => sample > 0)
+      .sort((left, right) => left - right);
+    if (activeSamples.length === 0) {
+      return { averageMs: 0, p95Ms: 0, maxMs: 0, slowCount: 0 };
+    }
+    const total = activeSamples.reduce((sum, sample) => sum + sample, 0);
+    const p95Index = Math.min(
+      activeSamples.length - 1,
+      Math.floor((activeSamples.length - 1) * 0.95)
+    );
+    return {
+      averageMs: total / activeSamples.length,
+      p95Ms: activeSamples[p95Index] ?? 0,
+      maxMs: activeSamples[activeSamples.length - 1] ?? 0,
+      slowCount: activeSamples.filter((sample) => sample > 20).length,
+    };
+  }
 
   private updateRemoteFootsteps(
     remotePlayers: RemotePlayerState[],
@@ -855,8 +1004,12 @@ export class GameRuntime {
     deltaSeconds: number,
     now: number
   ): void {
-    const activeIds = new Set(remotePlayers.map((player) => player.identity));
-    for (const identity of Array.from(this.remoteFootsteps.keys())) {
+    const activeIds = this.activeRemoteFootstepIds;
+    activeIds.clear();
+    for (const player of remotePlayers) {
+      activeIds.add(player.identity);
+    }
+    for (const identity of this.remoteFootsteps.keys()) {
       if (!activeIds.has(identity)) {
         this.remoteFootsteps.delete(identity);
       }
@@ -873,7 +1026,9 @@ export class GameRuntime {
       }
 
       if (!remote.alive) {
-        footprint.lastPosition = { ...remote.position };
+        footprint.lastPosition.x = remote.position.x;
+        footprint.lastPosition.y = remote.position.y;
+        footprint.lastPosition.z = remote.position.z;
         footprint.strideDistance = 0;
         this.remoteFootsteps.set(remote.identity, footprint);
         continue;
@@ -882,7 +1037,9 @@ export class GameRuntime {
       const dx = remote.position.x - footprint.lastPosition.x;
       const dz = remote.position.z - footprint.lastPosition.z;
       const movedDistance = Math.hypot(dx, dz);
-      footprint.lastPosition = { ...remote.position };
+      footprint.lastPosition.x = remote.position.x;
+      footprint.lastPosition.y = remote.position.y;
+      footprint.lastPosition.z = remote.position.z;
 
       const horizontalSpeed = Math.hypot(remote.velocity.x, remote.velocity.z);
       const inferredSpeed =
@@ -962,18 +1119,35 @@ export class GameRuntime {
     }
 
     const partialTickSeconds = this.accumulatorMs / 1000;
-    return partialTickSeconds > 0
-      ? simulatePlayerTick(
-          local,
-          this.input.buildInputCommand(
-            this.sequence,
-            local.yaw,
-            local.pitch,
-            this.input.peekFrameInput()
-          ),
-          partialTickSeconds
-        )
-      : local;
+    if (partialTickSeconds <= 0 || !local.alive) {
+      return local;
+    }
+
+    const presented =
+      this.presentedLocalState ??
+      {
+        ...local,
+        position: this.presentedLocalPosition,
+        velocity: this.presentedLocalVelocity,
+      };
+    this.presentedLocalState = presented;
+    Object.assign(presented, local);
+    presented.position = this.presentedLocalPosition;
+    presented.velocity = this.presentedLocalVelocity;
+    const frameLeadSeconds = Math.min(
+      SERVER_TICK_MS / 1000,
+      partialTickSeconds
+    );
+    this.presentedLocalPosition.x =
+      local.position.x + local.velocity.x * frameLeadSeconds;
+    this.presentedLocalPosition.y =
+      local.position.y + local.velocity.y * frameLeadSeconds;
+    this.presentedLocalPosition.z =
+      local.position.z + local.velocity.z * frameLeadSeconds;
+    this.presentedLocalVelocity.x = local.velocity.x;
+    this.presentedLocalVelocity.y = local.velocity.y;
+    this.presentedLocalVelocity.z = local.velocity.z;
+    return presented;
   }
 
   private fixedTick(now: number): void {
@@ -1394,6 +1568,7 @@ export class GameRuntime {
   }
 
   private publishDebug(now: number): void {
+    this.updatePerformanceStats(now);
     const store = useGameStore.getState();
     window.__vectorDriftDebug = {
       estimatedServerTimeMs: this.estimateServerTimeMs(now),
@@ -1415,6 +1590,13 @@ export class GameRuntime {
       remoteSampleModes: this.latestRemoteSampleModes,
       remoteBufferDepthMs: this.latestRemoteBufferDepthMs,
       localCorrectionOffsetMeters: 0,
+      frameAverageMs: Math.round(this.frameAverageMs * 10) / 10,
+      frameP95Ms: Math.round(this.frameP95Ms * 10) / 10,
+      frameMaxMs: Math.round(this.frameMaxMs * 10) / 10,
+      frameSlowCount: this.frameSlowCount,
+      renderAverageMs: Math.round(this.renderAverageMs * 100) / 100,
+      renderP95Ms: Math.round(this.renderP95Ms * 100) / 100,
+      renderMaxMs: Math.round(this.renderMaxMs * 100) / 100,
       spamFire: async (count = 3) => {
         if (!this.bridge || !this.localPlayerController) {
           return;

@@ -237,6 +237,7 @@ export function HudOverlay({
         <>
           <div
             aria-hidden
+            className="cyber-hud-vignette"
             style={{
               position: 'absolute',
               inset: 0,

@@ -12,12 +12,10 @@ import {
 
 export default __t.row({
   identity: __t.identity().primaryKey(),
-  roomCode: __t.option(__t.string()).name("room_code"),
-  ammoInMag: __t.u16().name("ammo_in_mag"),
-  nextReadyTick: __t.u32().name("next_ready_tick"),
-  reserveAmmo: __t.u16().name("reserve_ammo"),
-  reloadStartedTick: __t.u32().name("reload_started_tick"),
-  reloadCompleteTick: __t.u32().name("reload_complete_tick"),
-  reloading: __t.bool(),
-  selectedWeaponSlot: __t.u8().name("selected_weapon_slot"),
+  lastNicknameTick: __t.u32().name("last_nickname_tick"),
+  lastCreateRoomTick: __t.u32().name("last_create_room_tick"),
+  lastJoinRoomTick: __t.u32().name("last_join_room_tick"),
+  lastLeaveRoomTick: __t.u32().name("last_leave_room_tick"),
+  lastStartMatchTick: __t.u32().name("last_start_match_tick"),
+  lastChatTick: __t.u32().name("last_chat_tick"),
 });

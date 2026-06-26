@@ -957,11 +957,19 @@ export default function App(): React.JSX.Element {
   );
 
   const loadingVisible = loadingStage !== 'idle';
+  const liveMatch = connected && !paused && !loadingVisible && !eliminated;
 
   return (
-    <div className="cyber-root relative h-full w-full overflow-hidden bg-[#020b14]">
+    <div
+      className={[
+        'cyber-root relative h-full w-full overflow-hidden bg-[#020b14]',
+        liveMatch ? 'cyber-live-match' : '',
+      ]
+        .filter(Boolean)
+        .join(' ')}
+    >
       <CyberGlobalStyles />
-      <CyberScanFx showSweep={!connected} />
+      <CyberScanFx showLines={!liveMatch} showSweep={!connected} />
       <div ref={mountRef} className="absolute inset-0 z-0" />
       <HudOverlay {...hudProps} />
       <MenuOverlay

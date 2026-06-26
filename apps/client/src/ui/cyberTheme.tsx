@@ -299,6 +299,20 @@ const CSS = `
     background: linear-gradient(90deg, transparent, rgba(0,245,255,0.38), transparent);
     animation: cyberScanSweep 7s linear infinite;
   }
+  .cyber-root.cyber-live-match * {
+    backdrop-filter: none !important;
+  }
+  .cyber-root.cyber-live-match .cyber-panel {
+    animation: none;
+    clip-path: none;
+  }
+  .cyber-root.cyber-live-match .cyber-panel::before,
+  .cyber-root.cyber-live-match .cyber-panel::after,
+  .cyber-root.cyber-live-match .cyber-scanlines,
+  .cyber-root.cyber-live-match .cyber-scan-sweep,
+  .cyber-root.cyber-live-match .cyber-hud-vignette {
+    display: none;
+  }
 `;
 
 /* ─────────────────────────────────────────────────────────── */
@@ -307,10 +321,16 @@ export function CyberGlobalStyles(): React.JSX.Element {
   return <style>{CSS}</style>;
 }
 
-export function CyberScanFx({ showSweep = true }: { showSweep?: boolean }): React.JSX.Element {
+export function CyberScanFx({
+  showLines = true,
+  showSweep = true
+}: {
+  showLines?: boolean;
+  showSweep?: boolean;
+}): React.JSX.Element {
   return (
     <>
-      <div className="cyber-scanlines" />
+      {showLines ? <div className="cyber-scanlines" /> : null}
       {showSweep ? <div className="cyber-scan-sweep" /> : null}
     </>
   );

@@ -67,6 +67,15 @@ const isFiniteVec3 = (value: { x: number; y: number; z: number }): boolean =>
   Number.isFinite(value.y) &&
   Number.isFinite(value.z);
 
+const WEAPON_CENTER_X = 0;
+const MUZZLE_CENTER_X = 0;
+const WEAPON_WALK_SWAY_X = 0;
+const WEAPON_WALK_SWAY_Y = 0.014;
+const WEAPON_UNSCOPED_Y = -0.23;
+const WEAPON_SCOPED_Y = -0.16;
+const WEAPON_UNSCOPED_Z = -0.62;
+const WEAPON_SCOPED_Z = -0.48;
+
 export class GameRenderer {
   private readonly renderer: THREE.WebGLRenderer;
   private readonly scene: THREE.Scene;
@@ -99,8 +108,14 @@ export class GameRenderer {
   private readonly targetCameraPosition = new THREE.Vector3();
   private readonly drawingBufferSize = new THREE.Vector2();
   private readonly decalUp = new THREE.Vector3(0, 0, 1);
+  private readonly scratchNormal = new THREE.Vector3();
   private readonly deathTintColor = new THREE.Color('#ff2e3f');
   private readonly scratchColor = new THREE.Color();
+  private readonly activeRemoteIds = new Set<string>();
+  private readonly activeAmmoPackIds = new Set<number>();
+  private readonly activeHealthPackIds = new Set<number>();
+  private readonly activeImpactIds = new Set<number>();
+  private readonly activeBloodIds = new Set<number>();
   private graphicsQuality: GraphicsQuality = 'high';
   private baseFov = 80;
   private cameraPositionInitialized = false;
@@ -143,10 +158,10 @@ export class GameRenderer {
       new THREE.BoxGeometry(0.15, 0.15, 0.35),
       new THREE.MeshBasicMaterial({ color: '#ff9f67' })
     );
-    this.muzzleFlash.position.set(0, -0.18, -0.65);
+    this.muzzleFlash.position.set(MUZZLE_CENTER_X, -0.18, -0.65);
     this.muzzleFlash.visible = false;
     this.weaponRig = new THREE.Group();
-    this.weaponRig.position.set(0, -0.27, -0.58);
+    this.weaponRig.position.set(WEAPON_CENTER_X, -0.27, -0.58);
     this.rifleWeaponModel = this.createRifleWeaponModel();
     this.sniperWeaponModel = this.createSniperWeaponModel();
     this.shotgunWeaponModel = this.createShotgunWeaponModel();
@@ -829,24 +844,30 @@ export class GameRenderer {
   }
 
   private setPickupOpacity(mesh: THREE.Group, opacity: number): void {
+    const previousOpacity =
+      typeof mesh.userData.opacity === 'number'
+        ? mesh.userData.opacity
+        : Number.NaN;
+    if (Math.abs(previousOpacity - opacity) < 0.01) {
+      return;
+    }
+    mesh.userData.opacity = opacity;
+    const transparent = opacity < 0.999;
     mesh.traverse((object) => {
       if (!(object instanceof THREE.Mesh)) {
         return;
       }
       const material = object.material as THREE.MeshStandardMaterial;
+      const wasTransparent = material.transparent;
       material.opacity = opacity;
-      material.transparent = opacity < 0.999;
-      material.needsUpdate = true;
+      material.transparent = transparent;
+      if (wasTransparent !== transparent) {
+        material.needsUpdate = true;
+      }
     });
   }
 
   render(frame: RenderFrameState): void {
-    const safeImpactMarks = frame.impactMarks.filter(
-      (mark) => isFiniteVec3(mark.position) && isFiniteVec3(mark.normal)
-    );
-    const safeBloodBursts = frame.bloodBursts.filter((burst) =>
-      isFiniteVec3(burst.position)
-    );
     const now = performance.now();
     this.renderer.getDrawingBufferSize(this.drawingBufferSize);
     const fullWidth = this.drawingBufferSize.x;
@@ -896,7 +917,7 @@ export class GameRenderer {
     this.rifleWeaponModel.visible = frame.weaponSlot === WEAPON_SLOT_RIFLE;
     this.sniperWeaponModel.visible = frame.weaponSlot === WEAPON_SLOT_SNIPER;
     this.shotgunWeaponModel.visible = frame.weaponSlot === WEAPON_SLOT_SHOTGUN;
-    const muzzleFlashX = 0;
+    const muzzleFlashX = MUZZLE_CENTER_X;
     const muzzleFlashY = 0;
     this.muzzleFlash.position.set(
       muzzleFlashX,
@@ -907,9 +928,10 @@ export class GameRenderer {
           ? -0.86
           : -0.92
     );
-    const walkSwayX = Math.sin(frame.walkPhase) * frame.walkIntensity * 0.026;
+    const walkSwayX =
+      Math.sin(frame.walkPhase) * frame.walkIntensity * WEAPON_WALK_SWAY_X;
     const walkSwayY =
-      Math.cos(frame.walkPhase * 2) * frame.walkIntensity * 0.014;
+      Math.cos(frame.walkPhase * 2) * frame.walkIntensity * WEAPON_WALK_SWAY_Y;
     const reloadTilt = frame.reloadProgress * 0.22;
     const reloadDrop = frame.reloadProgress * 0.08;
     this.weaponRig.rotation.x =
@@ -919,18 +941,22 @@ export class GameRenderer {
       reloadTilt * 0.35;
     this.weaponRig.rotation.y = 0;
     this.weaponRig.rotation.z = reloadTilt;
-    this.weaponRig.position.x = walkSwayX;
+    this.weaponRig.position.x = WEAPON_CENTER_X + walkSwayX;
     this.weaponRig.position.y =
-      (frame.scoped ? -0.16 : -0.23) +
+      (frame.scoped ? WEAPON_SCOPED_Y : WEAPON_UNSCOPED_Y) +
       frame.recoil * 0.08 +
       walkBob * 0.45 -
       reloadDrop -
       frame.crouchAmount * 0.08;
-    this.weaponRig.position.z = frame.scoped ? -0.48 : -0.62;
+    this.weaponRig.position.z = frame.scoped
+      ? WEAPON_SCOPED_Z
+      : WEAPON_UNSCOPED_Z;
 
-    const activeIds = new Set(
-      frame.remotePlayers.map((player) => player.identity)
-    );
+    const activeIds = this.activeRemoteIds;
+    activeIds.clear();
+    for (const player of frame.remotePlayers) {
+      activeIds.add(player.identity);
+    }
 
     for (const player of frame.remotePlayers) {
       const avatar = this.ensureRemoteMesh(player.identity);
@@ -954,13 +980,13 @@ export class GameRenderer {
             now + GameRenderer.REMOTE_TELEPORT_HIDE_MS
           );
         }
-        const teleportDistance = mesh.position.distanceToSquared(
-          new THREE.Vector3(
-            player.position.x,
-            player.position.y,
-            player.position.z
-          )
-        );
+        const teleportDx = mesh.position.x - player.position.x;
+        const teleportDy = mesh.position.y - player.position.y;
+        const teleportDz = mesh.position.z - player.position.z;
+        const teleportDistance =
+          teleportDx * teleportDx +
+          teleportDy * teleportDy +
+          teleportDz * teleportDz;
         if (
           mesh.visible &&
           teleportDistance >
@@ -1059,8 +1085,10 @@ export class GameRenderer {
       }
     }
 
-    const activePackIds = new Set(frame.ammoPacks.map((pack) => pack.id));
+    const activePackIds = this.activeAmmoPackIds;
+    activePackIds.clear();
     for (const pack of frame.ammoPacks) {
+      activePackIds.add(pack.id);
       const mesh = this.ensureAmmoPackMesh(pack.id);
       const wasActive = this.ammoPackActiveState.get(pack.id) ?? false;
       if (pack.active && !wasActive) {
@@ -1093,10 +1121,10 @@ export class GameRenderer {
       }
     }
 
-    const activeHealthPackIds = new Set(
-      frame.healthPacks.map((pack) => pack.id)
-    );
+    const activeHealthPackIds = this.activeHealthPackIds;
+    activeHealthPackIds.clear();
     for (const pack of frame.healthPacks) {
+      activeHealthPackIds.add(pack.id);
       const mesh = this.ensureHealthPackMesh(pack.id);
       const wasActive = this.healthPackActiveState.get(pack.id) ?? false;
       if (pack.active && !wasActive) {
@@ -1129,8 +1157,12 @@ export class GameRenderer {
       }
     }
 
-    const activeImpactIds = new Set<number>();
-    for (const mark of safeImpactMarks) {
+    const activeImpactIds = this.activeImpactIds;
+    activeImpactIds.clear();
+    for (const mark of frame.impactMarks) {
+      if (!isFiniteVec3(mark.position) || !isFiniteVec3(mark.normal)) {
+        continue;
+      }
       const markAgeMs = Math.max(
         0,
         frame.estimatedServerTimeMs - mark.tick * SERVER_TICK_MS
@@ -1145,11 +1177,9 @@ export class GameRenderer {
         mark.position.y + mark.normal.y * 0.02,
         mark.position.z + mark.normal.z * 0.02
       );
-      const normal = new THREE.Vector3(
-        mark.normal.x,
-        mark.normal.y,
-        mark.normal.z
-      ).normalize();
+      const normal = this.scratchNormal
+        .set(mark.normal.x, mark.normal.y, mark.normal.z)
+        .normalize();
       mesh.quaternion.setFromUnitVectors(this.decalUp, normal);
       mesh.rotateZ(mark.id * 0.371);
       const markMaterial = mesh.material as THREE.MeshBasicMaterial;
@@ -1174,8 +1204,13 @@ export class GameRenderer {
       }
     }
 
-    const activeBloodIds = new Set(safeBloodBursts.map((burst) => burst.id));
-    for (const burst of safeBloodBursts) {
+    const activeBloodIds = this.activeBloodIds;
+    activeBloodIds.clear();
+    for (const burst of frame.bloodBursts) {
+      if (!isFiniteVec3(burst.position)) {
+        continue;
+      }
+      activeBloodIds.add(burst.id);
       const mesh = this.ensureBloodBurstMesh(burst.id);
       const life = Math.max(
         0,

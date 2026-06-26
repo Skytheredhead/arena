@@ -10,17 +10,12 @@ import {
   type Infer as __Infer,
 } from "spacetimedb";
 
+import {
+  SimTickSchedule,
+} from "./types";
+
 export default {
-  sequence: __t.u32(),
-  moveX: __t.f32(),
-  moveZ: __t.f32(),
-  yaw: __t.f32(),
-  pitch: __t.f32(),
-  jumping: __t.bool(),
-  sprinting: __t.bool(),
-  crouching: __t.bool(),
-  scoped: __t.bool(),
-  fireHeld: __t.bool(),
-  reloadPressed: __t.bool(),
-  weaponSlot: __t.u8(),
+  get schedule() {
+    return SimTickSchedule;
+  },
 };

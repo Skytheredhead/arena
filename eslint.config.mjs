@@ -11,7 +11,7 @@ export default tseslint.config(
       '**/node_modules/**',
       '**/*.cjs',
       '**/*.d.ts',
-      'apps/client/src/generated/module_bindings/index.ts'
+      'apps/client/src/generated/module_bindings/**'
     ]
   },
   js.configs.recommended,

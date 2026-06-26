@@ -6,6 +6,8 @@
 import { type Infer as __Infer } from "spacetimedb";
 
 // Import all reducer arg schemas
+import ClientConnectedReducer from "../client_connected_reducer";
+import ClientDisconnectedReducer from "../client_disconnected_reducer";
 import CreateRoomReducer from "../create_room_reducer";
 import FireWeaponReducer from "../fire_weapon_reducer";
 import JoinRoomReducer from "../join_room_reducer";
@@ -18,9 +20,13 @@ import RegisterAccountReducer from "../register_account_reducer";
 import RequestRespawnReducer from "../request_respawn_reducer";
 import SendChatMessageReducer from "../send_chat_message_reducer";
 import SetNicknameReducer from "../set_nickname_reducer";
+import SimTickReducer from "../sim_tick_reducer";
 import StartMatchReducer from "../start_match_reducer";
+import SubmitClientStateReducer from "../submit_client_state_reducer";
 import SubmitInputReducer from "../submit_input_reducer";
 
+export type ClientConnectedParams = __Infer<typeof ClientConnectedReducer>;
+export type ClientDisconnectedParams = __Infer<typeof ClientDisconnectedReducer>;
 export type CreateRoomParams = __Infer<typeof CreateRoomReducer>;
 export type FireWeaponParams = __Infer<typeof FireWeaponReducer>;
 export type JoinRoomParams = __Infer<typeof JoinRoomReducer>;
@@ -33,5 +39,8 @@ export type RegisterAccountParams = __Infer<typeof RegisterAccountReducer>;
 export type RequestRespawnParams = __Infer<typeof RequestRespawnReducer>;
 export type SendChatMessageParams = __Infer<typeof SendChatMessageReducer>;
 export type SetNicknameParams = __Infer<typeof SetNicknameReducer>;
+export type SimTickParams = __Infer<typeof SimTickReducer>;
 export type StartMatchParams = __Infer<typeof StartMatchReducer>;
+export type SubmitClientStateParams = __Infer<typeof SubmitClientStateReducer>;
 export type SubmitInputParams = __Infer<typeof SubmitInputReducer>;
+
