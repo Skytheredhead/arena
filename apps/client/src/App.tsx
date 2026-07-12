@@ -71,7 +71,7 @@ export default function App(): React.JSX.Element {
   const [chatOpen, setChatOpen] = useState(false);
   const [chatDraft, setChatDraft] = useState('');
   const [chatBusy, setChatBusy] = useState(false);
-  const [pauseView, setPauseView] = useState<'pause' | 'settings'>('pause');
+  const [pauseView, setPauseView] = useState<'pause' | 'settings' | 'stats'>('pause');
   const [authSnapshot, setAuthSnapshot] = useState<AuthSnapshot | null>(null);
   const [authBusy, setAuthBusy] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
@@ -277,6 +277,15 @@ export default function App(): React.JSX.Element {
       setAuthError(message);
     }
   }, []);
+
+  const refreshAccountStats = useCallback(async (): Promise<void> => {
+    setAuthBusy(true);
+    try {
+      await refreshAuthSnapshot();
+    } finally {
+      setAuthBusy(false);
+    }
+  }, [refreshAuthSnapshot]);
 
   useEffect(() => {
     void refreshAuthSnapshot();
@@ -1005,7 +1014,7 @@ export default function App(): React.JSX.Element {
         onRegister={handleRegister}
         onLogout={handleLogout}
         onRefreshStats={() => {
-          void refreshAuthSnapshot();
+          void refreshAccountStats();
         }}
         onGraphicsQualityChange={setGraphicsQuality}
         onLookSensitivityChange={setLookSensitivity}
@@ -1047,6 +1056,10 @@ export default function App(): React.JSX.Element {
         visible={paused && connected}
         roomCode={roomCode}
         view={pauseView}
+        authLoggedIn={authLoggedIn}
+        authUsername={authUsername}
+        authStats={authStats}
+        authBusy={authBusy}
         graphicsQuality={graphicsQuality}
         lookSensitivity={lookSensitivity}
         fov={fov}
@@ -1062,6 +1075,13 @@ export default function App(): React.JSX.Element {
         hasServerPings={serverPingHistory.length > 0}
         onCopyServerPings={handleCopyServerPings}
         onOpenSettings={() => setPauseView('settings')}
+        onOpenStats={() => {
+          setPauseView('stats');
+          void refreshAccountStats();
+        }}
+        onRefreshStats={() => {
+          void refreshAccountStats();
+        }}
         onCloseSettings={() => setPauseView('pause')}
         onResume={resumeFromPause}
         onDisconnect={() => {

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { CAMERA_SENSITIVITY, SERVER_TICK_RATE } from '@arena/shared';
+import { CAMERA_SENSITIVITY } from '@arena/shared';
 import { normalizeRoomCode } from '../../utils/roomCode';
 import type { BackendTarget } from '../../utils/env';
 import type { RoomView } from '../../state/gameStore';
@@ -20,6 +20,7 @@ import {
   CyberPanel,
   PingLabel
 } from '../cyberTheme';
+import { AccountStatsPanel } from './AccountStatsPanel';
 
 interface MenuOverlayProps {
   connected: boolean;
@@ -73,15 +74,6 @@ interface MenuOverlayProps {
   onCustomBackendSecureChange: (value: boolean) => void;
   onUseCustomBackend: () => void;
 }
-
-const formatDuration = (ticks: number): string => {
-  const seconds = Math.floor(ticks / SERVER_TICK_RATE);
-  if (seconds < 60) return `${seconds}s`;
-  const minutes = Math.floor(seconds / 60);
-  const hours = Math.floor(minutes / 60);
-  if (hours > 0) return `${hours}h ${minutes % 60}m`;
-  return `${minutes}m ${seconds % 60}s`;
-};
 
 function SettingSlider({
   label,
@@ -421,36 +413,7 @@ export function MenuOverlay({
             {authPanel === 'stats' && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                 <div className="cyber-label" style={{ fontSize: '10px', letterSpacing: '4px' }}>// STATS · {authUsername ?? 'USER'}</div>
-                {authStats ? (
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '5px', fontFamily: CYBER.font, fontSize: '11px' }}>
-                    {[
-                      ['Times Played',     String(authStats.timesPlayed)],
-                      ['Total Match Time', formatDuration(authStats.totalPlayTimeTicks)],
-                      ['Total Lobby Time', formatDuration(authStats.totalLobbyTimeTicks)],
-                      ['Kills / Deaths',   `${authStats.kills} / ${authStats.deaths}`],
-                      ['KDR',              authStats.kdr.toFixed(2)],
-                      ['Shots Fired',      String(authStats.shotsFired)],
-                      ['Shots Hit',        String(authStats.shotsHit)],
-                      ['Accuracy',         authStats.shotsFired > 0 ? `${Math.round((authStats.shotsHit / authStats.shotsFired) * 100)}%` : '0%'],
-                      ['Damage Dealt',     String(authStats.damageDealt)],
-                      ['Damage Taken',     String(authStats.damageTaken)],
-                      ['Ammo Pickups',     String(authStats.ammoCollected)],
-                      ['Health Pickups',   String(authStats.healthCollected)],
-                      ['Chat Messages',    String(authStats.chatMessages)],
-                      ['Rooms Created',    String(authStats.roomsCreated)],
-                      ['Rooms Joined',     String(authStats.roomsJoined)],
-                      ['Matches Started',  String(authStats.matchesStarted)],
-                      ['Respawns',         String(authStats.respawns)],
-                    ].map(([label, val]) => (
-                      <div key={label} style={{ display: 'contents' }}>
-                        <div style={{ color: CYBER.textBright }}>{label}</div>
-                        <div style={{ color: CYBER.textBright, textAlign: 'right', fontFamily: "'Orbitron',var(--font)", fontSize: '11px' }}>{val}</div>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <div style={{ color: CYBER.textDim, fontFamily: CYBER.font, fontSize: '11px' }}>No stats recorded yet.</div>
-                )}
+                <AccountStatsPanel stats={authStats} />
                 <CyberLine margin="8px 0" />
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
                   <CyberButton onClick={onRefreshStats} disabled={authBusy}>Refresh</CyberButton>

@@ -169,6 +169,9 @@ export const PlayerInput = __t.object("PlayerInput", {
   fireHeld: __t.bool(),
   reloadPressed: __t.bool(),
   weaponSlot: __t.u8(),
+  fireActionSequence: __t.u32(),
+  consumedFireActionSequence: __t.u32(),
+  reloadActionPending: __t.bool(),
 });
 export type PlayerInput = __Infer<typeof PlayerInput>;
 

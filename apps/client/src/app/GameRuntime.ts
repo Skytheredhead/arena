@@ -10,11 +10,14 @@ import {
   WEAPON_SLOT_SNIPER,
   WEAPON_SLOT_SHOTGUN,
   WALK_SPEED,
+  applyInputEdgeRedundancy,
+  isUint32Newer,
+  makeInputEdgeRedundancyState,
+  nextUint32,
   type AmmoPackView,
   type DamageEvent,
   type HealthPackView,
   type ImpactMarkView,
-  type InputCommand,
   type LocalPlayerState,
   type Vec3,
   type RemotePlayerState,
@@ -39,6 +42,15 @@ import { AudioManager } from '../audio/AudioManager';
 import { getLatencyTailMs } from '../netcode/pingStats';
 import { isDamageEventCurrentForLocalPlayer } from '../netcode/damageEvents';
 import { publishRuntimeHudFrame } from '../ui/runtimeHudFrame';
+import { ReliableInputBuffer } from '../netcode/ReliableInputBuffer';
+import {
+  clampCorrectionOffset,
+  getLocalCorrectionDecayRate,
+  getLocalCorrectionHardSnapDistanceMeters,
+  getLocalCorrectionSmoothThresholdMeters,
+  getMaxLocalCorrectionOffsetMeters,
+  type LocalCorrectionMetrics,
+} from '../netcode/localCorrection';
 
 declare global {
   interface Window {
@@ -86,7 +98,7 @@ export class GameRuntime {
   private static readonly REMOTE_UNDERRUN_FULL_PRESSURE_MS = 140;
   private static readonly MAX_FRAME_DELTA_MS = 250;
   private static readonly MAX_FIXED_TICKS_PER_FRAME = 8;
-  private static readonly INPUT_SEND_INTERVAL_MS = 16;
+  private static readonly INPUT_RETRY_POLL_MS = 45;
   private static readonly PERF_SAMPLE_COUNT = 180;
   private static readonly PERF_STATS_INTERVAL_MS = 500;
   private readonly renderer: GameRenderer;
@@ -149,10 +161,10 @@ export class GameRuntime {
   private reloadCompletesAt = -1;
   private nextDryFireAt = 0;
   private smoothedPingMs = 48;
-  private readonly pendingInputSentAt = new Map<number, number>();
-  private queuedNetworkInput: InputCommand | null = null;
-  private inputFlushTimer: ReturnType<typeof setTimeout> | null = null;
-  private lastInputSendAt = 0;
+  private readonly reliableInputBuffer = new ReliableInputBuffer();
+  private inputEdgeRedundancy = makeInputEdgeRedundancyState();
+  private inputRetryTimer: ReturnType<typeof setTimeout> | null = null;
+  private localCorrectionOffset: Vec3 = { x: 0, y: 0, z: 0 };
   private readonly pingSamples: Array<{ at: number; rttMs: number }> = [];
   private readonly serverPipelineSamples: Array<{
     at: number;
@@ -210,7 +222,7 @@ export class GameRuntime {
 
   dispose(): void {
     cancelAnimationFrame(this.frameHandle);
-    this.clearInputFlushTimer();
+    this.clearInputRetryTimer();
     this.bridge?.disconnect();
     this.input.dispose();
     this.renderer.dispose();
@@ -318,13 +330,7 @@ export class GameRuntime {
       onServerTick: (serverTimeMs) => this.observeServerTime(serverTimeMs),
       onWeaponState: (weapon) => this.syncAuthoritativeWeaponState(weapon),
       onReconnectStateChange: (state) =>
-        useGameStore
-          .getState()
-          .setNetworkReconnectState(
-            state.reconnecting,
-            state.attempt,
-            state.startedAtMs
-          ),
+        this.handleReconnectStateChange(state),
       onConnectionStageChange: (stage) => this.onConnectionStageChange?.(stage),
       onDisconnected: () => this.disconnect(false),
     });
@@ -363,10 +369,10 @@ export class GameRuntime {
     this.totalAmmo = RIFLE_CARRY_CAPACITY;
     this.magAmmo = RIFLE_CLIP_SIZE;
     this.reserveAmmo = RIFLE_RESERVE_CAPACITY;
-    this.pendingInputSentAt.clear();
-    this.queuedNetworkInput = null;
-    this.clearInputFlushTimer();
-    this.lastInputSendAt = 0;
+    this.reliableInputBuffer.clear();
+    this.inputEdgeRedundancy = makeInputEdgeRedundancyState();
+    this.clearInputRetryTimer();
+    this.localCorrectionOffset = { x: 0, y: 0, z: 0 };
     this.smoothedPingMs = 48;
     this.pingSamples.length = 0;
     this.serverPipelineSamples.length = 0;
@@ -405,7 +411,9 @@ export class GameRuntime {
     this.observeServerTime(state.serverTimeMs);
     this.recordAuthoritativePipelineSample(state.inputPipelineMs);
     this.updateMeasuredPing(state.lastProcessedInput);
-    this.sequence = Math.max(this.sequence, state.lastProcessedInput);
+    if (isUint32Newer(state.lastProcessedInput, this.sequence)) {
+      this.sequence = state.lastProcessedInput;
+    }
     if (!this.localPlayerController) {
       this.localPlayerController = new LocalPlayerController(state);
       this.syncMagazineFromTotal(state.ammo);
@@ -424,10 +432,38 @@ export class GameRuntime {
     }
 
     const before = this.localPlayerController.getState();
+    const correctionMetrics = this.getLocalCorrectionMetrics();
     const { state: reconciled, snapped } =
-      this.localPlayerController.applyAuthoritativeSnapshot(state);
+      this.localPlayerController.applyAuthoritativeSnapshot(state, {
+        hardSnapDistanceMeters:
+          getLocalCorrectionHardSnapDistanceMeters(correctionMetrics),
+      });
+
+    if (snapped) {
+      this.localCorrectionOffset = { x: 0, y: 0, z: 0 };
+    } else {
+      this.localCorrectionOffset = clampCorrectionOffset(
+        {
+          x:
+            this.localCorrectionOffset.x +
+            before.position.x -
+            reconciled.position.x,
+          y:
+            this.localCorrectionOffset.y +
+            before.position.y -
+            reconciled.position.y,
+          z:
+            this.localCorrectionOffset.z +
+            before.position.z -
+            reconciled.position.z,
+        },
+        getMaxLocalCorrectionOffsetMeters(correctionMetrics)
+      );
+    }
 
     if (before.alive && !reconciled.alive) {
+      this.reliableInputBuffer.clear();
+      this.inputEdgeRedundancy = makeInputEdgeRedundancyState();
       this.deathViewState = {
         ...reconciled,
         position: { ...reconciled.position },
@@ -436,14 +472,17 @@ export class GameRuntime {
     } else if (!before.alive && reconciled.alive) {
       // On respawn, clear stale pre-death local samples so movement resumes immediately.
       this.localPlayerController.hydrate(reconciled);
-      this.pendingInputSentAt.clear();
+      this.reliableInputBuffer.clear();
+      this.localCorrectionOffset = { x: 0, y: 0, z: 0 };
       this.sequence = reconciled.lastProcessedInput;
       this.walkStrideDistance = 0;
       this.input.clearPressed();
       this.deathViewState = null;
     } else if (snapped) {
-      this.pendingInputSentAt.clear();
-      this.sequence = Math.max(this.sequence, reconciled.lastProcessedInput);
+      this.localCorrectionOffset = { x: 0, y: 0, z: 0 };
+      if (isUint32Newer(reconciled.lastProcessedInput, this.sequence)) {
+        this.sequence = reconciled.lastProcessedInput;
+      }
     }
 
     useGameStore.getState().setLocalPlayer(reconciled);
@@ -604,7 +643,9 @@ export class GameRuntime {
           alive: false,
           health: 0,
           velocity: { x: 0, y: 0, z: 0 },
-          serverTick: Math.max(predicted.serverTick, event.tick),
+          serverTick: isUint32Newer(event.tick, predicted.serverTick)
+            ? event.tick
+            : predicted.serverTick,
           serverTimeMs: event.tick * SERVER_TICK_MS,
           inputPipelineMs: predicted.inputPipelineMs,
           respawnTick: event.tick,
@@ -612,6 +653,8 @@ export class GameRuntime {
         if (this.localPlayerController) {
           this.localPlayerController.hydrate(deadState);
         }
+        this.reliableInputBuffer.clear();
+        this.inputEdgeRedundancy = makeInputEdgeRedundancyState();
         this.deathViewState = {
           ...deadState,
           position: { ...deadState.position },
@@ -662,6 +705,7 @@ export class GameRuntime {
     );
     this.rifle.update(deltaSeconds);
     this.crosshairKick = Math.max(0, this.crosshairKick - deltaSeconds * 18);
+    this.updateLocalCorrectionOffset(deltaSeconds);
 
     const store = useGameStore.getState();
     store.pruneKillFeed(now);
@@ -1119,7 +1163,7 @@ export class GameRuntime {
     }
 
     const partialTickSeconds = this.accumulatorMs / 1000;
-    if (partialTickSeconds <= 0 || !local.alive) {
+    if (!local.alive) {
       return local;
     }
 
@@ -1139,11 +1183,17 @@ export class GameRuntime {
       partialTickSeconds
     );
     this.presentedLocalPosition.x =
-      local.position.x + local.velocity.x * frameLeadSeconds;
+      local.position.x +
+      local.velocity.x * frameLeadSeconds +
+      this.localCorrectionOffset.x;
     this.presentedLocalPosition.y =
-      local.position.y + local.velocity.y * frameLeadSeconds;
+      local.position.y +
+      local.velocity.y * frameLeadSeconds +
+      this.localCorrectionOffset.y;
     this.presentedLocalPosition.z =
-      local.position.z + local.velocity.z * frameLeadSeconds;
+      local.position.z +
+      local.velocity.z * frameLeadSeconds +
+      this.localCorrectionOffset.z;
     this.presentedLocalVelocity.x = local.velocity.x;
     this.presentedLocalVelocity.y = local.velocity.y;
     this.presentedLocalVelocity.z = local.velocity.z;
@@ -1165,18 +1215,26 @@ export class GameRuntime {
     if (!local.alive) {
       return;
     }
-    const command = this.input.buildInputCommand(
-      ++this.sequence,
+    const rawCommand = this.input.buildInputCommand(
+      nextUint32(this.sequence),
       local.yaw,
       local.pitch,
       frameInput
     );
+    const redundantInput = applyInputEdgeRedundancy(
+      this.inputEdgeRedundancy,
+      rawCommand
+    );
+    this.inputEdgeRedundancy = redundantInput.state;
+    const command = redundantInput.command;
+    this.sequence = command.sequence;
     const localState = this.localPlayerController.step(command);
     useGameStore.getState().setLocalPlayer(localState);
     useGameStore
       .getState()
       .setPredictionDebug(this.localPlayerController.getDebugState());
-    this.enqueueNetworkInput(command, now);
+    this.reliableInputBuffer.enqueue(command, now);
+    this.flushReliableInputs(now);
 
     if (frameInput.wantsReload) {
       this.startReload(now);
@@ -1255,89 +1313,94 @@ export class GameRuntime {
     }
   }
 
-  private enqueueNetworkInput(command: InputCommand, now: number): void {
-    this.queuedNetworkInput = this.mergeQueuedNetworkInput(
-      this.queuedNetworkInput,
-      command
-    );
-    const mustFlush = command.reloadPressed;
-    if (
-      !mustFlush &&
-      now - this.lastInputSendAt < GameRuntime.INPUT_SEND_INTERVAL_MS
-    ) {
-      this.scheduleInputFlush();
+  private flushReliableInputs(now = performance.now()): void {
+    if (!this.bridge || useGameStore.getState().networkReconnecting) {
+      return;
+    }
+    const batch = this.reliableInputBuffer.takeDue(now);
+    if (!batch) {
+      this.scheduleInputRetry();
       return;
     }
 
-    this.flushQueuedNetworkInput(now, mustFlush);
+    for (const command of batch.commands) {
+      void this.bridge.submitInput(command).catch(() => {
+        this.reliableInputBuffer.markSendFailed();
+        this.scheduleInputRetry();
+      });
+    }
+    this.scheduleInputRetry();
   }
 
-  private mergeQueuedNetworkInput(
-    previous: InputCommand | null,
-    next: InputCommand
-  ): InputCommand {
-    if (!previous) {
-      return next;
+  private scheduleInputRetry(): void {
+    if (this.inputRetryTimer || this.reliableInputBuffer.size() === 0) {
+      return;
     }
+    this.inputRetryTimer = setTimeout(
+      () => {
+        this.inputRetryTimer = null;
+        this.flushReliableInputs();
+      },
+      GameRuntime.INPUT_RETRY_POLL_MS
+    );
+  }
 
+  private clearInputRetryTimer(): void {
+    if (!this.inputRetryTimer) {
+      return;
+    }
+    clearTimeout(this.inputRetryTimer);
+    this.inputRetryTimer = null;
+  }
+
+  private handleReconnectStateChange(state: {
+    reconnecting: boolean;
+    attempt: number;
+    startedAtMs: number | null;
+  }): void {
+    useGameStore
+      .getState()
+      .setNetworkReconnectState(
+        state.reconnecting,
+        state.attempt,
+        state.startedAtMs
+      );
+    if (!state.reconnecting && this.reliableInputBuffer.size() > 0) {
+      this.reliableInputBuffer.markSendFailed();
+      this.flushReliableInputs();
+    }
+  }
+
+  private getLocalCorrectionMetrics(): LocalCorrectionMetrics {
+    const store = useGameStore.getState();
     return {
-      ...next,
-      fireHeld: previous.fireHeld || next.fireHeld,
-      reloadPressed: previous.reloadPressed || next.reloadPressed,
+      pingMs: store.localPingMs,
+      jitterMs: store.localPingJitterMs,
+      inputPipelineMs: this.lastAuthoritativePipelineMs,
+      pendingInputs:
+        this.localPlayerController?.getDebugState().pendingInputs ?? 0,
     };
   }
 
-  private flushQueuedNetworkInput(now = performance.now(), force = false): void {
-    if (!this.bridge || !this.queuedNetworkInput) {
-      return;
-    }
-
-    if (
-      !force &&
-      now - this.lastInputSendAt < GameRuntime.INPUT_SEND_INTERVAL_MS
-    ) {
-      this.scheduleInputFlush();
-      return;
-    }
-
-    this.clearInputFlushTimer();
-    const command = this.queuedNetworkInput;
-    this.queuedNetworkInput = null;
-    this.lastInputSendAt = now;
-    this.pendingInputSentAt.set(command.sequence, now);
-    if (this.pendingInputSentAt.size > 128) {
-      const staleSequences = Array.from(this.pendingInputSentAt.keys())
-        .sort((left, right) => left - right)
-        .slice(0, this.pendingInputSentAt.size - 128);
-      for (const sequence of staleSequences) {
-        this.pendingInputSentAt.delete(sequence);
-      }
-    }
-
-    void this.bridge.submitInput(command).catch(() => undefined);
-  }
-
-  private scheduleInputFlush(): void {
-    if (this.inputFlushTimer || !this.queuedNetworkInput) {
-      return;
-    }
-    const delay = Math.max(
-      0,
-      GameRuntime.INPUT_SEND_INTERVAL_MS -
-        (performance.now() - this.lastInputSendAt)
+  private updateLocalCorrectionOffset(deltaSeconds: number): void {
+    const magnitude = Math.hypot(
+      this.localCorrectionOffset.x,
+      this.localCorrectionOffset.y,
+      this.localCorrectionOffset.z
     );
-    this.inputFlushTimer = setTimeout(() => {
-      this.inputFlushTimer = null;
-      this.flushQueuedNetworkInput();
-    }, delay);
-  }
-
-  private clearInputFlushTimer(): void {
-    if (!this.inputFlushTimer) {
+    const metrics = this.getLocalCorrectionMetrics();
+    if (magnitude <= getLocalCorrectionSmoothThresholdMeters(metrics)) {
+      this.localCorrectionOffset = { x: 0, y: 0, z: 0 };
       return;
     }
-    clearTimeout(this.inputFlushTimer);
-    this.inputFlushTimer = null;
+    const decay = Math.exp(
+      -getLocalCorrectionDecayRate(metrics) * Math.max(0, deltaSeconds)
+    );
+    this.localCorrectionOffset = {
+      x: this.localCorrectionOffset.x * decay,
+      y: this.localCorrectionOffset.y * decay,
+      z: this.localCorrectionOffset.z * decay,
+    };
   }
 
   private observeServerTime(serverTimeMs: number): void {
@@ -1387,15 +1450,7 @@ export class GameRuntime {
   }
 
   private updateMeasuredPing(lastProcessedInput: number): void {
-    if (lastProcessedInput <= 0) {
-      return;
-    }
-    const sentAt = this.pendingInputSentAt.get(lastProcessedInput);
-    for (const sequence of Array.from(this.pendingInputSentAt.keys())) {
-      if (sequence <= lastProcessedInput) {
-        this.pendingInputSentAt.delete(sequence);
-      }
-    }
+    const sentAt = this.reliableInputBuffer.acknowledge(lastProcessedInput);
     if (this.preferAckPingSampling && sentAt != null) {
       this.recordMeasuredRttSample(performance.now() - sentAt);
     }
@@ -1589,7 +1644,11 @@ export class GameRuntime {
       remoteUnderrunMs: this.latestRemoteUnderrunMs,
       remoteSampleModes: this.latestRemoteSampleModes,
       remoteBufferDepthMs: this.latestRemoteBufferDepthMs,
-      localCorrectionOffsetMeters: 0,
+      localCorrectionOffsetMeters: Math.hypot(
+        this.localCorrectionOffset.x,
+        this.localCorrectionOffset.y,
+        this.localCorrectionOffset.z
+      ),
       frameAverageMs: Math.round(this.frameAverageMs * 10) / 10,
       frameP95Ms: Math.round(this.frameP95Ms * 10) / 10,
       frameMaxMs: Math.round(this.frameMaxMs * 10) / 10,
@@ -1607,7 +1666,7 @@ export class GameRuntime {
           const state = this.localPlayerController.getState();
           try {
             await this.bridge.submitInput({
-              sequence: ++this.sequence,
+              sequence: (this.sequence = nextUint32(this.sequence)),
               moveX: 0,
               moveZ: 0,
               yaw: state.yaw,

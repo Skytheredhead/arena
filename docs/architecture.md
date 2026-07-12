@@ -43,20 +43,31 @@ This slice proves four things without overbuilding:
 
 - Server owns match state, health, deaths, respawns, cooldowns, and kill attribution.
 - Clients submit input commands with sequence numbers instead of transform authority.
+- The client retains unacknowledged input in a bounded retry buffer. Movement/look
+  snapshots may be compacted, but action transitions keep their original order.
 - Local movement is predicted immediately using the same movement envelope as the server.
 - Server acks the latest processed sequence in `player_state.last_processed_input`.
 - Client reconciles by rewinding to the authoritative player state and replaying pending inputs.
+- Transient fire/reload intent is latched by the server until the authoritative
+  weapon loop consumes it, so a newer movement snapshot cannot overwrite an action.
 - Remote players are rendered from a server-timestamped interpolation buffer with a small render delay.
 
 ## Authoritative tick
 
 - The server runs simulation at `60Hz` (`16.67ms` per tick).
 - A single `sim_tick_schedule` row is inserted at init with `ScheduleAt::Interval(...)`, so SpacetimeDB drives `sim_tick` on a recurring cadence rather than relying on client traffic.
-- `sim_tick` increments the authoritative world tick, advances matches, applies the latest accepted input for each player, and writes `player_state.server_tick`.
+- `sim_tick` increments the authoritative world tick, advances matches, and applies
+  the latest accepted input for each player. Changed player state is published
+  immediately; idle players receive a lower-rate heartbeat to reduce table fanout.
 - The browser converts `player_state.server_tick` into `serverTimeMs` and uses that for reconciliation timing and remote interpolation.
+- Pickup contact is tested against the exact authoritative movement segment for
+  the current tick, with deterministic nearest-player arbitration.
 
 ## Authority compromises kept explicit
 
-- The checked-in client bindings are a generated-compatible hand-authored file because the local environment does not have the `spacetime` CLI installed. The repo scripts are set up so `pnpm generate:bindings` can overwrite them with official codegen later.
+- Checked-in client bindings are generated from the Rust module with
+  `pnpm generate:bindings` and include private schema used by the input pipeline.
 - Static arena collision data is duplicated in Rust for now. That is intentional for the slice; a later content pipeline should generate both client and server map definitions from the same source asset.
-- Hitscan is authoritative, but lag compensation is not implemented yet. The server resolves shots against the latest authoritative player states plus arena blockers. The next upgrade is per-shot rewind using buffered historical hitboxes keyed by server tick.
+- Hitscan is authoritative and applies a bounded velocity-based rewind estimate.
+  A future upgrade can replace that estimate with buffered historical hitboxes
+  keyed by server tick for exact per-shot rewind.

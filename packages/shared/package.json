@@ -6,6 +6,7 @@
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "scripts": {
-    "build": "tsc -p tsconfig.json"
+    "build": "tsc -p tsconfig.json",
+    "test": "pnpm run build && pnpm --filter @arena/client exec vitest run --root ../.. packages/shared/test/reliability.test.mjs"
   }
 }

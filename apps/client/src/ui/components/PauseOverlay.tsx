@@ -1,5 +1,6 @@
 import { CAMERA_SENSITIVITY } from '@arena/shared';
 import { useState } from 'react';
+import type { AccountStatsView } from '../../netcode/authClient';
 import type { GraphicsQuality } from '../../types/settings';
 import {
   CYBER,
@@ -9,11 +10,16 @@ import {
   CyberLine,
   CyberPanel
 } from '../cyberTheme';
+import { AccountStatsPanel } from './AccountStatsPanel';
 
 interface PauseOverlayProps {
   visible: boolean;
   roomCode: string;
-  view: 'pause' | 'settings';
+  view: 'pause' | 'settings' | 'stats';
+  authLoggedIn: boolean;
+  authUsername: string | null;
+  authStats: AccountStatsView | null;
+  authBusy: boolean;
   graphicsQuality: GraphicsQuality;
   lookSensitivity: number;
   fov: number;
@@ -29,6 +35,8 @@ interface PauseOverlayProps {
   hasServerPings: boolean;
   onCopyServerPings: () => Promise<boolean>;
   onOpenSettings: () => void;
+  onOpenStats: () => void;
+  onRefreshStats: () => void;
   onCloseSettings: () => void;
   onResume: () => void;
   onDisconnect: () => void;
@@ -111,6 +119,10 @@ export function PauseOverlay({
   visible,
   roomCode,
   view,
+  authLoggedIn,
+  authUsername,
+  authStats,
+  authBusy,
   graphicsQuality,
   lookSensitivity,
   fov,
@@ -126,6 +138,8 @@ export function PauseOverlay({
   hasServerPings,
   onCopyServerPings,
   onOpenSettings,
+  onOpenStats,
+  onRefreshStats,
   onCloseSettings,
   onResume,
   onDisconnect
@@ -135,13 +149,16 @@ export function PauseOverlay({
 
   const pauseButtons = [
     { label: 'Resume',       action: onResume,        primary: true  },
+    ...(authLoggedIn
+      ? [{ label: 'Account Stats', action: onOpenStats, primary: false }]
+      : []),
     { label: 'Settings',     action: onOpenSettings,  primary: false },
     { label: 'Leave Match',  action: onDisconnect,    danger:  true  },
   ];
 
   return (
     <div
-      onMouseDown={() => { if (view === 'settings') onCloseSettings(); }}
+      onMouseDown={() => { if (view !== 'pause') onCloseSettings(); }}
       style={{
         position: 'fixed', inset: 0, zIndex: 35,
         display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -158,6 +175,8 @@ export function PauseOverlay({
       >
         <CyberPanel style={{
           padding: '38px 38px',
+          maxHeight: '92vh',
+          overflowY: 'auto',
           boxShadow: `0 0 60px ${CYBER.a}18, 0 0 120px ${CYBER.a}08`,
         }}>
           {/* Header */}
@@ -167,7 +186,11 @@ export function PauseOverlay({
               fontFamily: CYBER.font, marginBottom: '12px',
               animation: 'cyberBlink 2s step-start infinite',
             }}>
-              {view === 'settings' ? '// SETTINGS //' : '// PAUSED //'}
+              {view === 'settings'
+                ? '// SETTINGS //'
+                : view === 'stats'
+                  ? '// ACCOUNT STATS //'
+                  : '// PAUSED //'}
             </div>
             <CyberGlitchText size={44}>ARENA</CyberGlitchText>
           </div>
@@ -296,6 +319,38 @@ export function PauseOverlay({
               <div style={{ marginTop: '12px', animation: 'cyberFadeUp .3s .32s ease both' }}>
                 <CyberButton primary full onClick={onCloseSettings}>
                   Done
+                </CyberButton>
+              </div>
+            </div>
+          )}
+
+          {view === 'stats' && (
+            <div style={{ animation: 'cyberFadeIn .25s ease both' }}>
+              <div
+                style={{
+                  color: CYBER.a,
+                  fontSize: '9px',
+                  letterSpacing: '4px',
+                  fontFamily: CYBER.font,
+                  marginBottom: '12px',
+                }}
+              >
+                OPERATOR // {authUsername ?? 'UNKNOWN'}
+              </div>
+              <AccountStatsPanel stats={authStats} />
+              <div
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: '1fr 1fr',
+                  gap: '8px',
+                  marginTop: '14px',
+                }}
+              >
+                <CyberButton onClick={onRefreshStats} disabled={authBusy}>
+                  {authBusy ? 'Refreshing...' : 'Refresh'}
+                </CyberButton>
+                <CyberButton primary onClick={onCloseSettings}>
+                  Back
                 </CyberButton>
               </div>
             </div>

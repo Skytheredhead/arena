@@ -108,4 +108,40 @@ describe('LocalPlayerController', () => {
     expect(respawned.snapped).toBe(true);
     expect(respawned.state.position).toEqual({ x: -10, y: 0, z: 12 });
   });
+
+  it('advances and acknowledges prediction across uint32 sequence wrap', () => {
+    const controller = new LocalPlayerController({
+      ...makeState(),
+      serverTick: 0xffff_ffff,
+      lastProcessedInput: 0xffff_ffff,
+    });
+    const moved = controller.step(command(0));
+    expect(moved.serverTick).toBe(0);
+
+    controller.applyAuthoritativeSnapshot({
+      ...makeState(),
+      serverTick: 0,
+      lastProcessedInput: 0,
+    });
+    expect(controller.getDebugState().pendingInputs).toBe(0);
+  });
+
+  it('uses a caller-provided hard snap bound', () => {
+    const controller = new LocalPlayerController(makeState());
+    controller.step(command(1));
+    controller.step(command(2));
+
+    const result = controller.applyAuthoritativeSnapshot(
+      {
+        ...makeState(),
+        position: { x: 9, y: 0, z: 0 },
+        serverTick: 11,
+        lastProcessedInput: 1,
+      },
+      { hardSnapDistanceMeters: 0.5 }
+    );
+    expect(result.snapped).toBe(true);
+    expect(controller.getDebugState().pendingInputs).toBe(1);
+    expect(result.state.lastProcessedInput).toBe(2);
+  });
 });

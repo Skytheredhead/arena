@@ -22,7 +22,6 @@ import SendChatMessageReducer from "../send_chat_message_reducer";
 import SetNicknameReducer from "../set_nickname_reducer";
 import SimTickReducer from "../sim_tick_reducer";
 import StartMatchReducer from "../start_match_reducer";
-import SubmitClientStateReducer from "../submit_client_state_reducer";
 import SubmitInputReducer from "../submit_input_reducer";
 
 export type ClientConnectedParams = __Infer<typeof ClientConnectedReducer>;
@@ -41,6 +40,5 @@ export type SendChatMessageParams = __Infer<typeof SendChatMessageReducer>;
 export type SetNicknameParams = __Infer<typeof SetNicknameReducer>;
 export type SimTickParams = __Infer<typeof SimTickReducer>;
 export type StartMatchParams = __Infer<typeof StartMatchReducer>;
-export type SubmitClientStateParams = __Infer<typeof SubmitClientStateReducer>;
 export type SubmitInputParams = __Infer<typeof SubmitInputReducer>;
 

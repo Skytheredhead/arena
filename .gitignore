@@ -26,6 +26,13 @@ apps/server/target/
 # Logs
 *.log
 
+# Local design and browser QA captures
+tmp/
+
+# Lossless ImageGen source textures retained only for local iteration
+apps/client/public/materials/*.png
+apps/client/public/materials/*.webp
+
 # Environment files
 .env
 .env.*

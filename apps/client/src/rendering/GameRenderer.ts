@@ -16,6 +16,10 @@ import {
 } from '@arena/shared';
 import { createArena } from '../scene/createArena';
 import type { GraphicsQuality } from '../types/settings';
+import { loadPhotorealTextures, type WeaponMaterialSet } from './photorealMaterials';
+import { createOperatorAvatar, type OperatorAvatar } from './operatorModels';
+import { createStormEnvironment, type StormEnvironment } from './stormEnvironment';
+import { createWeaponModels } from './weaponModels';
 
 interface BloodBurstView {
   id: number;
@@ -44,17 +48,7 @@ interface RenderFrameState {
   deltaSeconds: number;
 }
 
-interface RemoteAvatar {
-  root: THREE.Group;
-  head: THREE.Group;
-  torso: THREE.Mesh;
-  leftArm: THREE.Group;
-  rightArm: THREE.Group;
-  leftLeg: THREE.Group;
-  rightLeg: THREE.Group;
-  materials: THREE.MeshStandardMaterial[];
-  baseColors: number[];
-}
+type RemoteAvatar = OperatorAvatar;
 
 interface RemoteDeathFxState {
   startedAt: number;
@@ -67,14 +61,24 @@ const isFiniteVec3 = (value: { x: number; y: number; z: number }): boolean =>
   Number.isFinite(value.y) &&
   Number.isFinite(value.z);
 
-const WEAPON_CENTER_X = 0;
-const MUZZLE_CENTER_X = 0;
-const WEAPON_WALK_SWAY_X = 0;
+// The hip pose keeps the weapon in a natural right-handed low-ready position.
+// ADS compensates for the viewmodel's perspective projection so the optic lands
+// on the exact HUD centerline instead of merely looking close to centered.
+const WEAPON_HIP_X = 0.12;
+const WEAPON_ADS_X = -0.2;
+const WEAPON_WALK_SWAY_X = 0.052;
 const WEAPON_WALK_SWAY_Y = 0.014;
-const WEAPON_UNSCOPED_Y = -0.23;
-const WEAPON_SCOPED_Y = -0.16;
-const WEAPON_UNSCOPED_Z = -0.62;
-const WEAPON_SCOPED_Z = -0.48;
+const WEAPON_WALK_SWAY_YAW = 0.024;
+const WEAPON_WALK_SWAY_ROLL = 0.046;
+const WEAPON_HIP_Y = -0.32;
+const WEAPON_ADS_Y = -0.17;
+const WEAPON_HIP_Z = -0.68;
+const WEAPON_ADS_Z = -0.58;
+const WEAPON_HIP_YAW = -0.09;
+const WEAPON_ADS_YAW = 0;
+const WEAPON_HIP_ROLL = -0.12;
+const WEAPON_ADS_ROLL = 0;
+const WEAPON_POSE_RESPONSE = 15;
 
 export class GameRenderer {
   private readonly renderer: THREE.WebGLRenderer;
@@ -104,6 +108,8 @@ export class GameRenderer {
   private readonly rifleWeaponModel: THREE.Group;
   private readonly sniperWeaponModel: THREE.Group;
   private readonly shotgunWeaponModel: THREE.Group;
+  private readonly weaponMaterials: WeaponMaterialSet;
+  private readonly stormEnvironment: StormEnvironment;
   private readonly smoothedCameraPosition = new THREE.Vector3();
   private readonly targetCameraPosition = new THREE.Vector3();
   private readonly drawingBufferSize = new THREE.Vector2();
@@ -119,12 +125,20 @@ export class GameRenderer {
   private graphicsQuality: GraphicsQuality = 'high';
   private baseFov = 80;
   private cameraPositionInitialized = false;
+  private weaponPresentationX = WEAPON_HIP_X;
+  private weaponPresentationY = WEAPON_HIP_Y;
+  private weaponPresentationZ = WEAPON_HIP_Z;
+  private weaponPresentationYaw = WEAPON_HIP_YAW;
+  private weaponPresentationRoll = WEAPON_HIP_ROLL;
 
   constructor(private readonly mount: HTMLElement) {
     this.renderer = new THREE.WebGLRenderer({
       antialias: true,
       powerPreference: 'high-performance',
     });
+    this.renderer.outputColorSpace = THREE.SRGBColorSpace;
+    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    this.renderer.toneMappingExposure = 1.12;
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.2));
     this.renderer.setSize(mount.clientWidth, mount.clientHeight, false);
     this.renderer.shadowMap.enabled = false;
@@ -135,8 +149,8 @@ export class GameRenderer {
     this.mount.appendChild(this.renderer.domElement);
 
     this.scene = new THREE.Scene();
-    this.scene.background = new THREE.Color('#07111c');
-    this.scene.fog = new THREE.Fog('#07111c', 18, 42);
+    this.scene.background = new THREE.Color('#09131b');
+    this.scene.fog = new THREE.FogExp2('#0b1821', 0.024);
 
     this.camera = new THREE.PerspectiveCamera(
       this.baseFov,
@@ -146,32 +160,55 @@ export class GameRenderer {
     );
     this.camera.rotation.order = 'YXZ';
 
-    const ambient = new THREE.HemisphereLight('#7cc9ff', '#08111c', 1.5);
-    const key = new THREE.DirectionalLight('#d0f5ff', 1.5);
-    key.position.set(8, 16, -6);
-    key.castShadow = false;
+    const textures = loadPhotorealTextures();
+    const ambient = new THREE.HemisphereLight('#9ab9c8', '#17232a', 1.36);
+    const key = new THREE.DirectionalLight('#d7e7ef', 3.15);
+    key.position.set(-12, 19, -9);
+    key.castShadow = true;
+    key.shadow.mapSize.set(1024, 1024);
+    key.shadow.camera.near = 0.5;
+    key.shadow.camera.far = 90;
+    key.shadow.camera.left = -35;
+    key.shadow.camera.right = 35;
+    key.shadow.camera.top = 35;
+    key.shadow.camera.bottom = -35;
+    const coldFill = new THREE.DirectionalLight('#6fa6be', 1.18);
+    coldFill.position.set(14, 8, 12);
 
-    this.scene.add(ambient, key, createArena());
+    this.scene.add(ambient, key, coldFill, createArena(textures));
+    this.stormEnvironment = createStormEnvironment(this.renderer, this.scene);
     this.setGraphicsQuality('medium');
 
     this.muzzleFlash = new THREE.Mesh(
-      new THREE.BoxGeometry(0.15, 0.15, 0.35),
-      new THREE.MeshBasicMaterial({ color: '#ff9f67' })
+      new THREE.ConeGeometry(0.075, 0.38, 12, 1, true),
+      new THREE.MeshBasicMaterial({
+        color: '#ffb15f',
+        transparent: true,
+        opacity: 0.88,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+      })
     );
-    this.muzzleFlash.position.set(MUZZLE_CENTER_X, -0.18, -0.65);
+    this.muzzleFlash.rotation.x = -Math.PI / 2;
+    this.muzzleFlash.position.set(0, 0.02, -0.84);
     this.muzzleFlash.visible = false;
     this.weaponRig = new THREE.Group();
-    this.weaponRig.position.set(WEAPON_CENTER_X, -0.27, -0.58);
-    this.rifleWeaponModel = this.createRifleWeaponModel();
-    this.sniperWeaponModel = this.createSniperWeaponModel();
-    this.shotgunWeaponModel = this.createShotgunWeaponModel();
+    this.weaponRig.position.set(WEAPON_HIP_X, WEAPON_HIP_Y, WEAPON_HIP_Z);
+    const weaponModels = createWeaponModels(textures.gunmetal);
+    this.weaponMaterials = weaponModels.materials;
+    this.rifleWeaponModel = weaponModels.rifle;
+    this.sniperWeaponModel = weaponModels.sniper;
+    this.shotgunWeaponModel = weaponModels.shotgun;
     this.weaponRig.add(
       this.rifleWeaponModel,
       this.sniperWeaponModel,
       this.shotgunWeaponModel
     );
+    this.weaponRig.add(this.muzzleFlash);
     this.camera.add(this.weaponRig);
-    this.camera.add(this.muzzleFlash);
+    const weaponFill = new THREE.PointLight('#c9e8f0', 1.15, 4.5, 1.7);
+    weaponFill.position.set(0, 0.85, 0.45);
+    this.camera.add(weaponFill);
     this.scene.add(this.camera);
 
     if (typeof ResizeObserver !== 'undefined') {
@@ -190,6 +227,7 @@ export class GameRenderer {
     window.removeEventListener('resize', this.handleResize);
     this.resizeObserver?.disconnect();
     this.renderer.dispose();
+    this.stormEnvironment.dispose();
     if (this.mount.contains(this.renderer.domElement)) {
       this.mount.removeChild(this.renderer.domElement);
     }
@@ -211,12 +249,10 @@ export class GameRenderer {
       Math.min(window.devicePixelRatio, pixelRatioCap)
     );
     this.renderer.shadowMap.enabled = quality === 'high';
-    this.scene.fog =
-      quality === 'low'
-        ? new THREE.Fog('#07111c', 16, 34)
-        : quality === 'medium'
-          ? new THREE.Fog('#07111c', 18, 42)
-          : new THREE.Fog('#07111c', 20, 52);
+    this.scene.fog = new THREE.FogExp2(
+      '#0b1821',
+      quality === 'low' ? 0.032 : quality === 'medium' ? 0.026 : 0.021
+    );
     this.renderer.setSize(
       this.mount.clientWidth,
       this.mount.clientHeight,
@@ -758,7 +794,7 @@ export class GameRenderer {
       return avatar;
     }
 
-    avatar = this.createRemotePlayerModel();
+    avatar = createOperatorAvatar(this.weaponMaterials);
     this.scene.add(avatar.root);
     this.remotePlayers.set(identity, avatar);
     return avatar;
@@ -913,25 +949,79 @@ export class GameRenderer {
     this.camera.position.copy(this.smoothedCameraPosition);
     this.camera.rotation.y = frame.localPlayer.yaw;
     this.camera.rotation.x = frame.localPlayer.pitch;
+    this.stormEnvironment.update(
+      now / 1000,
+      this.camera.position,
+      this.graphicsQuality,
+      this.renderer.getPixelRatio()
+    );
     this.muzzleFlash.visible = frame.muzzleFlashVisible;
     this.rifleWeaponModel.visible = frame.weaponSlot === WEAPON_SLOT_RIFLE;
     this.sniperWeaponModel.visible = frame.weaponSlot === WEAPON_SLOT_SNIPER;
     this.shotgunWeaponModel.visible = frame.weaponSlot === WEAPON_SLOT_SHOTGUN;
-    const muzzleFlashX = MUZZLE_CENTER_X;
-    const muzzleFlashY = 0;
+    const poseBlend = 1 - Math.exp(-WEAPON_POSE_RESPONSE * frame.deltaSeconds);
+    const targetWeaponX = frame.scoped ? WEAPON_ADS_X : WEAPON_HIP_X;
+    const targetWeaponY = frame.scoped ? WEAPON_ADS_Y : WEAPON_HIP_Y;
+    const targetWeaponZ = frame.scoped ? WEAPON_ADS_Z : WEAPON_HIP_Z;
+    const targetWeaponYaw = frame.scoped ? WEAPON_ADS_YAW : WEAPON_HIP_YAW;
+    const targetWeaponRoll = frame.scoped ? WEAPON_ADS_ROLL : WEAPON_HIP_ROLL;
+    this.weaponPresentationX = THREE.MathUtils.lerp(
+      this.weaponPresentationX,
+      targetWeaponX,
+      poseBlend
+    );
+    this.weaponPresentationY = THREE.MathUtils.lerp(
+      this.weaponPresentationY,
+      targetWeaponY,
+      poseBlend
+    );
+    this.weaponPresentationZ = THREE.MathUtils.lerp(
+      this.weaponPresentationZ,
+      targetWeaponZ,
+      poseBlend
+    );
+    this.weaponPresentationYaw = THREE.MathUtils.lerp(
+      this.weaponPresentationYaw,
+      targetWeaponYaw,
+      poseBlend
+    );
+    this.weaponPresentationRoll = THREE.MathUtils.lerp(
+      this.weaponPresentationRoll,
+      targetWeaponRoll,
+      poseBlend
+    );
+    const adsAmount = THREE.MathUtils.clamp(
+      (WEAPON_HIP_X - this.weaponPresentationX) / (WEAPON_HIP_X - WEAPON_ADS_X),
+      0,
+      1
+    );
+    const hipAmount = 1 - adsAmount;
     this.muzzleFlash.position.set(
-      muzzleFlashX,
-      muzzleFlashY,
+      0,
+      0.02,
       frame.weaponSlot === WEAPON_SLOT_SNIPER
-        ? -1.18
+        ? -1.11
         : frame.weaponSlot === WEAPON_SLOT_SHOTGUN
-          ? -0.86
-          : -0.92
+          ? -0.91
+          : -0.84
     );
     const walkSwayX =
-      Math.sin(frame.walkPhase) * frame.walkIntensity * WEAPON_WALK_SWAY_X;
+      Math.sin(frame.walkPhase) *
+      frame.walkIntensity *
+      WEAPON_WALK_SWAY_X *
+      hipAmount;
     const walkSwayY =
       Math.cos(frame.walkPhase * 2) * frame.walkIntensity * WEAPON_WALK_SWAY_Y;
+    const walkSwayYaw =
+      Math.cos(frame.walkPhase) *
+      frame.walkIntensity *
+      WEAPON_WALK_SWAY_YAW *
+      hipAmount;
+    const walkSwayRoll =
+      Math.sin(frame.walkPhase) *
+      frame.walkIntensity *
+      WEAPON_WALK_SWAY_ROLL *
+      hipAmount;
     const reloadTilt = frame.reloadProgress * 0.22;
     const reloadDrop = frame.reloadProgress * 0.08;
     this.weaponRig.rotation.x =
@@ -939,18 +1029,16 @@ export class GameRenderer {
       frame.recoil * (frame.scoped ? 0.6 : 1.4) +
       walkSwayY +
       reloadTilt * 0.35;
-    this.weaponRig.rotation.y = 0;
-    this.weaponRig.rotation.z = reloadTilt;
-    this.weaponRig.position.x = WEAPON_CENTER_X + walkSwayX;
+    this.weaponRig.rotation.y = this.weaponPresentationYaw + walkSwayYaw;
+    this.weaponRig.rotation.z = this.weaponPresentationRoll + walkSwayRoll;
+    this.weaponRig.position.x = this.weaponPresentationX + walkSwayX;
     this.weaponRig.position.y =
-      (frame.scoped ? WEAPON_SCOPED_Y : WEAPON_UNSCOPED_Y) +
+      this.weaponPresentationY +
       frame.recoil * 0.08 +
       walkBob * 0.45 -
       reloadDrop -
       frame.crouchAmount * 0.08;
-    this.weaponRig.position.z = frame.scoped
-      ? WEAPON_SCOPED_Z
-      : WEAPON_UNSCOPED_Z;
+    this.weaponRig.position.z = this.weaponPresentationZ;
 
     const activeIds = this.activeRemoteIds;
     activeIds.clear();

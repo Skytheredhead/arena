@@ -25,4 +25,7 @@ export default __t.row({
   fireHeld: __t.bool().name("fire_held"),
   reloadPressed: __t.bool().name("reload_pressed"),
   weaponSlot: __t.u8().name("weapon_slot"),
+  fireActionSequence: __t.u32().name("fire_action_sequence"),
+  consumedFireActionSequence: __t.u32().name("consumed_fire_action_sequence"),
+  reloadActionPending: __t.bool().name("reload_action_pending"),
 });

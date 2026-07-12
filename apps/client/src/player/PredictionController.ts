@@ -2,8 +2,11 @@ import {
   type InputCommand,
   type LocalPlayerState,
   type PredictionDebugState,
+  isUint32Newer,
   simulatePlayerTick
 } from '@arena/shared';
+
+const MAX_PENDING_PREDICTION_INPUTS = 96;
 
 const distanceBetween = (left: LocalPlayerState, right: LocalPlayerState): number =>
   Math.hypot(
@@ -36,6 +39,12 @@ export class PredictionController {
 
   queueInput(input: InputCommand): LocalPlayerState {
     this.pendingInputs.push(input);
+    if (this.pendingInputs.length > MAX_PENDING_PREDICTION_INPUTS) {
+      this.pendingInputs.splice(
+        0,
+        this.pendingInputs.length - MAX_PENDING_PREDICTION_INPUTS
+      );
+    }
     this.predictedState = simulatePlayerTick(this.predictedState, input);
     return this.predictedState;
   }
@@ -49,7 +58,10 @@ export class PredictionController {
   }
 
   reconcile(authoritativeState: LocalPlayerState): LocalPlayerState {
-    if (authoritativeState.serverTick < this.lastAuthoritativeTick) {
+    if (
+      authoritativeState.serverTick !== this.lastAuthoritativeTick &&
+      !isUint32Newer(authoritativeState.serverTick, this.lastAuthoritativeTick)
+    ) {
       return this.predictedState;
     }
 
@@ -62,7 +74,7 @@ export class PredictionController {
     this.lastAckedSequence = authoritativeState.lastProcessedInput;
     this.reconciliationCount += 1;
     this.pendingInputs = this.pendingInputs.filter(
-      input => input.sequence > authoritativeState.lastProcessedInput
+      input => isUint32Newer(input.sequence, authoritativeState.lastProcessedInput)
     );
 
     let serverReconciled = structuredClone(authoritativeState);

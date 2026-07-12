@@ -8,7 +8,10 @@ const SERVER_TICK_RATE: u32 = 60;
 const REMOTE_INTERPOLATION_DELAY_MS: u32 = 60;
 const SERVER_TICK_INTERVAL_US: i64 = 1_000_000 / SERVER_TICK_RATE as i64;
 // Give input a short network-jitter grace period to avoid stop/start rubberbanding.
-const INPUT_STALE_TICKS: u32 = 18;
+const INPUT_STALE_TICKS: u32 = 30;
+// Public clocks do not need to fan out at the full simulation cadence.
+const MATCH_CLOCK_PUBLISH_INTERVAL_TICKS: u32 = 3;
+const IDLE_STATE_HEARTBEAT_TICKS: u32 = 15;
 const SIM_TICK_SCHEDULE_ID: u64 = 1;
 const MAX_OPEN_ROOMS: usize = 5;
 const MAX_TOTAL_PLAYERS: usize = 50;
@@ -137,6 +140,13 @@ struct Vec3 {
     x: f32,
     y: f32,
     z: f32,
+}
+
+#[derive(Clone, Copy)]
+struct MotionSegment {
+    identity: Identity,
+    from: Vec3,
+    to: Vec3,
 }
 
 #[derive(Clone, Copy)]
@@ -447,6 +457,14 @@ pub struct PlayerInput {
     reload_pressed: bool,
     #[default(1)]
     weapon_slot: u8,
+    // Action edges are server-latched because PlayerInput is a latest-state row. Without these,
+    // a press followed by a release between two simulation ticks is silently lost.
+    #[default(0)]
+    fire_action_sequence: u32,
+    #[default(0)]
+    consumed_fire_action_sequence: u32,
+    #[default(false)]
+    reload_action_pending: bool,
 }
 
 #[table(accessor = player_rate_limit)]
@@ -884,7 +902,7 @@ pub fn login_with_session(ctx: &ReducerContext, session_token: String) -> Result
     let Some(session) = ctx.db.account_session().token().find(token.to_string()) else {
         return Err("Session not found".to_string());
     };
-    if session.expires_tick <= tick {
+    if tick_has_reached(tick, session.expires_tick) {
         ctx.db.account_session().token().delete(token.to_string());
         return Err("Session expired".to_string());
     }
@@ -897,7 +915,7 @@ pub fn login_with_session(ctx: &ReducerContext, session_token: String) -> Result
         .ok_or_else(|| "Account missing".to_string())?;
     ctx.db.account_session().token().update(AccountSession {
         identity: ctx.sender(),
-        expires_tick: tick.saturating_add(AUTH_SESSION_TTL_TICKS),
+        expires_tick: tick.wrapping_add(AUTH_SESSION_TTL_TICKS),
         ..session
     });
     ensure_account_stats(ctx, account.id, account.username.as_str(), tick);
@@ -1177,10 +1195,11 @@ pub fn submit_input(
         return Ok(());
     }
 
+    latch_input_actions(&mut input, fire_held, reload_pressed);
     input.sequence = sequence;
     input.move_x = move_x.clamp(-1.0, 1.0);
     input.move_z = move_z.clamp(-1.0, 1.0);
-    input.yaw = yaw;
+    input.yaw = normalize_angle(yaw);
     input.pitch = pitch.clamp(-MAX_PITCH, MAX_PITCH);
     input.jumping = jumping;
     input.sprinting = sprinting;
@@ -1209,10 +1228,11 @@ pub fn fire_weapon(
     }
     let tick = current_tick(ctx);
     let mut input = require_input_state(ctx, ctx.sender())?;
-    input.sequence = input.sequence.saturating_add(1);
-    input.yaw = yaw;
+    // This legacy one-shot reducer intentionally does not touch the movement sequence. Doing so
+    // used to make the following submit_input packet look duplicated and caused a visible hitch.
+    input.fire_action_sequence = input.fire_action_sequence.wrapping_add(1);
+    input.yaw = normalize_angle(yaw);
     input.pitch = pitch.clamp(-MAX_PITCH, MAX_PITCH);
-    input.fire_held = true;
     input.weapon_slot = normalize_weapon_slot(weapon_slot);
     input.last_received_tick = tick;
     ctx.db.player_input().identity().update(input);
@@ -1222,8 +1242,9 @@ pub fn fire_weapon(
 fn process_weapon_action(
     ctx: &ReducerContext,
     state: &PlayerState,
-    input: &PlayerInput,
+    mut input: PlayerInput,
     tick: u32,
+    input_is_stale: bool,
 ) -> Result<(), String> {
     if !state.alive {
         return Ok(());
@@ -1247,29 +1268,63 @@ fn process_weapon_action(
         None => return Ok(()),
     };
     if !match_state.active {
+        discard_pending_actions(ctx, &mut input);
         return Ok(());
     }
 
-    weapon.selected_weapon_slot = normalize_weapon_slot(input.weapon_slot);
-    complete_reload_if_ready(&mut weapon, tick);
+    let selected_weapon_slot = normalize_weapon_slot(input.weapon_slot);
+    let mut weapon_dirty = false;
+    let mut input_dirty = false;
+    if weapon.selected_weapon_slot != selected_weapon_slot {
+        weapon.selected_weapon_slot = selected_weapon_slot;
+        weapon_dirty = true;
+    }
+    weapon_dirty |= complete_reload_if_ready(&mut weapon, tick);
 
-    if input.reload_pressed {
-        start_reload_if_possible(&mut weapon, tick);
+    if input.reload_action_pending {
+        input.reload_action_pending = false;
+        input_dirty = true;
+        weapon_dirty |= start_reload_if_possible(&mut weapon, tick);
     }
 
-    if !input.fire_held || weapon.reloading {
-        ctx.db.weapon_state().identity().update(weapon);
+    let queued_fire = has_unconsumed_action(
+        input.fire_action_sequence,
+        input.consumed_fire_action_sequence,
+    );
+    let wants_fire = queued_fire || (!input_is_stale && input.fire_held);
+    if !wants_fire {
+        persist_weapon_and_input(ctx, weapon, weapon_dirty, input, input_dirty);
+        return Ok(());
+    }
+
+    // A fire request cancels a tactical reload while rounds remain. If the magazine is empty, the
+    // buffered shot stays pending and fires as soon as the reload completes.
+    if weapon.reloading && weapon.ammo_in_mag > 0 {
+        weapon.reloading = false;
+        weapon.reload_started_tick = 0;
+        weapon.reload_complete_tick = 0;
+        weapon_dirty = true;
+    }
+    if weapon.reloading {
+        persist_weapon_and_input(ctx, weapon, weapon_dirty, input, input_dirty);
         return Ok(());
     }
 
     let weapon_kind = weapon_kind_from_slot(weapon.selected_weapon_slot);
     let spec = weapon_spec(weapon_kind);
     if !can_fire_weapon_at_tick(weapon.next_ready_tick, tick) {
-        ctx.db.weapon_state().identity().update(weapon);
+        persist_weapon_and_input(ctx, weapon, weapon_dirty, input, input_dirty);
         return Ok(());
     }
     if weapon.ammo_in_mag == 0 {
-        ctx.db.weapon_state().identity().update(weapon);
+        weapon_dirty |= start_reload_if_possible(&mut weapon, tick);
+        // With no reserve there is no future shot to buffer; consume the edge so it cannot fire
+        // unexpectedly after a later pickup.
+        if queued_fire && weapon.reserve_ammo == 0 {
+            input.consumed_fire_action_sequence = input.fire_action_sequence;
+            input_dirty = true;
+        }
+        persist_weapon_and_input(ctx, weapon, weapon_dirty, input, input_dirty);
         return Ok(());
     }
 
@@ -1281,8 +1336,19 @@ fn process_weapon_action(
     weapon.reload_started_tick = 0;
     weapon.reload_complete_tick = 0;
     weapon.ammo_in_mag = weapon.ammo_in_mag.saturating_sub(1);
-    weapon.next_ready_tick = tick + spec.fire_interval_ticks;
-    ctx.db.weapon_state().identity().update(weapon);
+    weapon.next_ready_tick = tick.wrapping_add(spec.fire_interval_ticks);
+    weapon_dirty = true;
+    if queued_fire {
+        input.consumed_fire_action_sequence = input.consumed_fire_action_sequence.wrapping_add(1);
+        input_dirty = true;
+    }
+    persist_weapon_and_input(
+        ctx,
+        weapon,
+        weapon_dirty,
+        copy_player_input(&input),
+        input_dirty,
+    );
 
     let spread = 0.0;
     let eye_height = if state.crouching {
@@ -1295,8 +1361,9 @@ fn process_weapon_action(
         y: state.y + eye_height,
         z: state.z,
     };
-    let rewind_ticks = estimate_hit_rewind_ticks(input, tick);
+    let rewind_ticks = estimate_hit_rewind_ticks(&input, tick);
     let mut impact_marks: Vec<(f32, Vec3, Vec3)> = Vec::with_capacity(spec.pellet_count as usize);
+    let mut shot_hit = false;
 
     for pellet_index in 0..spec.pellet_count {
         let base_seed = tick as f32 * 0.197
@@ -1360,6 +1427,7 @@ fn process_weapon_action(
                 .pellet_damage
                 .saturating_mul(headshot_bonus)
                 .min(MAX_HEALTH.saturating_mul(2));
+            shot_hit = true;
             apply_damage(
                 ctx,
                 room_code.clone(),
@@ -1377,6 +1445,12 @@ fn process_weapon_action(
                 block.normal,
             ));
         }
+    }
+
+    if shot_hit {
+        bump_stat_for_identity(ctx, state.identity, |stats| {
+            stats.shots_hit = stats.shots_hit.saturating_add(1);
+        });
     }
 
     impact_marks.sort_by(|left, right| left.0.total_cmp(&right.0));
@@ -1429,18 +1503,15 @@ pub fn sim_tick(ctx: &ReducerContext, _schedule: SimTickSchedule) -> Result<(), 
             None => continue,
         };
 
-        let mut updated = MatchState {
-            tick,
-            ..match_state
-        };
-        if updated.active {
-            updated.end_tick = tick;
-            updated.remaining_ms = 0;
-        } else {
-            updated.end_tick = tick;
-            updated.remaining_ms = 0;
+        if tick % MATCH_CLOCK_PUBLISH_INTERVAL_TICKS == 0 {
+            let updated = MatchState {
+                tick,
+                end_tick: tick,
+                remaining_ms: 0,
+                ..match_state
+            };
+            ctx.db.match_state().room_code().update(updated);
         }
-        ctx.db.match_state().room_code().update(updated);
 
         if room.player_count == 0 && room.active {
             ctx.db.room().code().update(Room {
@@ -1450,7 +1521,9 @@ pub fn sim_tick(ctx: &ReducerContext, _schedule: SimTickSchedule) -> Result<(), 
         }
     }
 
-    let states: Vec<PlayerState> = ctx.db.player_state().iter().collect();
+    let mut states: Vec<PlayerState> = ctx.db.player_state().iter().collect();
+    states.sort_by_key(|state| state.identity);
+    let mut motion_segments = Vec::with_capacity(states.len());
     for state in states {
         if state.room_code.is_none() {
             continue;
@@ -1473,7 +1546,7 @@ pub fn sim_tick(ctx: &ReducerContext, _schedule: SimTickSchedule) -> Result<(), 
         };
         let input_sequence = input.sequence;
         let input_pipeline_ms = input_pipeline_ms_for_tick(tick, input.last_received_tick);
-        let input_is_stale = tick.saturating_sub(input.last_received_tick) > INPUT_STALE_TICKS;
+        let input_is_stale = tick_elapsed(tick, input.last_received_tick) > INPUT_STALE_TICKS;
         let effective_input = if input_is_stale {
             make_stale_input(input)
         } else {
@@ -1481,16 +1554,38 @@ pub fn sim_tick(ctx: &ReducerContext, _schedule: SimTickSchedule) -> Result<(), 
         };
 
         let mut updated = simulate_player_tick(&state, &effective_input);
-        updated.server_tick = tick;
-        updated.input_pipeline_ms = input_pipeline_ms;
-        if !input_is_stale && input_sequence > updated.last_processed_input {
+        if !input_is_stale
+            && should_accept_input_sequence(input_sequence, updated.last_processed_input)
+        {
             updated.last_processed_input = input_sequence;
         }
         apply_passive_regen(&mut updated, tick);
-        ctx.db.player_state().identity().update(updated);
+        motion_segments.push(MotionSegment {
+            identity: state.identity,
+            from: Vec3 {
+                x: state.x,
+                y: state.y,
+                z: state.z,
+            },
+            to: Vec3 {
+                x: updated.x,
+                y: updated.y,
+                z: updated.z,
+            },
+        });
+
+        let needs_publish = player_state_simulation_changed(&state, &updated)
+            || state.last_processed_input != updated.last_processed_input
+            || tick % IDLE_STATE_HEARTBEAT_TICKS == 0;
+        if needs_publish {
+            updated.server_tick = tick;
+            updated.input_pipeline_ms = input_pipeline_ms;
+            ctx.db.player_state().identity().update(updated);
+        }
     }
 
-    let weapon_states: Vec<PlayerState> = ctx.db.player_state().iter().collect();
+    let mut weapon_states: Vec<PlayerState> = ctx.db.player_state().iter().collect();
+    weapon_states.sort_by_key(|state| state.identity);
     for state in weapon_states {
         if !state.alive {
             continue;
@@ -1499,16 +1594,12 @@ pub fn sim_tick(ctx: &ReducerContext, _schedule: SimTickSchedule) -> Result<(), 
             Some(input) => input,
             None => continue,
         };
-        let effective_input = if tick.saturating_sub(input.last_received_tick) > INPUT_STALE_TICKS {
-            make_stale_input(input)
-        } else {
-            input
-        };
-        process_weapon_action(ctx, &state, &effective_input, tick)?;
+        let input_is_stale = tick_elapsed(tick, input.last_received_tick) > INPUT_STALE_TICKS;
+        process_weapon_action(ctx, &state, input, tick, input_is_stale)?;
     }
 
-    process_ammo_packs(ctx, tick);
-    process_health_packs(ctx, tick);
+    process_ammo_packs(ctx, tick, &motion_segments);
+    process_health_packs(ctx, tick, &motion_segments);
     prune_chat_events(ctx, tick);
     accrue_time_stats(ctx, tick);
 
@@ -1525,7 +1616,7 @@ fn current_tick(ctx: &ReducerContext) -> u32 {
 }
 
 fn input_pipeline_ms_for_tick(tick: u32, last_received_tick: u32) -> u32 {
-    let age_ticks = tick.saturating_sub(last_received_tick) as u64;
+    let age_ticks = tick_elapsed(tick, last_received_tick) as u64;
     ((age_ticks * 1000) / SERVER_TICK_RATE as u64) as u32
 }
 
@@ -1539,7 +1630,7 @@ fn increment_tick(ctx: &ReducerContext) -> u32 {
             singleton: 0,
             current_tick: 0,
         });
-    let next = row.current_tick.saturating_add(1);
+    let next = row.current_tick.wrapping_add(1);
     ctx.db.world_state().singleton().update(WorldState {
         singleton: 0,
         current_tick: next,
@@ -1706,6 +1797,10 @@ fn compute_kdr(kills: u32, deaths: u32) -> f32 {
     }
 }
 
+fn applied_damage(current_health: u16, requested_damage: u16) -> u16 {
+    requested_damage.min(current_health)
+}
+
 fn ensure_account_stats(ctx: &ReducerContext, account_id: u32, username: &str, tick: u32) {
     if let Some(mut stats) = ctx.db.account_stats().account_id().find(account_id) {
         if stats.username != username {
@@ -1755,7 +1850,7 @@ fn issue_session_token(
         hash64(entropy.as_bytes()),
         hash64(format!("{entropy}:session").as_bytes())
     );
-    let expires_tick = tick.saturating_add(AUTH_SESSION_TTL_TICKS);
+    let expires_tick = tick.wrapping_add(AUTH_SESSION_TTL_TICKS);
 
     ctx.db.account_session().insert(AccountSession {
         token: token.clone(),
@@ -1849,7 +1944,7 @@ fn prune_expired_sessions(ctx: &ReducerContext, tick: u32) {
         .db
         .account_session()
         .iter()
-        .filter(|session| session.expires_tick <= tick)
+        .filter(|session| tick_has_reached(tick, session.expires_tick))
         .map(|session| session.token)
         .collect();
     for token in expired {
@@ -2056,7 +2151,7 @@ fn prune_stale_disconnected_players(ctx: &ReducerContext, tick: u32) {
         let Some(disconnect_tick) = disconnect_tick else {
             continue;
         };
-        if tick.saturating_sub(disconnect_tick) >= DISCONNECT_GRACE_TICKS {
+        if tick_elapsed(tick, disconnect_tick) >= DISCONNECT_GRACE_TICKS {
             leave_room_internal(ctx, player.identity, LeaveReason::Disconnected);
             clear_disconnect_marker(ctx, player.identity);
         }
@@ -2095,7 +2190,7 @@ fn enforce_rate_limit(
         RateLimitKind::Chat => limiter.last_chat_tick,
     };
 
-    if last_tick != 0 && tick.saturating_sub(last_tick) < min_ticks {
+    if last_tick != 0 && tick_elapsed(tick, last_tick) < min_ticks {
         return Err(message.to_string());
     }
 
@@ -2233,7 +2328,8 @@ fn room_membership_is_consistent(
 }
 
 fn should_accept_input_sequence(sequence: u32, previous_sequence: u32) -> bool {
-    sequence > previous_sequence
+    let distance = sequence.wrapping_sub(previous_sequence);
+    distance != 0 && distance < (1u32 << 31)
 }
 
 fn inputs_are_finite<const N: usize>(values: [f32; N]) -> bool {
@@ -2241,7 +2337,62 @@ fn inputs_are_finite<const N: usize>(values: [f32; N]) -> bool {
 }
 
 fn can_fire_weapon_at_tick(next_ready_tick: u32, current_tick: u32) -> bool {
-    current_tick >= next_ready_tick
+    tick_has_reached(current_tick, next_ready_tick)
+}
+
+fn tick_has_reached(current_tick: u32, target_tick: u32) -> bool {
+    current_tick.wrapping_sub(target_tick) < (1u32 << 31)
+}
+
+fn tick_elapsed(current_tick: u32, previous_tick: u32) -> u32 {
+    let elapsed = current_tick.wrapping_sub(previous_tick);
+    if elapsed < (1u32 << 31) {
+        elapsed
+    } else {
+        0
+    }
+}
+
+fn has_unconsumed_action(produced_sequence: u32, consumed_sequence: u32) -> bool {
+    should_accept_input_sequence(produced_sequence, consumed_sequence)
+}
+
+fn latch_input_actions(input: &mut PlayerInput, fire_held: bool, reload_pressed: bool) {
+    if fire_held && !input.fire_held {
+        input.fire_action_sequence = input.fire_action_sequence.wrapping_add(1);
+    }
+    if reload_pressed {
+        input.reload_action_pending = true;
+    }
+}
+
+fn persist_weapon_and_input(
+    ctx: &ReducerContext,
+    weapon: WeaponState,
+    weapon_dirty: bool,
+    input: PlayerInput,
+    input_dirty: bool,
+) {
+    if weapon_dirty {
+        ctx.db.weapon_state().identity().update(weapon);
+    }
+    if input_dirty {
+        ctx.db.player_input().identity().update(input);
+    }
+}
+
+fn discard_pending_actions(ctx: &ReducerContext, input: &mut PlayerInput) {
+    let dirty = input.reload_action_pending
+        || input.consumed_fire_action_sequence != input.fire_action_sequence;
+    if !dirty {
+        return;
+    }
+    input.reload_action_pending = false;
+    input.consumed_fire_action_sequence = input.fire_action_sequence;
+    ctx.db
+        .player_input()
+        .identity()
+        .update(copy_player_input(input));
 }
 
 #[derive(Clone, Copy)]
@@ -2286,9 +2437,9 @@ fn weapon_slot_seed(slot: u8) -> f32 {
     normalize_weapon_slot(slot) as f32 * 4.71
 }
 
-fn complete_reload_if_ready(weapon: &mut WeaponState, tick: u32) {
-    if !weapon.reloading || tick < weapon.reload_complete_tick {
-        return;
+fn complete_reload_if_ready(weapon: &mut WeaponState, tick: u32) -> bool {
+    if !weapon.reloading || !tick_has_reached(tick, weapon.reload_complete_tick) {
+        return false;
     }
     let moved = reload_transfer_amount(weapon.ammo_in_mag, weapon.reserve_ammo);
     weapon.ammo_in_mag = weapon
@@ -2299,6 +2450,7 @@ fn complete_reload_if_ready(weapon: &mut WeaponState, tick: u32) {
     weapon.reloading = false;
     weapon.reload_started_tick = 0;
     weapon.reload_complete_tick = 0;
+    true
 }
 
 fn reload_transfer_amount(ammo_in_mag: u16, reserve_ammo: u16) -> u16 {
@@ -2322,13 +2474,14 @@ fn ammo_after_pickup(ammo_in_mag: u16, reserve_ammo: u16) -> (u16, u16) {
     )
 }
 
-fn start_reload_if_possible(weapon: &mut WeaponState, tick: u32) {
+fn start_reload_if_possible(weapon: &mut WeaponState, tick: u32) -> bool {
     if weapon.reloading || weapon.ammo_in_mag >= RIFLE_CLIP_SIZE || weapon.reserve_ammo == 0 {
-        return;
+        return false;
     }
     weapon.reloading = true;
     weapon.reload_started_tick = tick;
-    weapon.reload_complete_tick = tick.saturating_add(RELOAD_DURATION_TICKS);
+    weapon.reload_complete_tick = tick.wrapping_add(RELOAD_DURATION_TICKS);
+    true
 }
 
 fn weapon_spec(kind: WeaponKind) -> WeaponSpec {
@@ -2487,7 +2640,7 @@ fn prune_empty_rooms(ctx: &ReducerContext) {
         .filter(|room| {
             room.player_count == 0
                 && !room.active
-                && tick.saturating_sub(room.created_tick) >= ROOM_PRUNE_GRACE_TICKS
+                && tick_elapsed(tick, room.created_tick) >= ROOM_PRUNE_GRACE_TICKS
         })
         .collect();
     for room in empty_rooms {
@@ -2519,11 +2672,12 @@ fn apply_passive_regen(state: &mut PlayerState, tick: u32) {
         return;
     }
 
-    if tick
-        < state
+    if !tick_has_reached(
+        tick,
+        state
             .last_damage_tick
-            .saturating_add(HEALTH_REGEN_DELAY_TICKS)
-    {
+            .wrapping_add(HEALTH_REGEN_DELAY_TICKS),
+    ) {
         return;
     }
 
@@ -2756,6 +2910,28 @@ fn make_stale_input(input: PlayerInput) -> PlayerInput {
     }
 }
 
+fn copy_player_input(input: &PlayerInput) -> PlayerInput {
+    PlayerInput {
+        identity: input.identity,
+        sequence: input.sequence,
+        move_x: input.move_x,
+        move_z: input.move_z,
+        yaw: input.yaw,
+        pitch: input.pitch,
+        jumping: input.jumping,
+        sprinting: input.sprinting,
+        last_received_tick: input.last_received_tick,
+        crouching: input.crouching,
+        scoped: input.scoped,
+        fire_held: input.fire_held,
+        reload_pressed: input.reload_pressed,
+        weapon_slot: input.weapon_slot,
+        fire_action_sequence: input.fire_action_sequence,
+        consumed_fire_action_sequence: input.consumed_fire_action_sequence,
+        reload_action_pending: input.reload_action_pending,
+    }
+}
+
 fn copy_player_state(state: &PlayerState) -> PlayerState {
     PlayerState {
         identity: state.identity,
@@ -2782,6 +2958,26 @@ fn copy_player_state(state: &PlayerState) -> PlayerState {
     }
 }
 
+fn player_state_simulation_changed(before: &PlayerState, after: &PlayerState) -> bool {
+    before.room_code != after.room_code
+        || before.x != after.x
+        || before.y != after.y
+        || before.z != after.z
+        || before.vel_x != after.vel_x
+        || before.vel_y != after.vel_y
+        || before.vel_z != after.vel_z
+        || before.yaw != after.yaw
+        || before.pitch != after.pitch
+        || before.health != after.health
+        || before.alive != after.alive
+        || before.on_ground != after.on_ground
+        || before.last_damage_tick != after.last_damage_tick
+        || before.regen_progress != after.regen_progress
+        || before.respawn_tick != after.respawn_tick
+        || before.sprinting != after.sprinting
+        || before.crouching != after.crouching
+}
+
 #[derive(Clone, Copy)]
 struct BlockHit {
     distance: f32,
@@ -2794,14 +2990,8 @@ struct PlayerHit {
     headshot: bool,
 }
 
-fn normalize_angle(mut angle: f32) -> f32 {
-    while angle <= -std::f32::consts::PI {
-        angle += TWO_PI;
-    }
-    while angle > std::f32::consts::PI {
-        angle -= TWO_PI;
-    }
-    angle
+fn normalize_angle(angle: f32) -> f32 {
+    (angle + std::f32::consts::PI).rem_euclid(TWO_PI) - std::f32::consts::PI
 }
 
 fn normalized_block(block: Block) -> Block {
@@ -3319,8 +3509,9 @@ fn apply_damage(
     let victim_nickname = victim.nickname.clone();
     let tick = current_tick(ctx);
 
-    let lethal = victim_state.health <= damage;
-    victim_state.health = victim_state.health.saturating_sub(damage);
+    let actual_damage = applied_damage(victim_state.health, damage);
+    let lethal = victim_state.health > 0 && actual_damage >= victim_state.health;
+    victim_state.health = victim_state.health.saturating_sub(actual_damage);
     victim_state.last_damage_tick = tick;
     victim_state.regen_progress = 0.0;
 
@@ -3329,16 +3520,15 @@ fn apply_damage(
         room_code: room_code.clone(),
         attacker_identity,
         victim_identity,
-        amount: damage,
+        amount: actual_damage,
         tick,
         caused_death: lethal,
     });
     bump_stat_for_identity(ctx, attacker_identity, |stats| {
-        stats.shots_hit = stats.shots_hit.saturating_add(1);
-        stats.damage_dealt = stats.damage_dealt.saturating_add(damage as u32);
+        stats.damage_dealt = stats.damage_dealt.saturating_add(actual_damage as u32);
     });
     bump_stat_for_identity(ctx, victim_identity, |stats| {
-        stats.damage_taken = stats.damage_taken.saturating_add(damage as u32);
+        stats.damage_taken = stats.damage_taken.saturating_add(actual_damage as u32);
     });
 
     if lethal {
@@ -3546,7 +3736,7 @@ fn estimate_hit_rewind_ticks(shooter_input: &PlayerInput, tick: u32) -> u32 {
         .saturating_add(tick_interval_us.saturating_sub(1))
         / tick_interval_us;
     let interpolation_ticks = interpolation_ticks.max(1);
-    let network_ticks = tick.saturating_sub(shooter_input.last_received_tick);
+    let network_ticks = tick_elapsed(tick, shooter_input.last_received_tick);
     interpolation_ticks
         .saturating_add(network_ticks)
         .saturating_add(HIT_REWIND_FUDGE_TICKS)
@@ -3585,18 +3775,21 @@ fn player_touches_pickup(
     pickup_radius: f32,
     horizontal_grace: f32,
     vertical_grace: f32,
+    motion_segments: &[MotionSegment],
 ) -> bool {
-    swept_player_touches_pickup(
-        Vec3 {
-            x: state.x,
-            y: state.y,
-            z: state.z,
-        },
-        Vec3 {
-            x: state.vel_x,
-            y: state.vel_y,
-            z: state.vel_z,
-        },
+    let current = Vec3 {
+        x: state.x,
+        y: state.y,
+        z: state.z,
+    };
+    let (previous, current) = motion_segments
+        .iter()
+        .find(|segment| segment.identity == state.identity)
+        .map(|segment| (segment.from, segment.to))
+        .unwrap_or((current, current));
+    swept_player_segment_touches_pickup(
+        previous,
+        current,
         pickup,
         pickup_radius,
         horizontal_grace,
@@ -3604,6 +3797,7 @@ fn player_touches_pickup(
     )
 }
 
+#[cfg(test)]
 fn swept_player_touches_pickup(
     current: Vec3,
     velocity: Vec3,
@@ -3613,13 +3807,32 @@ fn swept_player_touches_pickup(
     vertical_grace: f32,
 ) -> bool {
     let max_delta = 1.8;
-    let previous_x =
-        current.x - (velocity.x / SERVER_TICK_RATE as f32).clamp(-max_delta, max_delta);
-    let previous_z =
-        current.z - (velocity.z / SERVER_TICK_RATE as f32).clamp(-max_delta, max_delta);
+    let previous = Vec3 {
+        x: current.x - (velocity.x / SERVER_TICK_RATE as f32).clamp(-max_delta, max_delta),
+        y: current.y - (velocity.y / SERVER_TICK_RATE as f32).clamp(-max_delta, max_delta),
+        z: current.z - (velocity.z / SERVER_TICK_RATE as f32).clamp(-max_delta, max_delta),
+    };
+    swept_player_segment_touches_pickup(
+        previous,
+        current,
+        pickup,
+        pickup_radius,
+        horizontal_grace,
+        vertical_grace,
+    )
+}
+
+fn swept_player_segment_touches_pickup(
+    previous: Vec3,
+    current: Vec3,
+    pickup: Vec3,
+    pickup_radius: f32,
+    horizontal_grace: f32,
+    vertical_grace: f32,
+) -> bool {
     let max_horizontal = PLAYER_RADIUS + pickup_radius + horizontal_grace + PICKUP_SWEEP_EXTRA;
     let swept_distance_sq = segment_point_distance_sq_2d(
-        previous_x, previous_z, current.x, current.z, pickup.x, pickup.z,
+        previous.x, previous.z, current.x, current.z, pickup.x, pickup.z,
     );
     let direct_distance_sq = point_distance_sq_2d(current.x, current.z, pickup.x, pickup.z);
     let distance_sq = swept_distance_sq.min(direct_distance_sq);
@@ -3627,24 +3840,24 @@ fn swept_player_touches_pickup(
         return false;
     }
 
-    let previous_y =
-        current.y - (velocity.y / SERVER_TICK_RATE as f32).clamp(-max_delta, max_delta);
-    let feet_min = previous_y.min(current.y) - vertical_grace;
-    let feet_max = previous_y.max(current.y) + PLAYER_HEIGHT + vertical_grace;
+    let feet_min = previous.y.min(current.y) - vertical_grace;
+    let feet_max = previous.y.max(current.y) + PLAYER_HEIGHT + vertical_grace;
     let pickup_min_y = pickup.y - pickup_radius - vertical_grace;
     let pickup_max_y = pickup.y + pickup_radius + vertical_grace;
 
     pickup_max_y >= feet_min && pickup_min_y <= feet_max
 }
 
-fn process_ammo_packs(ctx: &ReducerContext, tick: u32) {
-    let packs: Vec<AmmoPack> = ctx.db.ammo_pack().iter().collect();
-    let states: Vec<PlayerState> = ctx.db.player_state().iter().collect();
+fn process_ammo_packs(ctx: &ReducerContext, tick: u32, motion_segments: &[MotionSegment]) {
+    let mut packs: Vec<AmmoPack> = ctx.db.ammo_pack().iter().collect();
+    packs.sort_by_key(|pack| pack.id);
+    let mut states: Vec<PlayerState> = ctx.db.player_state().iter().collect();
+    states.sort_by_key(|state| state.identity);
     let mut picked_identities: Vec<Identity> = Vec::new();
 
     for mut pack in packs {
         if !pack.active {
-            if tick >= pack.respawn_tick {
+            if tick_has_reached(tick, pack.respawn_tick) {
                 let occupied_locations: Vec<u16> = ctx
                     .db
                     .ammo_pack()
@@ -3722,6 +3935,7 @@ fn process_ammo_packs(ctx: &ReducerContext, tick: u32) {
                 AMMO_PACK_RADIUS,
                 AMMO_PICKUP_HORIZONTAL_GRACE,
                 AMMO_PICKUP_VERTICAL_GRACE,
+                motion_segments,
             ) {
                 continue;
             }
@@ -3730,7 +3944,11 @@ fn process_ammo_packs(ctx: &ReducerContext, tick: u32) {
             candidates.push((state.identity, distance_sq));
         }
 
-        candidates.sort_by(|left, right| left.1.total_cmp(&right.1));
+        candidates.sort_by(|left, right| {
+            left.1
+                .total_cmp(&right.1)
+                .then_with(|| left.0.cmp(&right.0))
+        });
         let mut collected = false;
         let mut collected_by: Option<Identity> = None;
         for (identity, _) in candidates {
@@ -3787,19 +4005,21 @@ fn process_ammo_packs(ctx: &ReducerContext, tick: u32) {
                 });
             }
             pack.active = false;
-            pack.respawn_tick = tick + AMMO_PACK_RESPAWN_TICKS;
+            pack.respawn_tick = tick.wrapping_add(AMMO_PACK_RESPAWN_TICKS);
             ctx.db.ammo_pack().id().update(pack);
         }
     }
 }
 
-fn process_health_packs(ctx: &ReducerContext, tick: u32) {
-    let packs: Vec<HealthPack> = ctx.db.health_pack().iter().collect();
-    let states: Vec<PlayerState> = ctx.db.player_state().iter().collect();
+fn process_health_packs(ctx: &ReducerContext, tick: u32, motion_segments: &[MotionSegment]) {
+    let mut packs: Vec<HealthPack> = ctx.db.health_pack().iter().collect();
+    packs.sort_by_key(|pack| pack.id);
+    let mut states: Vec<PlayerState> = ctx.db.player_state().iter().collect();
+    states.sort_by_key(|state| state.identity);
 
     for mut pack in packs {
         if !pack.active {
-            if tick >= pack.respawn_tick {
+            if tick_has_reached(tick, pack.respawn_tick) {
                 let occupied_locations: Vec<u16> = ctx
                     .db
                     .health_pack()
@@ -3828,13 +4048,12 @@ fn process_health_packs(ctx: &ReducerContext, tick: u32) {
             continue;
         }
 
-        let mut collected = false;
-        let mut collected_by: Option<Identity> = None;
         let pickup_position = Vec3 {
             x: pack.x,
             y: pack.y,
             z: pack.z,
         };
+        let mut candidates: Vec<(Identity, f32)> = Vec::new();
         for state in &states {
             if !state.alive {
                 continue;
@@ -3851,12 +4070,24 @@ fn process_health_packs(ctx: &ReducerContext, tick: u32) {
                 HEALTH_PACK_RADIUS,
                 PICKUP_HORIZONTAL_GRACE,
                 PICKUP_VERTICAL_GRACE,
+                motion_segments,
             ) {
                 continue;
             }
 
-            let Some(mut player_state) = ctx.db.player_state().identity().find(state.identity)
-            else {
+            let distance_sq =
+                point_distance_sq_2d(state.x, state.z, pickup_position.x, pickup_position.z);
+            candidates.push((state.identity, distance_sq));
+        }
+
+        candidates.sort_by(|left, right| {
+            left.1
+                .total_cmp(&right.1)
+                .then_with(|| left.0.cmp(&right.0))
+        });
+        let mut collected_by: Option<Identity> = None;
+        for (identity, _) in candidates {
+            let Some(mut player_state) = ctx.db.player_state().identity().find(identity) else {
                 continue;
             };
             if player_state.room_code.as_deref() != Some(pack.room_code.as_str()) {
@@ -3872,31 +4103,27 @@ fn process_health_packs(ctx: &ReducerContext, tick: u32) {
             player_state.regen_progress = 0.0;
             player_state.server_tick = tick;
             ctx.db.player_state().identity().update(player_state);
-            collected = true;
-            collected_by = Some(state.identity);
+            collected_by = Some(identity);
             break;
         }
 
-        if collected {
-            if let Some(identity) = collected_by {
-                bump_stat_for_identity(ctx, identity, |stats| {
-                    stats.health_collected = stats.health_collected.saturating_add(1);
-                });
-            }
+        if let Some(identity) = collected_by {
+            bump_stat_for_identity(ctx, identity, |stats| {
+                stats.health_collected = stats.health_collected.saturating_add(1);
+            });
             pack.active = false;
-            pack.respawn_tick = tick + HEALTH_PACK_RESPAWN_TICKS;
+            pack.respawn_tick = tick.wrapping_add(HEALTH_PACK_RESPAWN_TICKS);
             ctx.db.health_pack().id().update(pack);
         }
     }
 }
 
 fn prune_chat_events(ctx: &ReducerContext, tick: u32) {
-    let expiry_tick = tick.saturating_sub(CHAT_EVENT_TTL_TICKS);
     let expired: Vec<ChatEvent> = ctx
         .db
         .chat_event()
         .iter()
-        .filter(|event| event.tick <= expiry_tick)
+        .filter(|event| tick_elapsed(tick, event.tick) >= CHAT_EVENT_TTL_TICKS)
         .collect();
     for event in expired {
         ctx.db.chat_event().id().delete(event.id);
@@ -3995,6 +4222,9 @@ fn reset_player_input(ctx: &ReducerContext, identity: Identity, tick: u32) {
         fire_held: false,
         reload_pressed: false,
         weapon_slot: WEAPON_SLOT_RIFLE,
+        fire_action_sequence: 0,
+        consumed_fire_action_sequence: 0,
+        reload_action_pending: false,
         last_received_tick: tick,
     };
 
@@ -4008,12 +4238,14 @@ fn reset_player_input(ctx: &ReducerContext, identity: Identity, tick: u32) {
 #[cfg(test)]
 mod tests {
     use super::{
-        ammo_after_pickup, can_fire_weapon_at_tick, inputs_are_finite, normalize_weapon_slot,
+        ammo_after_pickup, applied_damage, can_fire_weapon_at_tick, has_unconsumed_action,
+        inputs_are_finite, latch_input_actions, normalize_angle, normalize_weapon_slot,
         reload_transfer_amount, room_membership_is_consistent, should_accept_input_sequence,
-        simulate_player_tick, swept_player_touches_pickup, validate_room_code, PlayerInput,
-        PlayerState, Vec3, AMMO_PACK_RADIUS, AMMO_PICKUP_HORIZONTAL_GRACE,
-        AMMO_PICKUP_VERTICAL_GRACE, MAX_HEALTH, RIFLE_CLIP_SIZE, RIFLE_RESERVE_CAPACITY,
-        WEAPON_SLOT_RIFLE, WEAPON_SLOT_SHOTGUN, WEAPON_SLOT_SNIPER,
+        simulate_player_tick, swept_player_segment_touches_pickup, swept_player_touches_pickup,
+        tick_elapsed, tick_has_reached, validate_room_code, PlayerInput, PlayerState, Vec3,
+        AMMO_PACK_RADIUS, AMMO_PICKUP_HORIZONTAL_GRACE, AMMO_PICKUP_VERTICAL_GRACE, MAX_HEALTH,
+        RIFLE_CLIP_SIZE, RIFLE_RESERVE_CAPACITY, WEAPON_SLOT_RIFLE, WEAPON_SLOT_SHOTGUN,
+        WEAPON_SLOT_SNIPER,
     };
     use spacetimedb::Identity;
 
@@ -4021,6 +4253,8 @@ mod tests {
     fn weapon_cooldown_enforcement_is_authoritative() {
         assert!(can_fire_weapon_at_tick(8, 8));
         assert!(!can_fire_weapon_at_tick(9, 8));
+        assert!(can_fire_weapon_at_tick(u32::MAX, 0));
+        assert!(!can_fire_weapon_at_tick(1, 0));
     }
 
     #[test]
@@ -4048,6 +4282,16 @@ mod tests {
         assert!(should_accept_input_sequence(11, 10));
         assert!(!should_accept_input_sequence(10, 10));
         assert!(!should_accept_input_sequence(9, 10));
+        assert!(should_accept_input_sequence(0, u32::MAX));
+        assert!(!should_accept_input_sequence(u32::MAX, 0));
+    }
+
+    #[test]
+    fn tick_elapsed_and_deadlines_are_wrap_safe() {
+        assert_eq!(tick_elapsed(2, u32::MAX - 2), 5);
+        assert_eq!(tick_elapsed(u32::MAX - 2, 2), 0);
+        assert!(tick_has_reached(0, u32::MAX));
+        assert!(!tick_has_reached(u32::MAX, 0));
     }
 
     #[test]
@@ -4055,6 +4299,8 @@ mod tests {
         assert!(inputs_are_finite([0.0, 1.0, -1.2, 0.3]));
         assert!(!inputs_are_finite([f32::NAN, 0.0, 0.0, 0.0]));
         assert!(!inputs_are_finite([0.0, f32::INFINITY, 0.0, 0.0]));
+        assert!(normalize_angle(f32::MAX).is_finite());
+        assert!(normalize_angle(f32::MAX).abs() <= std::f32::consts::PI);
     }
 
     fn test_player_state() -> PlayerState {
@@ -4099,6 +4345,9 @@ mod tests {
             fire_held: false,
             reload_pressed: false,
             weapon_slot: WEAPON_SLOT_RIFLE,
+            fire_action_sequence: 0,
+            consumed_fire_action_sequence: 0,
+            reload_action_pending: false,
         }
     }
 
@@ -4134,6 +4383,38 @@ mod tests {
     }
 
     #[test]
+    fn action_edges_survive_latest_input_overwrite_until_consumed() {
+        let mut input = test_player_input(1);
+
+        latch_input_actions(&mut input, true, true);
+        input.fire_held = true;
+        input.reload_pressed = true;
+        assert!(has_unconsumed_action(
+            input.fire_action_sequence,
+            input.consumed_fire_action_sequence
+        ));
+        assert!(input.reload_action_pending);
+
+        // A release can replace the public latest-state values before sim_tick, but the server
+        // action latches remain pending.
+        latch_input_actions(&mut input, false, false);
+        input.fire_held = false;
+        input.reload_pressed = false;
+        assert!(has_unconsumed_action(
+            input.fire_action_sequence,
+            input.consumed_fire_action_sequence
+        ));
+        assert!(input.reload_action_pending);
+
+        input.consumed_fire_action_sequence = input.fire_action_sequence;
+        input.reload_action_pending = false;
+        assert!(!has_unconsumed_action(
+            input.fire_action_sequence,
+            input.consumed_fire_action_sequence
+        ));
+    }
+
+    #[test]
     fn reload_transfer_never_overfills_magazine_or_overdraws_reserve() {
         assert_eq!(
             reload_transfer_amount(0, RIFLE_RESERVE_CAPACITY),
@@ -4159,6 +4440,13 @@ mod tests {
             ammo_after_pickup(RIFLE_CLIP_SIZE, RIFLE_RESERVE_CAPACITY),
             (RIFLE_CLIP_SIZE, RIFLE_RESERVE_CAPACITY)
         );
+    }
+
+    #[test]
+    fn damage_stats_do_not_count_overkill() {
+        assert_eq!(applied_damage(100, 10), 10);
+        assert_eq!(applied_damage(5, 75), 5);
+        assert_eq!(applied_damage(0, 75), 0);
     }
 
     #[test]
@@ -4192,6 +4480,30 @@ mod tests {
             },
             Vec3 {
                 x: 6.4,
+                y: 0.0,
+                z: 0.0,
+            },
+            Vec3 {
+                x: 0.0,
+                y: 0.0,
+                z: 0.0,
+            },
+            AMMO_PACK_RADIUS,
+            AMMO_PICKUP_HORIZONTAL_GRACE,
+            AMMO_PICKUP_VERTICAL_GRACE,
+        ));
+    }
+
+    #[test]
+    fn exact_authoritative_sweep_catches_a_pickup_between_tick_endpoints() {
+        assert!(swept_player_segment_touches_pickup(
+            Vec3 {
+                x: -4.0,
+                y: 0.0,
+                z: 0.0,
+            },
+            Vec3 {
+                x: 4.0,
                 y: 0.0,
                 z: 0.0,
             },

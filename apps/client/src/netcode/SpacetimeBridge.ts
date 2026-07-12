@@ -21,6 +21,8 @@ import {
   type MatchView,
   type RemotePlayerState,
   type WeaponSnapshot,
+  isUint32AtOrAfter,
+  isUint32Newer,
 } from '@arena/shared';
 import { useGameStore } from '../state/gameStore';
 import { SPACETIMEDB_DATABASE, getSpacetimeUriCandidates } from '../utils/env';
@@ -290,7 +292,7 @@ export class SpacetimeBridge {
   ): Promise<void> {
     const connection = this.connection;
     if (!connection) {
-      return;
+      throw new Error('Not connected; reducer intent must be retried.');
     }
 
     try {
@@ -1073,7 +1075,9 @@ export class SpacetimeBridge {
       return true;
     }
     const deathTransition =
-      previous.alive && !next.alive && next.respawnTick >= previous.respawnTick;
+      previous.alive &&
+      !next.alive &&
+      isUint32AtOrAfter(next.respawnTick, previous.respawnTick);
     if (deathTransition) {
       return true;
     }
@@ -1081,10 +1085,10 @@ export class SpacetimeBridge {
     if (!previous.alive) {
       const respawnTransition =
         next.alive &&
-        ((next.respawnTick > previous.respawnTick &&
+        ((isUint32Newer(next.respawnTick, previous.respawnTick) &&
           next.health >= previous.health) ||
           (next.respawnTick === previous.respawnTick &&
-            next.serverTick > previous.serverTick &&
+            isUint32Newer(next.serverTick, previous.serverTick) &&
             next.health >= MAX_HEALTH));
       if (respawnTransition) {
         return true;
@@ -1092,38 +1096,44 @@ export class SpacetimeBridge {
       if (next.alive) {
         return false;
       }
-      if (next.serverTick < previous.serverTick) {
-        return false;
+      if (next.serverTick !== previous.serverTick) {
+        return isUint32Newer(next.serverTick, previous.serverTick);
       }
-      if (next.serverTick > previous.serverTick) {
-        return true;
-      }
-      return next.lastProcessedInput >= previous.lastProcessedInput;
+      return isUint32AtOrAfter(
+        next.lastProcessedInput,
+        previous.lastProcessedInput
+      );
     }
 
-    if (next.serverTick < previous.serverTick) {
-      return false;
-    }
-    if (next.serverTick > previous.serverTick) {
-      return true;
+    if (next.serverTick !== previous.serverTick) {
+      return isUint32Newer(next.serverTick, previous.serverTick);
     }
 
     if (next.health > previous.health && !next.alive) {
       return false;
     }
 
-    return next.lastProcessedInput >= previous.lastProcessedInput;
+    return isUint32AtOrAfter(
+      next.lastProcessedInput,
+      previous.lastProcessedInput
+    );
   }
 
   private forceLocalDeath(tick: number): void {
     const previous = this.latestLocalState;
-    if (previous && !previous.alive && previous.respawnTick >= tick) {
+    if (
+      previous &&
+      !previous.alive &&
+      isUint32AtOrAfter(previous.respawnTick, tick)
+    ) {
       return;
     }
 
     const store = useGameStore.getState();
     const source = previous ?? store.localPlayer;
-    const serverTick = Math.max(source.serverTick, tick);
+    const serverTick = isUint32Newer(tick, source.serverTick)
+      ? tick
+      : source.serverTick;
     const forcedState: LocalPlayerState = {
       ...source,
       identity: this.localIdentity || source.identity,

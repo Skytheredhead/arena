@@ -15,6 +15,7 @@ import {
   WEAPON_SLOT_SNIPER,
   type WeaponSlot,
 } from './gameplay';
+import { isUint32AtOrAfter, toUint32 } from './ordering';
 
 export const RELOAD_DURATION_MS = 980;
 export const RELOAD_DURATION_TICKS = Math.ceil(
@@ -73,3 +74,76 @@ export const makeDefaultWeaponSnapshot = (): WeaponSnapshot => ({
   reloadCompleteTick: 0,
   nextReadyTick: 0,
 });
+
+export interface WeaponAmmoInput {
+  ammoInMag: number;
+  reserveAmmo: number;
+}
+
+export const clampWeaponAmmo = (
+  ammo: WeaponAmmoInput
+): WeaponAmmoInput & { magCapacity: number } => {
+  const safeMag = Number.isFinite(ammo.ammoInMag)
+    ? Math.trunc(ammo.ammoInMag)
+    : 0;
+  const safeReserve = Number.isFinite(ammo.reserveAmmo)
+    ? Math.trunc(ammo.reserveAmmo)
+    : 0;
+  return {
+    ammoInMag: Math.min(RIFLE_CLIP_SIZE, Math.max(0, safeMag)),
+    reserveAmmo: Math.min(RIFLE_RESERVE_CAPACITY, Math.max(0, safeReserve)),
+    magCapacity: RIFLE_CLIP_SIZE,
+  };
+};
+
+export const reloadTransferAmount = (ammo: WeaponAmmoInput): number => {
+  const safe = clampWeaponAmmo(ammo);
+  return Math.min(safe.magCapacity - safe.ammoInMag, safe.reserveAmmo);
+};
+
+export const canStartReload = (weapon: WeaponSnapshot): boolean =>
+  !weapon.reloading && reloadTransferAmount(weapon) > 0;
+
+export const startReload = (
+  weapon: WeaponSnapshot,
+  currentTick: number
+): WeaponSnapshot => {
+  if (!canStartReload(weapon)) return weapon;
+  const started = toUint32(currentTick);
+  return {
+    ...weapon,
+    reloading: true,
+    reloadStartedTick: started,
+    reloadCompleteTick: (started + RELOAD_DURATION_TICKS) >>> 0,
+  };
+};
+
+export const completeReloadIfReady = (
+  weapon: WeaponSnapshot,
+  currentTick: number
+): WeaponSnapshot => {
+  if (
+    !weapon.reloading ||
+    !isUint32AtOrAfter(currentTick, weapon.reloadCompleteTick)
+  ) {
+    return weapon;
+  }
+  const safe = clampWeaponAmmo(weapon);
+  const transferred = reloadTransferAmount(safe);
+  return {
+    ...weapon,
+    ammoInMag: safe.ammoInMag + transferred,
+    reserveAmmo: safe.reserveAmmo - transferred,
+    reloading: false,
+    reloadStartedTick: 0,
+    reloadCompleteTick: 0,
+  };
+};
+
+export const canFireWeaponAtTick = (
+  weapon: WeaponSnapshot,
+  currentTick: number
+): boolean =>
+  !weapon.reloading &&
+  weapon.ammoInMag > 0 &&
+  isUint32AtOrAfter(currentTick, weapon.nextReadyTick);
