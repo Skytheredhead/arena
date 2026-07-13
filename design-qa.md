@@ -8,16 +8,16 @@
 
 **Rendered implementation**
 
-- Screenshot: `/Users/skylarenns/Desktop/arena/tmp/imagegen/qa-final-implementation.png`
+- Screenshot: `/Users/skylarenns/Desktop/arena/tmp/imagegen/production-material-fix.png`
 - ADS inspection capture: `/Users/skylarenns/Desktop/arena/tmp/imagegen/qa-ads-center.png`
 - Local URL: `http://127.0.0.1:5173/`
 - Viewport: `1280 x 720`, desktop, 1x browser capture.
-- State: authenticated-as-guest local room, rifle equipped, hip-fire presentation, medium graphics preset.
+- State: deployed production room `LIVE84`, rifle equipped, near-centered shoulder presentation, medium graphics preset.
 
 **Comparison evidence**
 
-- Full view: `/Users/skylarenns/Desktop/arena/tmp/imagegen/qa-full-comparison.png`
-- Focused weapon/HUD region: `/Users/skylarenns/Desktop/arena/tmp/imagegen/qa-weapon-comparison.png`
+- Full view: `/Users/skylarenns/Desktop/arena/tmp/imagegen/qa-full-comparison-final.png`
+- Focused weapon/HUD region: `/Users/skylarenns/Desktop/arena/tmp/imagegen/qa-weapon-comparison-final.png`
 - The full comparison was used for composition, weather, environment, HUD preservation, palette, and scene readability. The focused comparison was used for the weapon silhouette, optic, hand placement, ammo panel, and foreground material response.
 
 **Findings**
@@ -55,6 +55,10 @@
    - Finding: first-frame texture uploads emitted WebGL warnings while image assets were still loading.
    - Fix: added valid canvas-backed fallback pixels, then hot-swapped the loaded authored image into the same configured texture.
    - Post-fix evidence: fresh browser session at 1280 x 720 with no warning/error entries; implementation screenshot at `/Users/skylarenns/Desktop/arena/tmp/imagegen/qa-final-implementation.png`.
+3. Production correction pass
+   - Finding: the earlier fallback-source swap kept walls visually flat, and the hip-fire optic remained visibly displaced to the right.
+   - Fix: materials now bind only after their authored JPEG has decoded; concrete uses readable 2.5x wall tiling and a separate 12x ground clone. The shoulder pose was moved onto the centerline and its yaw/roll/sway were reduced.
+   - Post-fix evidence: `/Users/skylarenns/Desktop/arena/tmp/imagegen/production-material-fix.png`, with visible concrete and asphalt grain and the receiver centered under the reticle. The deployed `index-DGhjld5M.js` bundle produced zero new warning/error entries.
 
 **Implementation checklist**
 
