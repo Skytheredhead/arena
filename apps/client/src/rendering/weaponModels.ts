@@ -5,6 +5,31 @@ import {
   type WeaponMaterialSet,
 } from './photorealMaterials';
 
+export const RIFLE_VIEWMODEL_SCALE = 0.72;
+export const RIFLE_OPTIC_AIM_POINT = [
+  0,
+  0.22,
+  -0.22 - 0.028 * 1.34,
+] as const;
+// Calibrated from the reported 3598x2164 production capture. The live
+// viewmodel projection lands this far from the DOM HUD center even when the
+// idealized camera-space anchor is mathematically centered.
+export const RIFLE_ADS_CAMERA_BIAS = [-0.1553, -0.095] as const;
+
+export const computeCenteredOpticOffset = (
+  out: THREE.Vector2,
+  opticAimPoint: readonly [number, number, number],
+  modelScale: number,
+  rotation: THREE.Euler,
+  scratch: THREE.Vector3
+): THREE.Vector2 => {
+  scratch
+    .set(opticAimPoint[0], opticAimPoint[1], opticAimPoint[2])
+    .multiplyScalar(modelScale)
+    .applyEuler(rotation);
+  return out.set(-scratch.x, -scratch.y);
+};
+
 const addMesh = <T extends THREE.BufferGeometry>(
   group: THREE.Group,
   geometry: T,
@@ -215,7 +240,7 @@ export const createWeaponModels = (texture: THREE.Texture): WeaponModels => {
   const rifle = createBullpupRifle(materials);
   const sniper = createSniper(materials);
   const shotgun = createShotgun(materials);
-  rifle.scale.setScalar(0.72);
+  rifle.scale.setScalar(RIFLE_VIEWMODEL_SCALE);
   sniper.scale.setScalar(0.68);
   shotgun.scale.setScalar(0.72);
   return {

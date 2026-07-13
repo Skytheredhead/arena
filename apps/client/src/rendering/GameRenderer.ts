@@ -19,7 +19,13 @@ import type { GraphicsQuality } from '../types/settings';
 import { loadPhotorealTextures, type WeaponMaterialSet } from './photorealMaterials';
 import { createOperatorAvatar, type OperatorAvatar } from './operatorModels';
 import { createStormEnvironment, type StormEnvironment } from './stormEnvironment';
-import { createWeaponModels } from './weaponModels';
+import {
+  computeCenteredOpticOffset,
+  createWeaponModels,
+  RIFLE_ADS_CAMERA_BIAS,
+  RIFLE_OPTIC_AIM_POINT,
+  RIFLE_VIEWMODEL_SCALE,
+} from './weaponModels';
 
 interface BloodBurstView {
   id: number;
@@ -116,6 +122,8 @@ export class GameRenderer {
   private readonly smoothedCameraPosition = new THREE.Vector3();
   private readonly targetCameraPosition = new THREE.Vector3();
   private readonly drawingBufferSize = new THREE.Vector2();
+  private readonly centeredAdsOffset = new THREE.Vector2();
+  private readonly centeredAdsScratch = new THREE.Vector3();
   private readonly decalUp = new THREE.Vector3(0, 0, 1);
   private readonly scratchNormal = new THREE.Vector3();
   private readonly deathTintColor = new THREE.Color('#ff2e3f');
@@ -1045,6 +1053,21 @@ export class GameRenderer {
       reloadDrop -
       frame.crouchAmount * 0.08 * hipAmount;
     this.weaponRig.position.z = this.weaponPresentationZ;
+    if (frame.scoped && frame.weaponSlot === WEAPON_SLOT_RIFLE) {
+      computeCenteredOpticOffset(
+        this.centeredAdsOffset,
+        RIFLE_OPTIC_AIM_POINT,
+        RIFLE_VIEWMODEL_SCALE,
+        this.weaponRig.rotation,
+        this.centeredAdsScratch
+      );
+      // Re-center after every presentation transform. This makes recoil pivot
+      // around the optic instead of pushing the sight away from the HUD aim point.
+      this.weaponRig.position.x =
+        this.centeredAdsOffset.x + RIFLE_ADS_CAMERA_BIAS[0];
+      this.weaponRig.position.y =
+        this.centeredAdsOffset.y + RIFLE_ADS_CAMERA_BIAS[1];
+    }
 
     const activeIds = this.activeRemoteIds;
     activeIds.clear();
