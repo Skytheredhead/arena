@@ -72,7 +72,9 @@ const WEAPON_WALK_SWAY_Y = 0.014;
 const WEAPON_WALK_SWAY_YAW = 0.012;
 const WEAPON_WALK_SWAY_ROLL = 0.024;
 const WEAPON_HIP_Y = -0.25;
-const WEAPON_ADS_Y = -0.17;
+// The rifle optic is authored at y=0.22 and the viewmodel is scaled to 0.72,
+// so -0.1584 places its optical center exactly on the camera centerline.
+const WEAPON_ADS_Y = -0.1584;
 const WEAPON_HIP_Z = -0.68;
 const WEAPON_ADS_Z = -0.58;
 const WEAPON_HIP_YAW = -0.018;
@@ -1026,8 +1028,8 @@ export class GameRenderer {
       frame.walkIntensity *
       WEAPON_WALK_SWAY_ROLL *
       hipAmount;
-    const reloadTilt = frame.reloadProgress * 0.22;
-    const reloadDrop = frame.reloadProgress * 0.08;
+    const reloadTilt = frame.reloadProgress * 0.22 * hipAmount;
+    const reloadDrop = frame.reloadProgress * 0.08 * hipAmount;
     this.weaponRig.rotation.x =
       (frame.scoped ? 0 : -0.035) +
       frame.recoil * (frame.scoped ? 0.6 : 1.4) +
@@ -1041,7 +1043,7 @@ export class GameRenderer {
       frame.recoil * 0.08 +
       walkBob * 0.45 * hipAmount -
       reloadDrop -
-      frame.crouchAmount * 0.08;
+      frame.crouchAmount * 0.08 * hipAmount;
     this.weaponRig.position.z = this.weaponPresentationZ;
 
     const activeIds = this.activeRemoteIds;

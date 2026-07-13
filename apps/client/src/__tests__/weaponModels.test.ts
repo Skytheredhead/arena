@@ -1,4 +1,6 @@
 import * as THREE from 'three';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { createWeaponModels } from '../rendering/weaponModels';
 
@@ -6,6 +8,19 @@ const makeTexture = (): THREE.Texture => {
   const texture = new THREE.Texture();
   texture.needsUpdate = true;
   return texture;
+};
+
+const rendererSource = readFileSync(
+  resolve(process.cwd(), 'src/rendering/GameRenderer.ts'),
+  'utf8'
+);
+
+const readRendererConstant = (name: string): number => {
+  const match = rendererSource.match(
+    new RegExp(`const ${name} = (-?\\d+(?:\\.\\d+)?);`)
+  );
+  if (!match?.[1]) throw new Error(`missing numeric renderer constant ${name}`);
+  return Number(match[1]);
 };
 
 describe('weapon model alignment', () => {
@@ -40,6 +55,46 @@ describe('weapon model alignment', () => {
       }
       expect(part.rotation.y, `rifle child ${index} has local yaw`).toBeCloseTo(0, 6);
       expect(part.rotation.z, `rifle child ${index} has local roll`).toBeCloseTo(0, 6);
+    }
+  });
+
+  it('projects the rifle optic reticle onto the exact ADS center at every aspect ratio', () => {
+    const { rifle, materials } = createWeaponModels(makeTexture());
+    const opticReticles: THREE.Object3D[] = [];
+    rifle.traverse(object => {
+      if (object instanceof THREE.Mesh && object.material === materials.accent) {
+        opticReticles.push(object);
+      }
+    });
+    expect(opticReticles).toHaveLength(1);
+    const opticReticle = opticReticles[0];
+    if (!opticReticle) throw new Error('missing rifle optic reticle');
+
+    for (const aspect of [16 / 9, 21 / 9, 9 / 16]) {
+      const camera = new THREE.PerspectiveCamera(80 * 0.78, aspect, 0.1, 200);
+      const weaponRig = new THREE.Group();
+      weaponRig.position.set(
+        readRendererConstant('WEAPON_ADS_X'),
+        readRendererConstant('WEAPON_ADS_Y'),
+        readRendererConstant('WEAPON_ADS_Z')
+      );
+      weaponRig.rotation.set(
+        0,
+        readRendererConstant('WEAPON_ADS_YAW'),
+        readRendererConstant('WEAPON_ADS_ROLL')
+      );
+      weaponRig.add(rifle);
+      camera.add(weaponRig);
+      camera.updateProjectionMatrix();
+      camera.updateMatrixWorld(true);
+
+      const projectedReticle = opticReticle
+        .getWorldPosition(new THREE.Vector3())
+        .project(camera);
+
+      expect(projectedReticle.x).toBeCloseTo(0, 6);
+      expect(projectedReticle.y).toBeCloseTo(0, 6);
+      weaponRig.remove(rifle);
     }
   });
 });
