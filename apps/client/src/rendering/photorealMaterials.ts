@@ -16,41 +16,6 @@ const configureTiledTexture = (
   return texture;
 };
 
-const loadTiledTexture = (
-  loader: THREE.TextureLoader,
-  url: string,
-  repeatX: number,
-  repeatY: number,
-  fallbackRgb: [number, number, number]
-): THREE.Texture => {
-  // Start with valid image data so the first frame never tries to upload an
-  // empty TextureLoader placeholder while the authored material downloads.
-  const fallbackCanvas = document.createElement('canvas');
-  fallbackCanvas.width = 1;
-  fallbackCanvas.height = 1;
-  const fallbackContext = fallbackCanvas.getContext('2d');
-  if (fallbackContext) {
-    fallbackContext.fillStyle = `rgb(${fallbackRgb.join(',')})`;
-    fallbackContext.fillRect(0, 0, 1, 1);
-  }
-  const texture = configureTiledTexture(
-    new THREE.CanvasTexture(fallbackCanvas),
-    repeatX,
-    repeatY
-  );
-  texture.needsUpdate = true;
-  loader.load(url, (loadedTexture) => {
-    const loadedImage = loadedTexture.image as HTMLImageElement;
-    fallbackCanvas.width = Math.max(1, loadedImage.naturalWidth);
-    fallbackCanvas.height = Math.max(1, loadedImage.naturalHeight);
-    const loadedContext = fallbackCanvas.getContext('2d');
-    loadedContext?.drawImage(loadedImage, 0, 0);
-    texture.needsUpdate = true;
-    loadedTexture.dispose();
-  });
-  return texture;
-};
-
 export interface PhotorealTextureSet {
   concrete: THREE.Texture;
   gunmetal: THREE.Texture;
@@ -58,19 +23,15 @@ export interface PhotorealTextureSet {
 
 export const loadPhotorealTextures = (): PhotorealTextureSet => {
   const loader = new THREE.TextureLoader();
-  const concrete = loadTiledTexture(
-    loader,
-    CONCRETE_TEXTURE_URL,
+  const concrete = configureTiledTexture(
+    loader.load(CONCRETE_TEXTURE_URL),
     2.5,
-    2.5,
-    [126, 134, 139]
+    2.5
   );
-  const gunmetal = loadTiledTexture(
-    loader,
-    GUNMETAL_TEXTURE_URL,
+  const gunmetal = configureTiledTexture(
+    loader.load(GUNMETAL_TEXTURE_URL),
     2,
-    2,
-    [92, 99, 104]
+    2
   );
   return { concrete, gunmetal };
 };
