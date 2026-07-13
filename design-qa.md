@@ -3,12 +3,14 @@
 **Source visual truth**
 
 - `/Users/skylarenns/.codex/generated_images/019f5811-1b2a-7d10-a5f7-0b0e92d6cdfc/exec-3fe4854d-dfcd-49d1-acb3-189ade44634f.png`
+- User alignment reference: `/var/folders/p9/lr209w9s6qgd3xr3z891gtww0000gn/T/TemporaryItems/NSIRD_screencaptureui_54MjFr/Screenshot 2026-07-12 at 11.51.41 PM.png`
 - Directional target: rain-soaked coastal security facility, wet PBR surfaces, storm lighting, detailed tactical weapon, existing cyan/yellow HUD retained.
 - The later user instruction intentionally supersedes the source image's always-centered weapon: hip fire must be low/right and canted; ADS must move to center.
 
 **Rendered implementation**
 
 - Screenshot: `/Users/skylarenns/Desktop/arena/tmp/imagegen/production-material-fix.png`
+- Rifle alignment capture: `/Users/skylarenns/Desktop/arena/tmp/imagegen/production-rifle-alignment-exact-viewport.png`
 - ADS inspection capture: `/Users/skylarenns/Desktop/arena/tmp/imagegen/qa-ads-center.png`
 - Local URL: `http://127.0.0.1:5173/`
 - Viewport: `1280 x 720`, desktop, 1x browser capture.
@@ -18,6 +20,7 @@
 
 - Full view: `/Users/skylarenns/Desktop/arena/tmp/imagegen/qa-full-comparison-final.png`
 - Focused weapon/HUD region: `/Users/skylarenns/Desktop/arena/tmp/imagegen/qa-weapon-comparison-final.png`
+- Before/after rifle alignment comparison: `/Users/skylarenns/Desktop/arena/tmp/imagegen/qa-rifle-alignment-comparison.png`
 - The full comparison was used for composition, weather, environment, HUD preservation, palette, and scene readability. The focused comparison was used for the weapon silhouette, optic, hand placement, ammo panel, and foreground material response.
 
 **Findings**
@@ -59,6 +62,10 @@
    - Finding: the earlier fallback-source swap kept walls visually flat, and the hip-fire optic remained visibly displaced to the right.
    - Fix: materials now bind only after their authored JPEG has decoded; concrete uses readable 2.5x wall tiling and a separate 12x ground clone. The shoulder pose was moved onto the centerline and its yaw/roll/sway were reduced.
    - Post-fix evidence: `/Users/skylarenns/Desktop/arena/tmp/imagegen/production-material-fix.png`, with visible concrete and asphalt grain and the receiver centered under the reticle. The deployed `index-DGhjld5M.js` bundle produced zero new warning/error entries.
+4. Rifle centerline correction
+   - Finding: the bullpup rear stock and buttpad were authored at lateral offsets from the receiver, barrel, rail, and optic. The ADS rig also used a lateral camera-space translation, and the HUD crosshair's 44px box was anchored from its corner instead of its center.
+   - Fix: centered the structural stock and buttpad on the bore axis, moved ADS onto the camera's true x=0 axis, removed scoped walking pitch/bob, and centered the HUD reticle's own box at 50%/50%. Hip-fire cant and sway remain intentionally active.
+   - Post-fix evidence: `/Users/skylarenns/Desktop/arena/tmp/imagegen/qa-rifle-alignment-comparison.png`. The right-hand production view shows one continuous rear-to-front silhouette instead of detached rear blocks. Browser geometry measured the 44px reticle at center `(640, 360)` in a `1280 x 720` viewport. Regression tests assert structural centerline and zero yaw/roll on ADS-critical rifle parts.
 
 **Implementation checklist**
 
@@ -68,6 +75,8 @@
 - [x] Replace weapon and operator silhouettes with detailed rounded models and material separation.
 - [x] Hold weapon low/right and canted in hip fire.
 - [x] Add walking swing and smoothly center the weapon for ADS.
+- [x] Keep the rifle receiver, stock, buttpad, barrel, rail, and optic on one structural centerline.
+- [x] Center the HUD reticle on the actual viewport midpoint.
 - [x] Verify fresh browser render with no console warnings or errors.
 - [x] Run full lint, test, build, and authoritative server test suites.
 
