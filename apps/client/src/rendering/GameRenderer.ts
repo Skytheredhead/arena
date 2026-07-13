@@ -62,10 +62,11 @@ const isFiniteVec3 = (value: { x: number; y: number; z: number }): boolean =>
   Number.isFinite(value.z);
 
 // The hip pose keeps the weapon in a natural right-handed low-ready position.
-// ADS compensates for the viewmodel's perspective projection so the optic lands
-// on the exact HUD centerline instead of merely looking close to centered.
+// ADS moves the weapon onto the camera's true center axis. Translating an ADS
+// weapon sideways makes its near stock and distant optic project at different
+// horizontal offsets, which visually bends an otherwise straight model.
 const WEAPON_HIP_X = -0.17;
-const WEAPON_ADS_X = -0.2;
+const WEAPON_ADS_X = 0;
 const WEAPON_WALK_SWAY_X = 0.025;
 const WEAPON_WALK_SWAY_Y = 0.014;
 const WEAPON_WALK_SWAY_YAW = 0.012;
@@ -1011,7 +1012,10 @@ export class GameRenderer {
       WEAPON_WALK_SWAY_X *
       hipAmount;
     const walkSwayY =
-      Math.cos(frame.walkPhase * 2) * frame.walkIntensity * WEAPON_WALK_SWAY_Y;
+      Math.cos(frame.walkPhase * 2) *
+      frame.walkIntensity *
+      WEAPON_WALK_SWAY_Y *
+      hipAmount;
     const walkSwayYaw =
       Math.cos(frame.walkPhase) *
       frame.walkIntensity *
@@ -1025,7 +1029,7 @@ export class GameRenderer {
     const reloadTilt = frame.reloadProgress * 0.22;
     const reloadDrop = frame.reloadProgress * 0.08;
     this.weaponRig.rotation.x =
-      (frame.scoped ? -0.015 : -0.035) +
+      (frame.scoped ? 0 : -0.035) +
       frame.recoil * (frame.scoped ? 0.6 : 1.4) +
       walkSwayY +
       reloadTilt * 0.35;
@@ -1035,7 +1039,7 @@ export class GameRenderer {
     this.weaponRig.position.y =
       this.weaponPresentationY +
       frame.recoil * 0.08 +
-      walkBob * 0.45 -
+      walkBob * 0.45 * hipAmount -
       reloadDrop -
       frame.crouchAmount * 0.08;
     this.weaponRig.position.z = this.weaponPresentationZ;

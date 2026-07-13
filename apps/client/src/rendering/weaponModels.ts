@@ -141,7 +141,10 @@ const addCenteredHands = (
 const createBullpupRifle = (materials: WeaponMaterialSet): THREE.Group => {
   const group = new THREE.Group();
   addMesh(group, roundedBox(0.175, 0.125, 0.54), materials.receiver, [0, -0.025, -0.11]);
-  addMesh(group, roundedBox(0.17, 0.105, 0.27), materials.polymer, [0.12, -0.28, 0.22]);
+  // Keep the shoulder stock on the same longitudinal axis as the receiver,
+  // barrel, and optic. An offset here is magnified by the viewmodel camera and
+  // makes the rifle appear bent when aiming down sights.
+  addMesh(group, roundedBox(0.17, 0.105, 0.27), materials.polymer, [0, -0.025, 0.22]);
   addMesh(group, roundedBox(0.17, 0.13, 0.34), materials.polymer, [0, 0.006, -0.5]);
   addMesh(
     group,
@@ -159,7 +162,7 @@ const createBullpupRifle = (materials: WeaponMaterialSet): THREE.Group => {
   );
   addMesh(group, roundedBox(0.09, 0.18, 0.095), materials.polymer, [0.07, -0.145, 0.08], [0.18, 0, 0]);
   addMesh(group, roundedBox(0.08, 0.19, 0.105), materials.receiver, [0.1, -0.13, 0.24], [-0.08, 0, 0]);
-  addMesh(group, roundedBox(0.15, 0.065, 0.19), materials.rubber, [0.2, -0.42, 0.42]);
+  addMesh(group, roundedBox(0.15, 0.065, 0.19), materials.rubber, [0, -0.025, 0.42]);
   addRail(group, materials, 0.66, -0.26, 0.12);
   addHolographicSight(group, materials, -0.22, 0.22, 1.34);
   addMesh(group, roundedBox(0.038, 0.055, 0.16), materials.machined, [0.107, 0.015, -0.31]);

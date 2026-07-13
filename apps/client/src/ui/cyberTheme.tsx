@@ -734,6 +734,8 @@ export function CyberCrosshair({
         position:'absolute',
         left:'50%',
         top:'50%',
+        width:'44px',
+        height:'44px',
         transform:'translate(-50%,-50%)',
         zIndex:20,
         pointerEvents:'none',
@@ -741,7 +743,7 @@ export function CyberCrosshair({
         '--crosshair-arm-len': `${initialArmLen}px`,
       } as CSSProperties}
     >
-      <div style={{ position:'relative',width:'44px',height:'44px' }}>
+      <div style={{ position:'relative',width:'100%',height:'100%' }}>
         {arm({ left:'50%', top:'calc(50% - var(--crosshair-offset) - var(--crosshair-arm-len))', width:'1px', height:'var(--crosshair-arm-len)', transform:'translateX(-50%)' })}
         {arm({ left:'50%', top:'calc(50% + var(--crosshair-offset))',               width:'1px', height:'var(--crosshair-arm-len)', transform:'translateX(-50%)' })}
         {arm({ top:'50%',  left:'calc(50% - var(--crosshair-offset) - var(--crosshair-arm-len))', width:'var(--crosshair-arm-len)', height:'1px', transform:'translateY(-50%)' })}
