@@ -61,8 +61,8 @@ export const loadPhotorealTextures = (): PhotorealTextureSet => {
   const concrete = loadTiledTexture(
     loader,
     CONCRETE_TEXTURE_URL,
-    18,
-    18,
+    2.5,
+    2.5,
     [126, 134, 139]
   );
   const gunmetal = loadTiledTexture(
@@ -92,11 +92,14 @@ export const createWetConcreteMaterial = (
 
 export const createWetAsphaltMaterial = (
   texture: THREE.Texture
-): THREE.MeshPhysicalMaterial =>
-  new THREE.MeshPhysicalMaterial({
+): THREE.MeshPhysicalMaterial => {
+  const asphaltTexture = texture.clone();
+  asphaltTexture.repeat.set(12, 12);
+  asphaltTexture.needsUpdate = true;
+  return new THREE.MeshPhysicalMaterial({
     color: '#687681',
-    map: texture,
-    bumpMap: texture,
+    map: asphaltTexture,
+    bumpMap: asphaltTexture,
     bumpScale: 0.12,
     roughness: 0.42,
     metalness: 0.04,
@@ -104,6 +107,7 @@ export const createWetAsphaltMaterial = (
     clearcoatRoughness: 0.2,
     envMapIntensity: 0.9,
   });
+};
 
 export interface WeaponMaterialSet {
   receiver: THREE.MeshPhysicalMaterial;
@@ -119,25 +123,25 @@ export const createWeaponMaterialSet = (
   texture: THREE.Texture
 ): WeaponMaterialSet => ({
   receiver: new THREE.MeshPhysicalMaterial({
-    color: '#798187',
+    color: '#aeb4b7',
     map: texture,
-    roughness: 0.28,
-    metalness: 0.78,
+    roughness: 0.36,
+    metalness: 0.62,
     clearcoat: 0.35,
     clearcoatRoughness: 0.24,
     envMapIntensity: 1.1,
-    emissive: '#182026',
-    emissiveIntensity: 0.52,
+    emissive: '#20292e',
+    emissiveIntensity: 0.34,
   }),
   polymer: new THREE.MeshPhysicalMaterial({
-    color: '#555d62',
+    color: '#72787b',
     map: texture,
     roughness: 0.58,
     metalness: 0.08,
     clearcoat: 0.18,
     clearcoatRoughness: 0.4,
-    emissive: '#0d1215',
-    emissiveIntensity: 0.38,
+    emissive: '#14191c',
+    emissiveIntensity: 0.25,
   }),
   machined: new THREE.MeshPhysicalMaterial({
     color: '#9aa3a9',
