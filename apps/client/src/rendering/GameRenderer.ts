@@ -64,19 +64,19 @@ const isFiniteVec3 = (value: { x: number; y: number; z: number }): boolean =>
 // The hip pose keeps the weapon in a natural right-handed low-ready position.
 // ADS compensates for the viewmodel's perspective projection so the optic lands
 // on the exact HUD centerline instead of merely looking close to centered.
-const WEAPON_HIP_X = 0.12;
+const WEAPON_HIP_X = -0.04;
 const WEAPON_ADS_X = -0.2;
-const WEAPON_WALK_SWAY_X = 0.052;
+const WEAPON_WALK_SWAY_X = 0.034;
 const WEAPON_WALK_SWAY_Y = 0.014;
-const WEAPON_WALK_SWAY_YAW = 0.024;
-const WEAPON_WALK_SWAY_ROLL = 0.046;
-const WEAPON_HIP_Y = -0.32;
+const WEAPON_WALK_SWAY_YAW = 0.018;
+const WEAPON_WALK_SWAY_ROLL = 0.032;
+const WEAPON_HIP_Y = -0.27;
 const WEAPON_ADS_Y = -0.17;
 const WEAPON_HIP_Z = -0.68;
 const WEAPON_ADS_Z = -0.58;
-const WEAPON_HIP_YAW = -0.09;
+const WEAPON_HIP_YAW = -0.045;
 const WEAPON_ADS_YAW = 0;
-const WEAPON_HIP_ROLL = -0.12;
+const WEAPON_HIP_ROLL = -0.06;
 const WEAPON_ADS_ROLL = 0;
 const WEAPON_POSE_RESPONSE = 15;
 
