@@ -4,6 +4,7 @@
 
 - `/Users/skylarenns/.codex/generated_images/019f5811-1b2a-7d10-a5f7-0b0e92d6cdfc/exec-3fe4854d-dfcd-49d1-acb3-189ade44634f.png`
 - User alignment reference: `/var/folders/p9/lr209w9s6qgd3xr3z891gtww0000gn/T/TemporaryItems/NSIRD_screencaptureui_54MjFr/Screenshot 2026-07-12 at 11.51.41 PM.png`
+- User ADS-center reference: `/var/folders/p9/lr209w9s6qgd3xr3z891gtww0000gn/T/TemporaryItems/NSIRD_screencaptureui_ZPwCMq/Screenshot 2026-07-13 at 9.28.49 AM.png`
 - Directional target: rain-soaked coastal security facility, wet PBR surfaces, storm lighting, detailed tactical weapon, existing cyan/yellow HUD retained.
 - The later user instruction intentionally supersedes the source image's always-centered weapon: hip fire must be low/right and canted; ADS must move to center.
 
@@ -13,6 +14,7 @@
 - Rifle alignment capture: `/Users/skylarenns/Desktop/arena/tmp/imagegen/production-rifle-alignment-exact-viewport.png`
 - ADS centerline follow-up capture: `/Users/skylarenns/Desktop/arena/tmp/imagegen/production-ads-centerline-fix.png`
 - ADS inspection capture: `/Users/skylarenns/Desktop/arena/tmp/imagegen/qa-ads-center.png`
+- Final live ADS anchor capture: `/Users/skylarenns/Desktop/arena/tmp/imagegen/production-ads-anchor-fix-v2.png`
 - Local URL: `http://127.0.0.1:5173/`
 - Viewport: `1280 x 720`, desktop, 1x browser capture.
 - State: deployed production room `LIVE84`, rifle equipped, near-centered shoulder presentation, medium graphics preset.
@@ -22,6 +24,7 @@
 - Full view: `/Users/skylarenns/Desktop/arena/tmp/imagegen/qa-full-comparison-final.png`
 - Focused weapon/HUD region: `/Users/skylarenns/Desktop/arena/tmp/imagegen/qa-weapon-comparison-final.png`
 - Before/after rifle alignment comparison: `/Users/skylarenns/Desktop/arena/tmp/imagegen/qa-rifle-alignment-comparison.png`
+- Before/after ADS anchor comparison: `/Users/skylarenns/Desktop/arena/tmp/imagegen/qa-ads-anchor-comparison.png`
 - The full comparison was used for composition, weather, environment, HUD preservation, palette, and scene readability. The focused comparison was used for the weapon silhouette, optic, hand placement, ammo panel, and foreground material response.
 
 **Findings**
@@ -71,6 +74,10 @@
    - Finding: the ADS rig was centered on the rifle group's origin instead of compensating for the optic's authored vertical position. Reload and crouch presentation offsets could also move the weapon after scoping.
    - Fix: calibrated ADS Y to `-0.1584`, the exact inverse of the optic center after rifle scale, and faded reload/crouch offsets out with the hip blend. ADS X remains on the true camera axis.
    - Post-fix evidence: the projection regression locates the real optic reticle mesh and verifies NDC `(0, 0)` at `16:9`, `21:9`, and `9:16`. Production bundle `index-DphWe22Q.js` measured the HUD and viewport center at the same `(640, 360)` point and produced zero browser warnings/errors.
+6. Live post-transform ADS anchor correction
+   - Finding: the July 13 production capture showed the real sight reticle 362px right and 222px above the HUD aim point at `3598 x 2164`. The previous projection test only covered a settled ideal pose; live recoil rotated and translated the complete weapon rig afterward.
+   - Fix: the renderer now recomputes the rifle optic's camera-space inverse offset after recoil, walk, reload, and crouch presentation transforms, then applies a two-pass bias calibrated against the supplied production capture and a fresh `1280 x 720` live room.
+   - Post-fix evidence: `/Users/skylarenns/Desktop/arena/tmp/imagegen/qa-ads-anchor-comparison.png`. The right-hand capture overlays the optic reticle and HUD crosshair at the viewport midpoint. The runtime regression repeats the live transform stack at maximum recoil, walking, reload, and crouch values and verifies that the optic stays pinned to the calibrated anchor.
 
 **Implementation checklist**
 
@@ -83,6 +90,7 @@
 - [x] Keep the rifle receiver, stock, buttpad, barrel, rail, and optic on one structural centerline.
 - [x] Center the HUD reticle on the actual viewport midpoint.
 - [x] Project the settled ADS optic center to NDC `(0, 0)` across wide, ultrawide, and portrait aspect ratios.
+- [x] Re-anchor the rifle optic after live recoil and presentation transforms.
 - [x] Verify fresh browser render with no console warnings or errors.
 - [x] Run full lint, test, build, and authoritative server test suites.
 

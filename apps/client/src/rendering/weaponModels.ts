@@ -14,7 +14,7 @@ export const RIFLE_OPTIC_AIM_POINT = [
 // Calibrated from the reported 3598x2164 production capture. The live
 // viewmodel projection lands this far from the DOM HUD center even when the
 // idealized camera-space anchor is mathematically centered.
-export const RIFLE_ADS_CAMERA_BIAS = [-0.1553, -0.095] as const;
+export const RIFLE_ADS_CAMERA_BIAS = [-0.137, -0.078] as const;
 
 export const computeCenteredOpticOffset = (
   out: THREE.Vector2,
