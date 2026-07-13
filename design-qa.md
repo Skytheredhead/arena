@@ -11,6 +11,7 @@
 
 - Screenshot: `/Users/skylarenns/Desktop/arena/tmp/imagegen/production-material-fix.png`
 - Rifle alignment capture: `/Users/skylarenns/Desktop/arena/tmp/imagegen/production-rifle-alignment-exact-viewport.png`
+- ADS centerline follow-up capture: `/Users/skylarenns/Desktop/arena/tmp/imagegen/production-ads-centerline-fix.png`
 - ADS inspection capture: `/Users/skylarenns/Desktop/arena/tmp/imagegen/qa-ads-center.png`
 - Local URL: `http://127.0.0.1:5173/`
 - Viewport: `1280 x 720`, desktop, 1x browser capture.
@@ -66,6 +67,10 @@
    - Finding: the bullpup rear stock and buttpad were authored at lateral offsets from the receiver, barrel, rail, and optic. The ADS rig also used a lateral camera-space translation, and the HUD crosshair's 44px box was anchored from its corner instead of its center.
    - Fix: centered the structural stock and buttpad on the bore axis, moved ADS onto the camera's true x=0 axis, removed scoped walking pitch/bob, and centered the HUD reticle's own box at 50%/50%. Hip-fire cant and sway remain intentionally active.
    - Post-fix evidence: `/Users/skylarenns/Desktop/arena/tmp/imagegen/qa-rifle-alignment-comparison.png`. The right-hand production view shows one continuous rear-to-front silhouette instead of detached rear blocks. Browser geometry measured the 44px reticle at center `(640, 360)` in a `1280 x 720` viewport. Regression tests assert structural centerline and zero yaw/roll on ADS-critical rifle parts.
+5. Exact ADS optical-center correction
+   - Finding: the ADS rig was centered on the rifle group's origin instead of compensating for the optic's authored vertical position. Reload and crouch presentation offsets could also move the weapon after scoping.
+   - Fix: calibrated ADS Y to `-0.1584`, the exact inverse of the optic center after rifle scale, and faded reload/crouch offsets out with the hip blend. ADS X remains on the true camera axis.
+   - Post-fix evidence: the projection regression locates the real optic reticle mesh and verifies NDC `(0, 0)` at `16:9`, `21:9`, and `9:16`. Production bundle `index-DphWe22Q.js` measured the HUD and viewport center at the same `(640, 360)` point and produced zero browser warnings/errors.
 
 **Implementation checklist**
 
@@ -77,6 +82,7 @@
 - [x] Add walking swing and smoothly center the weapon for ADS.
 - [x] Keep the rifle receiver, stock, buttpad, barrel, rail, and optic on one structural centerline.
 - [x] Center the HUD reticle on the actual viewport midpoint.
+- [x] Project the settled ADS optic center to NDC `(0, 0)` across wide, ultrawide, and portrait aspect ratios.
 - [x] Verify fresh browser render with no console warnings or errors.
 - [x] Run full lint, test, build, and authoritative server test suites.
 
