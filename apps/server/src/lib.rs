@@ -1243,8 +1243,29 @@ fn reset_weapon_loadout(ctx: &ReducerContext, player_id: u64) {
     }
 }
 
-fn bot_name(player_id: u64) -> String {
-    format!("SYN-{:02}", (player_id % 99) + 1)
+fn first_available_bot_name(used_names: &[String]) -> String {
+    for ordinal in 1..=99 {
+        let candidate = format!("SYN-{ordinal:02}");
+        if used_names
+            .iter()
+            .all(|used| !used.eq_ignore_ascii_case(&candidate))
+        {
+            return candidate;
+        }
+    }
+    "SYN-99".to_string()
+}
+
+fn bot_name(ctx: &ReducerContext, room_id: u64, replacing_player_id: Option<u64>) -> String {
+    let used_names: Vec<String> = ctx
+        .db
+        .player()
+        .room_id()
+        .filter(room_id)
+        .filter(|player| Some(player.id) != replacing_player_id)
+        .map(|player| player.nickname)
+        .collect();
+    first_available_bot_name(&used_names)
 }
 
 fn install_bot_brain(ctx: &ReducerContext, player_id: u64, room_id: u64, tick: u64) {
@@ -1306,12 +1327,7 @@ fn new_player_row(
 fn fill_room_with_bots(ctx: &ReducerContext, room_id: u64, tick: u64) {
     let existing = ctx.db.player().room_id().filter(room_id).count();
     for index in existing..usize::from(ROOM_CAPACITY) {
-        let mut bot = new_player_row(
-            ctx.identity(),
-            room_id,
-            format!("SYN-{:02}", index + 1),
-            true,
-        );
+        let mut bot = new_player_row(ctx.identity(), room_id, bot_name(ctx, room_id, None), true);
         let provisional_seed = room_id ^ index as u64;
         spawn_player(
             ctx,
@@ -1601,7 +1617,7 @@ fn release_session(
     };
     if !player.is_bot {
         player.owner_identity = ctx.identity();
-        player.nickname = bot_name(player.id);
+        player.nickname = bot_name(ctx, session.room_id, Some(player.id));
         player.is_bot = true;
         player.connected = true;
         ctx.db.player().id().update(player);
@@ -3261,7 +3277,7 @@ fn cleanup_transient_state(ctx: &ReducerContext, tick: u64) {
         if let Some(mut player) = ctx.db.player().id().find(session.player_id) {
             if simulation::expired_session_requires_bot_replacement(player.is_bot) {
                 player.owner_identity = ctx.identity();
-                player.nickname = bot_name(player.id);
+                player.nickname = bot_name(ctx, session.room_id, Some(player.id));
                 player.is_bot = true;
                 player.connected = true;
                 reset_weapon_loadout(ctx, player.id);
@@ -3425,6 +3441,37 @@ mod module_tests {
         assert_eq!(
             simulation::spawn_protection_until(spawn_tick, protection_ticks, false),
             spawn_tick
+        );
+    }
+
+    #[test]
+    fn bot_callsigns_remain_unique_across_human_replacement() {
+        assert_eq!(first_available_bot_name(&[]), "SYN-01");
+        assert_eq!(
+            first_available_bot_name(&[
+                "sYn-01".to_string(),
+                "SYN-02".to_string(),
+                "Operator".to_string(),
+            ]),
+            "SYN-03"
+        );
+
+        let names_after_excluding_replaced_slot = (2..=12)
+            .map(|ordinal| format!("SYN-{ordinal:02}"))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            first_available_bot_name(&names_after_excluding_replaced_slot),
+            "SYN-01"
+        );
+        let replacement_name = "SYN-01".to_string();
+        assert_eq!(
+            names_after_excluding_replaced_slot
+                .iter()
+                .chain(std::iter::once(&replacement_name))
+                .map(|name| name.to_ascii_lowercase())
+                .collect::<std::collections::BTreeSet<_>>()
+                .len(),
+            usize::from(ROOM_CAPACITY)
         );
     }
 
