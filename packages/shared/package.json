@@ -1,0 +1,29 @@
+{
+  "name": "@arena/shared",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "files": [
+    "dist",
+    "generated"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./arena-map.json": "./generated/arena-map.json",
+    "./arena-map-rust": "./generated/arena_map.rs"
+  },
+  "scripts": {
+    "generate": "node ../../scripts/generate-map.mjs",
+    "generate:check": "node ../../scripts/generate-map.mjs --check",
+    "build": "tsc -p tsconfig.json",
+    "test": "vitest run",
+    "check": "pnpm generate:check && pnpm test && pnpm build"
+  },
+  "devDependencies": {
+    "typescript": "^5.8.2",
+    "vitest": "4.1.10"
+  }
+}

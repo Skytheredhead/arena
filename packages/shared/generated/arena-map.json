@@ -1,0 +1,3024 @@
+{
+  "schemaVersion": 1,
+  "id": "neon-foundry-01",
+  "displayName": "Neon Foundry",
+  "description": "A rain-soaked industrial foundry with four exterior lanes, a sheltered reactor hall, roof routes, catwalks, loading platforms, and connected flanks.",
+  "tickRate": 60,
+  "maxCombatants": 12,
+  "world": {
+    "floorY": 0,
+    "playableBounds": {
+      "min": [
+        -52,
+        0,
+        -44
+      ],
+      "max": [
+        52,
+        14,
+        44
+      ]
+    },
+    "killY": -12,
+    "playerRadius": 0.45,
+    "playerHeight": 1.8,
+    "maxStepHeight": 0.48,
+    "minSpawnSeparation": 15,
+    "spawnProtectionTicks": 180
+  },
+  "atmosphere": {
+    "skyColor": "#07111c",
+    "fogColor": "#071521",
+    "fogNear": 20,
+    "fogFar": 105,
+    "ambientColor": "#3a6684",
+    "ambientIntensity": 0.42,
+    "rain": {
+      "enabled": true,
+      "boundsMin": [
+        -52,
+        0,
+        -44
+      ],
+      "boundsMax": [
+        52,
+        22,
+        44
+      ],
+      "dropsHigh": 9000,
+      "dropsMedium": 4500,
+      "dropsLow": 1800,
+      "dropLength": 0.85,
+      "wind": [
+        1.4,
+        -16,
+        0.8
+      ],
+      "splashRate": 0.28
+    }
+  },
+  "materials": [
+    {
+      "id": "wet_asphalt",
+      "baseColor": "#17212a",
+      "roughness": 0.22,
+      "metalness": 0.08,
+      "clearcoat": 0.9,
+      "clearcoatRoughness": 0.12,
+      "rainResponse": 1
+    },
+    {
+      "id": "wet_concrete",
+      "baseColor": "#4a5560",
+      "roughness": 0.36,
+      "metalness": 0.02,
+      "clearcoat": 0.55,
+      "clearcoatRoughness": 0.2,
+      "rainResponse": 0.9
+    },
+    {
+      "id": "dark_concrete",
+      "baseColor": "#202a33",
+      "roughness": 0.72,
+      "metalness": 0.02,
+      "rainResponse": 0.55
+    },
+    {
+      "id": "wet_gunmetal",
+      "baseColor": "#27343e",
+      "roughness": 0.2,
+      "metalness": 0.88,
+      "clearcoat": 0.72,
+      "clearcoatRoughness": 0.16,
+      "rainResponse": 1
+    },
+    {
+      "id": "corrugated_steel",
+      "baseColor": "#334550",
+      "roughness": 0.34,
+      "metalness": 0.75,
+      "clearcoat": 0.45,
+      "rainResponse": 0.8
+    },
+    {
+      "id": "painted_steel",
+      "baseColor": "#1e6576",
+      "roughness": 0.3,
+      "metalness": 0.62,
+      "clearcoat": 0.68,
+      "rainResponse": 0.9
+    },
+    {
+      "id": "hazard_yellow",
+      "baseColor": "#c89c18",
+      "roughness": 0.4,
+      "metalness": 0.5,
+      "clearcoat": 0.5,
+      "rainResponse": 0.8
+    },
+    {
+      "id": "grated_steel",
+      "baseColor": "#56636a",
+      "roughness": 0.46,
+      "metalness": 0.84,
+      "rainResponse": 0.85
+    },
+    {
+      "id": "reactor_glass",
+      "baseColor": "#79efff",
+      "roughness": 0.08,
+      "metalness": 0.08,
+      "transmission": 0.7,
+      "opacity": 0.58,
+      "emissive": "#00d9ff",
+      "emissiveIntensity": 2.8
+    }
+  ],
+  "routeGroups": [
+    {
+      "id": "interior-reactor-loop",
+      "kind": "interior",
+      "description": "Sheltered close-range reactor hall with four entrances."
+    },
+    {
+      "id": "outer-perimeter-loop",
+      "kind": "exterior",
+      "description": "Rain-exposed north, south, east, and west lanes."
+    },
+    {
+      "id": "roof-and-catwalk-loop",
+      "kind": "vertical",
+      "description": "Two roof ramps, an interior catwalk, and raised lane platforms."
+    },
+    {
+      "id": "cross-yard-flanks",
+      "kind": "flank",
+      "description": "Crate-screened diagonals bypassing the main gates."
+    }
+  ],
+  "boxes": [
+    {
+      "id": "world_floor",
+      "center": [
+        0,
+        -0.5,
+        0
+      ],
+      "size": [
+        104,
+        1,
+        88
+      ],
+      "materialId": "wet_asphalt",
+      "kind": "floor",
+      "tags": [
+        "exterior",
+        "rain-wet",
+        "walkable"
+      ],
+      "collision": true,
+      "walkable": true
+    },
+    {
+      "id": "boundary_west",
+      "center": [
+        -52.5,
+        5,
+        0
+      ],
+      "size": [
+        1,
+        10,
+        89
+      ],
+      "materialId": "dark_concrete",
+      "kind": "wall",
+      "tags": [
+        "boundary",
+        "exterior"
+      ],
+      "collision": true,
+      "walkable": false
+    },
+    {
+      "id": "boundary_east",
+      "center": [
+        52.5,
+        5,
+        0
+      ],
+      "size": [
+        1,
+        10,
+        89
+      ],
+      "materialId": "dark_concrete",
+      "kind": "wall",
+      "tags": [
+        "boundary",
+        "exterior"
+      ],
+      "collision": true,
+      "walkable": false
+    },
+    {
+      "id": "boundary_north",
+      "center": [
+        0,
+        5,
+        -44.5
+      ],
+      "size": [
+        106,
+        10,
+        1
+      ],
+      "materialId": "dark_concrete",
+      "kind": "wall",
+      "tags": [
+        "boundary",
+        "exterior"
+      ],
+      "collision": true,
+      "walkable": false
+    },
+    {
+      "id": "boundary_south",
+      "center": [
+        0,
+        5,
+        44.5
+      ],
+      "size": [
+        106,
+        10,
+        1
+      ],
+      "materialId": "dark_concrete",
+      "kind": "wall",
+      "tags": [
+        "boundary",
+        "exterior"
+      ],
+      "collision": true,
+      "walkable": false
+    },
+    {
+      "id": "foundry_nw",
+      "center": [
+        -11.5,
+        4,
+        -14
+      ],
+      "size": [
+        13,
+        8,
+        1
+      ],
+      "materialId": "corrugated_steel",
+      "kind": "wall",
+      "tags": [
+        "interior",
+        "foundry-shell",
+        "rain-shelter"
+      ],
+      "collision": true,
+      "walkable": false
+    },
+    {
+      "id": "foundry_ne",
+      "center": [
+        11.5,
+        4,
+        -14
+      ],
+      "size": [
+        13,
+        8,
+        1
+      ],
+      "materialId": "corrugated_steel",
+      "kind": "wall",
+      "tags": [
+        "interior",
+        "foundry-shell",
+        "rain-shelter"
+      ],
+      "collision": true,
+      "walkable": false
+    },
+    {
+      "id": "foundry_sw",
+      "center": [
+        -11.5,
+        4,
+        14
+      ],
+      "size": [
+        13,
+        8,
+        1
+      ],
+      "materialId": "corrugated_steel",
+      "kind": "wall",
+      "tags": [
+        "interior",
+        "foundry-shell",
+        "rain-shelter"
+      ],
+      "collision": true,
+      "walkable": false
+    },
+    {
+      "id": "foundry_se",
+      "center": [
+        11.5,
+        4,
+        14
+      ],
+      "size": [
+        13,
+        8,
+        1
+      ],
+      "materialId": "corrugated_steel",
+      "kind": "wall",
+      "tags": [
+        "interior",
+        "foundry-shell",
+        "rain-shelter"
+      ],
+      "collision": true,
+      "walkable": false
+    },
+    {
+      "id": "foundry_wn",
+      "center": [
+        -18,
+        4,
+        -9
+      ],
+      "size": [
+        1,
+        8,
+        10
+      ],
+      "materialId": "corrugated_steel",
+      "kind": "wall",
+      "tags": [
+        "interior",
+        "foundry-shell",
+        "rain-shelter"
+      ],
+      "collision": true,
+      "walkable": false
+    },
+    {
+      "id": "foundry_ws",
+      "center": [
+        -18,
+        4,
+        9
+      ],
+      "size": [
+        1,
+        8,
+        10
+      ],
+      "materialId": "corrugated_steel",
+      "kind": "wall",
+      "tags": [
+        "interior",
+        "foundry-shell",
+        "rain-shelter"
+      ],
+      "collision": true,
+      "walkable": false
+    },
+    {
+      "id": "foundry_en",
+      "center": [
+        18,
+        4,
+        -9
+      ],
+      "size": [
+        1,
+        8,
+        10
+      ],
+      "materialId": "corrugated_steel",
+      "kind": "wall",
+      "tags": [
+        "interior",
+        "foundry-shell",
+        "rain-shelter"
+      ],
+      "collision": true,
+      "walkable": false
+    },
+    {
+      "id": "foundry_es",
+      "center": [
+        18,
+        4,
+        9
+      ],
+      "size": [
+        1,
+        8,
+        10
+      ],
+      "materialId": "corrugated_steel",
+      "kind": "wall",
+      "tags": [
+        "interior",
+        "foundry-shell",
+        "rain-shelter"
+      ],
+      "collision": true,
+      "walkable": false
+    },
+    {
+      "id": "foundry_roof",
+      "center": [
+        0,
+        8.5,
+        0
+      ],
+      "size": [
+        36,
+        1,
+        28
+      ],
+      "materialId": "wet_gunmetal",
+      "kind": "roof",
+      "tags": [
+        "vertical",
+        "roof-route",
+        "rain-wet",
+        "walkable"
+      ],
+      "collision": true,
+      "walkable": true
+    },
+    {
+      "id": "interior_catwalk",
+      "center": [
+        0,
+        4,
+        0
+      ],
+      "size": [
+        16,
+        0.5,
+        4
+      ],
+      "materialId": "grated_steel",
+      "kind": "platform",
+      "tags": [
+        "interior",
+        "vertical",
+        "catwalk",
+        "walkable"
+      ],
+      "collision": true,
+      "walkable": true
+    },
+    {
+      "id": "west_loading_platform",
+      "center": [
+        -35,
+        1,
+        -25
+      ],
+      "size": [
+        12,
+        2,
+        10
+      ],
+      "materialId": "wet_concrete",
+      "kind": "platform",
+      "tags": [
+        "exterior",
+        "vertical",
+        "west-lane",
+        "walkable"
+      ],
+      "collision": true,
+      "walkable": true
+    },
+    {
+      "id": "east_transformer_platform",
+      "center": [
+        35,
+        1,
+        24
+      ],
+      "size": [
+        12,
+        2,
+        10
+      ],
+      "materialId": "wet_concrete",
+      "kind": "platform",
+      "tags": [
+        "exterior",
+        "vertical",
+        "east-lane",
+        "walkable"
+      ],
+      "collision": true,
+      "walkable": true
+    },
+    {
+      "id": "north_service_bridge",
+      "center": [
+        0,
+        2.8,
+        -30
+      ],
+      "size": [
+        18,
+        0.45,
+        3
+      ],
+      "materialId": "grated_steel",
+      "kind": "platform",
+      "tags": [
+        "exterior",
+        "vertical",
+        "north-lane",
+        "walkable"
+      ],
+      "collision": true,
+      "walkable": true
+    },
+    {
+      "id": "foundry_column_1",
+      "center": [
+        -12,
+        4,
+        -9
+      ],
+      "size": [
+        1.4,
+        8,
+        1.4
+      ],
+      "materialId": "painted_steel",
+      "kind": "wall",
+      "tags": [
+        "interior",
+        "cover",
+        "structural"
+      ],
+      "collision": true,
+      "walkable": false
+    },
+    {
+      "id": "foundry_column_2",
+      "center": [
+        12,
+        4,
+        -9
+      ],
+      "size": [
+        1.4,
+        8,
+        1.4
+      ],
+      "materialId": "painted_steel",
+      "kind": "wall",
+      "tags": [
+        "interior",
+        "cover",
+        "structural"
+      ],
+      "collision": true,
+      "walkable": false
+    },
+    {
+      "id": "foundry_column_3",
+      "center": [
+        -12,
+        4,
+        9
+      ],
+      "size": [
+        1.4,
+        8,
+        1.4
+      ],
+      "materialId": "painted_steel",
+      "kind": "wall",
+      "tags": [
+        "interior",
+        "cover",
+        "structural"
+      ],
+      "collision": true,
+      "walkable": false
+    },
+    {
+      "id": "foundry_column_4",
+      "center": [
+        12,
+        4,
+        9
+      ],
+      "size": [
+        1.4,
+        8,
+        1.4
+      ],
+      "materialId": "painted_steel",
+      "kind": "wall",
+      "tags": [
+        "interior",
+        "cover",
+        "structural"
+      ],
+      "collision": true,
+      "walkable": false
+    },
+    {
+      "id": "reactor_core_base",
+      "center": [
+        0,
+        1,
+        0
+      ],
+      "size": [
+        5.5,
+        2,
+        5.5
+      ],
+      "materialId": "dark_concrete",
+      "kind": "cover",
+      "tags": [
+        "interior",
+        "landmark",
+        "cover"
+      ],
+      "collision": true,
+      "walkable": false
+    },
+    {
+      "id": "west_pipe_barrier",
+      "center": [
+        -38,
+        1.2,
+        8
+      ],
+      "size": [
+        2.2,
+        2.4,
+        14
+      ],
+      "materialId": "wet_gunmetal",
+      "kind": "cover",
+      "tags": [
+        "exterior",
+        "west-lane",
+        "flank",
+        "cover"
+      ],
+      "collision": true,
+      "walkable": false
+    },
+    {
+      "id": "east_pipe_barrier",
+      "center": [
+        38,
+        1.2,
+        -8
+      ],
+      "size": [
+        2.2,
+        2.4,
+        14
+      ],
+      "materialId": "wet_gunmetal",
+      "kind": "cover",
+      "tags": [
+        "exterior",
+        "east-lane",
+        "flank",
+        "cover"
+      ],
+      "collision": true,
+      "walkable": false
+    },
+    {
+      "id": "south_checkpoint_left",
+      "center": [
+        -8,
+        1.4,
+        31
+      ],
+      "size": [
+        8,
+        2.8,
+        2
+      ],
+      "materialId": "painted_steel",
+      "kind": "cover",
+      "tags": [
+        "exterior",
+        "south-lane",
+        "cover"
+      ],
+      "collision": true,
+      "walkable": false
+    },
+    {
+      "id": "south_checkpoint_right",
+      "center": [
+        8,
+        1.4,
+        31
+      ],
+      "size": [
+        8,
+        2.8,
+        2
+      ],
+      "materialId": "painted_steel",
+      "kind": "cover",
+      "tags": [
+        "exterior",
+        "south-lane",
+        "cover"
+      ],
+      "collision": true,
+      "walkable": false
+    },
+    {
+      "id": "southwest_crates_1",
+      "center": [
+        -30,
+        1.05,
+        27
+      ],
+      "size": [
+        2.4,
+        2.1,
+        2.4
+      ],
+      "materialId": "painted_steel",
+      "kind": "cover",
+      "tags": [
+        "cover",
+        "industrial",
+        "spawn-occluder"
+      ],
+      "collision": true,
+      "walkable": false
+    },
+    {
+      "id": "southwest_crates_2",
+      "center": [
+        -27.3,
+        1.4,
+        27.4
+      ],
+      "size": [
+        2,
+        2.8,
+        3.2
+      ],
+      "materialId": "hazard_yellow",
+      "kind": "cover",
+      "tags": [
+        "cover",
+        "industrial",
+        "spawn-occluder"
+      ],
+      "collision": true,
+      "walkable": false
+    },
+    {
+      "id": "southwest_crates_3",
+      "center": [
+        -32.5,
+        1.05,
+        26.7
+      ],
+      "size": [
+        1.8,
+        2.1,
+        1.8
+      ],
+      "materialId": "painted_steel",
+      "kind": "cover",
+      "tags": [
+        "cover",
+        "industrial",
+        "spawn-occluder"
+      ],
+      "collision": true,
+      "walkable": false
+    },
+    {
+      "id": "southeast_crates_1",
+      "center": [
+        30,
+        1.05,
+        29
+      ],
+      "size": [
+        2.4,
+        2.1,
+        2.4
+      ],
+      "materialId": "painted_steel",
+      "kind": "cover",
+      "tags": [
+        "cover",
+        "industrial",
+        "spawn-occluder"
+      ],
+      "collision": true,
+      "walkable": false
+    },
+    {
+      "id": "southeast_crates_2",
+      "center": [
+        30.4,
+        1.4,
+        31.7
+      ],
+      "size": [
+        3.2,
+        2.8,
+        2
+      ],
+      "materialId": "hazard_yellow",
+      "kind": "cover",
+      "tags": [
+        "cover",
+        "industrial",
+        "spawn-occluder"
+      ],
+      "collision": true,
+      "walkable": false
+    },
+    {
+      "id": "southeast_crates_3",
+      "center": [
+        29.7,
+        1.05,
+        26.5
+      ],
+      "size": [
+        1.8,
+        2.1,
+        1.8
+      ],
+      "materialId": "painted_steel",
+      "kind": "cover",
+      "tags": [
+        "cover",
+        "industrial",
+        "spawn-occluder"
+      ],
+      "collision": true,
+      "walkable": false
+    },
+    {
+      "id": "northwest_crates_1",
+      "center": [
+        -31,
+        1.05,
+        -28
+      ],
+      "size": [
+        2.4,
+        2.1,
+        2.4
+      ],
+      "materialId": "painted_steel",
+      "kind": "cover",
+      "tags": [
+        "cover",
+        "industrial",
+        "spawn-occluder"
+      ],
+      "collision": true,
+      "walkable": false
+    },
+    {
+      "id": "northwest_crates_2",
+      "center": [
+        -30.6,
+        1.4,
+        -25.3
+      ],
+      "size": [
+        3.2,
+        2.8,
+        2
+      ],
+      "materialId": "hazard_yellow",
+      "kind": "cover",
+      "tags": [
+        "cover",
+        "industrial",
+        "spawn-occluder"
+      ],
+      "collision": true,
+      "walkable": false
+    },
+    {
+      "id": "northwest_crates_3",
+      "center": [
+        -31.3,
+        1.05,
+        -30.5
+      ],
+      "size": [
+        1.8,
+        2.1,
+        1.8
+      ],
+      "materialId": "painted_steel",
+      "kind": "cover",
+      "tags": [
+        "cover",
+        "industrial",
+        "spawn-occluder"
+      ],
+      "collision": true,
+      "walkable": false
+    },
+    {
+      "id": "northeast_crates_1",
+      "center": [
+        31,
+        1.05,
+        -29
+      ],
+      "size": [
+        2.4,
+        2.1,
+        2.4
+      ],
+      "materialId": "painted_steel",
+      "kind": "cover",
+      "tags": [
+        "cover",
+        "industrial",
+        "spawn-occluder"
+      ],
+      "collision": true,
+      "walkable": false
+    },
+    {
+      "id": "northeast_crates_2",
+      "center": [
+        33.7,
+        1.4,
+        -28.6
+      ],
+      "size": [
+        2,
+        2.8,
+        3.2
+      ],
+      "materialId": "hazard_yellow",
+      "kind": "cover",
+      "tags": [
+        "cover",
+        "industrial",
+        "spawn-occluder"
+      ],
+      "collision": true,
+      "walkable": false
+    },
+    {
+      "id": "northeast_crates_3",
+      "center": [
+        28.5,
+        1.05,
+        -29.3
+      ],
+      "size": [
+        1.8,
+        2.1,
+        1.8
+      ],
+      "materialId": "painted_steel",
+      "kind": "cover",
+      "tags": [
+        "cover",
+        "industrial",
+        "spawn-occluder"
+      ],
+      "collision": true,
+      "walkable": false
+    },
+    {
+      "id": "interior_west_crates_1",
+      "center": [
+        -10,
+        1.05,
+        3
+      ],
+      "size": [
+        2.4,
+        2.1,
+        2.4
+      ],
+      "materialId": "painted_steel",
+      "kind": "cover",
+      "tags": [
+        "cover",
+        "industrial",
+        "spawn-occluder"
+      ],
+      "collision": true,
+      "walkable": false
+    },
+    {
+      "id": "interior_west_crates_2",
+      "center": [
+        -9.6,
+        1.4,
+        5.7
+      ],
+      "size": [
+        3.2,
+        2.8,
+        2
+      ],
+      "materialId": "hazard_yellow",
+      "kind": "cover",
+      "tags": [
+        "cover",
+        "industrial",
+        "spawn-occluder"
+      ],
+      "collision": true,
+      "walkable": false
+    },
+    {
+      "id": "interior_west_crates_3",
+      "center": [
+        -10.3,
+        1.05,
+        0.5
+      ],
+      "size": [
+        1.8,
+        2.1,
+        1.8
+      ],
+      "materialId": "painted_steel",
+      "kind": "cover",
+      "tags": [
+        "cover",
+        "industrial",
+        "spawn-occluder"
+      ],
+      "collision": true,
+      "walkable": false
+    },
+    {
+      "id": "interior_east_crates_1",
+      "center": [
+        10,
+        1.05,
+        -3
+      ],
+      "size": [
+        2.4,
+        2.1,
+        2.4
+      ],
+      "materialId": "painted_steel",
+      "kind": "cover",
+      "tags": [
+        "cover",
+        "industrial",
+        "spawn-occluder"
+      ],
+      "collision": true,
+      "walkable": false
+    },
+    {
+      "id": "interior_east_crates_2",
+      "center": [
+        10.4,
+        1.4,
+        -0.2999999999999998
+      ],
+      "size": [
+        3.2,
+        2.8,
+        2
+      ],
+      "materialId": "hazard_yellow",
+      "kind": "cover",
+      "tags": [
+        "cover",
+        "industrial",
+        "spawn-occluder"
+      ],
+      "collision": true,
+      "walkable": false
+    },
+    {
+      "id": "interior_east_crates_3",
+      "center": [
+        9.7,
+        1.05,
+        -5.5
+      ],
+      "size": [
+        1.8,
+        2.1,
+        1.8
+      ],
+      "materialId": "painted_steel",
+      "kind": "cover",
+      "tags": [
+        "cover",
+        "industrial",
+        "spawn-occluder"
+      ],
+      "collision": true,
+      "walkable": false
+    }
+  ],
+  "ramps": [
+    {
+      "id": "west_roof_ramp",
+      "minX": -29,
+      "maxX": -18,
+      "minZ": -2,
+      "maxZ": 2,
+      "baseY": 0,
+      "topY": 9,
+      "axis": "x",
+      "ascending": "positive",
+      "materialId": "grated_steel",
+      "tags": [
+        "vertical",
+        "roof-route",
+        "west-flank"
+      ]
+    },
+    {
+      "id": "east_roof_ramp",
+      "minX": 18,
+      "maxX": 29,
+      "minZ": -2,
+      "maxZ": 2,
+      "baseY": 0,
+      "topY": 9,
+      "axis": "x",
+      "ascending": "negative",
+      "materialId": "grated_steel",
+      "tags": [
+        "vertical",
+        "roof-route",
+        "east-flank"
+      ]
+    },
+    {
+      "id": "interior_north_catwalk_ramp",
+      "minX": -2,
+      "maxX": 2,
+      "minZ": -12,
+      "maxZ": -4,
+      "baseY": 0,
+      "topY": 4.25,
+      "axis": "z",
+      "ascending": "positive",
+      "materialId": "grated_steel",
+      "tags": [
+        "interior",
+        "vertical",
+        "catwalk"
+      ]
+    },
+    {
+      "id": "interior_south_catwalk_ramp",
+      "minX": -2,
+      "maxX": 2,
+      "minZ": 4,
+      "maxZ": 12,
+      "baseY": 0,
+      "topY": 4.25,
+      "axis": "z",
+      "ascending": "negative",
+      "materialId": "grated_steel",
+      "tags": [
+        "interior",
+        "vertical",
+        "catwalk"
+      ]
+    },
+    {
+      "id": "west_loading_ramp",
+      "minX": -44,
+      "maxX": -41,
+      "minZ": -27,
+      "maxZ": -23,
+      "baseY": 0,
+      "topY": 2,
+      "axis": "x",
+      "ascending": "positive",
+      "materialId": "hazard_yellow",
+      "tags": [
+        "exterior",
+        "vertical",
+        "west-lane"
+      ]
+    },
+    {
+      "id": "east_transformer_ramp",
+      "minX": 41,
+      "maxX": 44,
+      "minZ": 22,
+      "maxZ": 26,
+      "baseY": 0,
+      "topY": 2,
+      "axis": "x",
+      "ascending": "negative",
+      "materialId": "hazard_yellow",
+      "tags": [
+        "exterior",
+        "vertical",
+        "east-lane"
+      ]
+    },
+    {
+      "id": "north_bridge_west_ramp",
+      "minX": -12,
+      "maxX": -9,
+      "minZ": -31.5,
+      "maxZ": -28.5,
+      "baseY": 0,
+      "topY": 3.025,
+      "axis": "x",
+      "ascending": "positive",
+      "materialId": "grated_steel",
+      "tags": [
+        "exterior",
+        "vertical",
+        "north-lane"
+      ]
+    },
+    {
+      "id": "north_bridge_east_ramp",
+      "minX": 9,
+      "maxX": 12,
+      "minZ": -31.5,
+      "maxZ": -28.5,
+      "baseY": 0,
+      "topY": 3.025,
+      "axis": "x",
+      "ascending": "negative",
+      "materialId": "grated_steel",
+      "tags": [
+        "exterior",
+        "vertical",
+        "north-lane"
+      ]
+    }
+  ],
+  "cylinders": [
+    {
+      "id": "reactor_core",
+      "center": [
+        0,
+        4,
+        0
+      ],
+      "radius": 2.2,
+      "height": 6,
+      "materialId": "reactor_glass",
+      "tags": [
+        "interior",
+        "landmark",
+        "emissive"
+      ]
+    },
+    {
+      "id": "northwest_coolant_tank",
+      "center": [
+        -39,
+        3.5,
+        -17
+      ],
+      "radius": 3.2,
+      "height": 7,
+      "materialId": "wet_gunmetal",
+      "tags": [
+        "exterior",
+        "landmark",
+        "west-lane"
+      ]
+    },
+    {
+      "id": "southeast_coolant_tank",
+      "center": [
+        39,
+        3.5,
+        17
+      ],
+      "radius": 3.2,
+      "height": 7,
+      "materialId": "wet_gunmetal",
+      "tags": [
+        "exterior",
+        "landmark",
+        "east-lane"
+      ]
+    }
+  ],
+  "lights": [
+    {
+      "id": "reactor_light",
+      "position": [
+        0,
+        5.5,
+        0
+      ],
+      "color": "#00f5ff",
+      "intensity": 36,
+      "range": 22,
+      "kind": "point"
+    },
+    {
+      "id": "south_gate_light",
+      "position": [
+        0,
+        6,
+        39
+      ],
+      "color": "#ff2fd1",
+      "intensity": 24,
+      "range": 20,
+      "kind": "point"
+    },
+    {
+      "id": "north_bridge_light",
+      "position": [
+        0,
+        6,
+        -30
+      ],
+      "color": "#00f5ff",
+      "intensity": 22,
+      "range": 18,
+      "kind": "point"
+    },
+    {
+      "id": "west_lane_light",
+      "position": [
+        -42,
+        5,
+        0
+      ],
+      "color": "#ffb000",
+      "intensity": 18,
+      "range": 16,
+      "kind": "point"
+    },
+    {
+      "id": "east_lane_light",
+      "position": [
+        42,
+        5,
+        0
+      ],
+      "color": "#ff2fd1",
+      "intensity": 20,
+      "range": 16,
+      "kind": "point"
+    },
+    {
+      "id": "roof_beacon_cyan",
+      "position": [
+        -10,
+        11,
+        0
+      ],
+      "color": "#00f5ff",
+      "intensity": 18,
+      "range": 14,
+      "kind": "point"
+    },
+    {
+      "id": "roof_beacon_magenta",
+      "position": [
+        10,
+        11,
+        0
+      ],
+      "color": "#ff2fd1",
+      "intensity": 18,
+      "range": 14,
+      "kind": "point"
+    }
+  ],
+  "signs": [
+    {
+      "id": "foundry_north_sign",
+      "position": [
+        0,
+        5.5,
+        -14.6
+      ],
+      "rotationY": 0,
+      "text": "FOUNDRY 12",
+      "color": "#00f5ff",
+      "width": 8,
+      "height": 1.2
+    },
+    {
+      "id": "south_gate_sign",
+      "position": [
+        0,
+        4,
+        43.8
+      ],
+      "rotationY": 3.141592653589793,
+      "text": "SOUTH GATE",
+      "color": "#ff2fd1",
+      "width": 7,
+      "height": 1
+    },
+    {
+      "id": "west_lane_sign",
+      "position": [
+        -51.8,
+        4,
+        0
+      ],
+      "rotationY": 1.5707963267948966,
+      "text": "COOLANT",
+      "color": "#ffb000",
+      "width": 6,
+      "height": 1
+    },
+    {
+      "id": "east_lane_sign",
+      "position": [
+        51.8,
+        4,
+        0
+      ],
+      "rotationY": -1.5707963267948966,
+      "text": "POWER",
+      "color": "#ff2fd1",
+      "width": 6,
+      "height": 1
+    }
+  ],
+  "spawns": [
+    {
+      "id": "spawn_01",
+      "position": [
+        -45,
+        0,
+        36
+      ],
+      "yaw": -0.75,
+      "zone": "southwest-yard",
+      "navWaypointId": "sw_spawn_nav",
+      "safeRadius": 8,
+      "coverFacing": 0.75
+    },
+    {
+      "id": "spawn_02",
+      "position": [
+        -20,
+        0,
+        38
+      ],
+      "yaw": -0.2,
+      "zone": "south-loading",
+      "navWaypointId": "south_left_spawn_nav",
+      "safeRadius": 8,
+      "coverFacing": 0
+    },
+    {
+      "id": "spawn_03",
+      "position": [
+        20,
+        0,
+        38
+      ],
+      "yaw": 0.2,
+      "zone": "south-checkpoint",
+      "navWaypointId": "south_right_spawn_nav",
+      "safeRadius": 8,
+      "coverFacing": 0
+    },
+    {
+      "id": "spawn_04",
+      "position": [
+        45,
+        0,
+        36
+      ],
+      "yaw": 0.75,
+      "zone": "southeast-yard",
+      "navWaypointId": "se_spawn_nav",
+      "safeRadius": 8,
+      "coverFacing": -0.75
+    },
+    {
+      "id": "spawn_05",
+      "position": [
+        46,
+        0,
+        18
+      ],
+      "yaw": 1.45,
+      "zone": "east-transformers",
+      "navWaypointId": "east_south_spawn_nav",
+      "safeRadius": 8,
+      "coverFacing": -1.55
+    },
+    {
+      "id": "spawn_06",
+      "position": [
+        46,
+        0,
+        -18
+      ],
+      "yaw": 1.7,
+      "zone": "east-power-alley",
+      "navWaypointId": "east_north_spawn_nav",
+      "safeRadius": 8,
+      "coverFacing": -1.55
+    },
+    {
+      "id": "spawn_07",
+      "position": [
+        42,
+        0,
+        -36
+      ],
+      "yaw": 2.35,
+      "zone": "northeast-yard",
+      "navWaypointId": "ne_spawn_nav",
+      "safeRadius": 8,
+      "coverFacing": -2.35
+    },
+    {
+      "id": "spawn_08",
+      "position": [
+        16,
+        0,
+        -38
+      ],
+      "yaw": 2.9,
+      "zone": "north-bridge-east",
+      "navWaypointId": "north_right_spawn_nav",
+      "safeRadius": 8,
+      "coverFacing": 3.141592653589793
+    },
+    {
+      "id": "spawn_09",
+      "position": [
+        -16,
+        0,
+        -38
+      ],
+      "yaw": -2.9,
+      "zone": "north-bridge-west",
+      "navWaypointId": "north_left_spawn_nav",
+      "safeRadius": 8,
+      "coverFacing": 3.141592653589793
+    },
+    {
+      "id": "spawn_10",
+      "position": [
+        -42,
+        0,
+        -36
+      ],
+      "yaw": -2.35,
+      "zone": "northwest-yard",
+      "navWaypointId": "nw_spawn_nav",
+      "safeRadius": 8,
+      "coverFacing": 2.35
+    },
+    {
+      "id": "spawn_11",
+      "position": [
+        -46,
+        0,
+        -18
+      ],
+      "yaw": -1.7,
+      "zone": "west-coolant-alley",
+      "navWaypointId": "west_north_spawn_nav",
+      "safeRadius": 8,
+      "coverFacing": 1.55
+    },
+    {
+      "id": "spawn_12",
+      "position": [
+        -46,
+        0,
+        18
+      ],
+      "yaw": -1.45,
+      "zone": "west-loading",
+      "navWaypointId": "west_south_spawn_nav",
+      "safeRadius": 8,
+      "coverFacing": 1.55
+    }
+  ],
+  "pickups": [
+    {
+      "id": "ammo_interior",
+      "kind": "ammo",
+      "position": [
+        7,
+        0.15,
+        7
+      ],
+      "respawnTicks": 720
+    },
+    {
+      "id": "health_interior",
+      "kind": "health",
+      "position": [
+        -7,
+        0.15,
+        -7
+      ],
+      "respawnTicks": 900
+    },
+    {
+      "id": "ammo_roof",
+      "kind": "ammo",
+      "position": [
+        0,
+        9.15,
+        7
+      ],
+      "respawnTicks": 720
+    },
+    {
+      "id": "health_roof",
+      "kind": "health",
+      "position": [
+        0,
+        9.15,
+        -7
+      ],
+      "respawnTicks": 900
+    },
+    {
+      "id": "ammo_west_lane",
+      "kind": "ammo",
+      "position": [
+        -42,
+        0.15,
+        10
+      ],
+      "respawnTicks": 720
+    },
+    {
+      "id": "health_east_lane",
+      "kind": "health",
+      "position": [
+        42,
+        0.15,
+        -10
+      ],
+      "respawnTicks": 900
+    },
+    {
+      "id": "ammo_south",
+      "kind": "ammo",
+      "position": [
+        0,
+        0.15,
+        28
+      ],
+      "respawnTicks": 720
+    },
+    {
+      "id": "health_north",
+      "kind": "health",
+      "position": [
+        0,
+        0.15,
+        -24
+      ],
+      "respawnTicks": 900
+    }
+  ],
+  "navWaypoints": [
+    {
+      "id": "sw_spawn_nav",
+      "position": [
+        -45,
+        0,
+        36
+      ],
+      "neighbors": [
+        "south_west",
+        "west_south",
+        "west_south_spawn_nav"
+      ],
+      "route": "spawn",
+      "tags": [
+        "exterior"
+      ]
+    },
+    {
+      "id": "south_left_spawn_nav",
+      "position": [
+        -20,
+        0,
+        38
+      ],
+      "neighbors": [
+        "south_mid",
+        "south_west"
+      ],
+      "route": "spawn",
+      "tags": [
+        "exterior"
+      ]
+    },
+    {
+      "id": "south_right_spawn_nav",
+      "position": [
+        20,
+        0,
+        38
+      ],
+      "neighbors": [
+        "south_east",
+        "south_mid"
+      ],
+      "route": "spawn",
+      "tags": [
+        "exterior"
+      ]
+    },
+    {
+      "id": "se_spawn_nav",
+      "position": [
+        45,
+        0,
+        36
+      ],
+      "neighbors": [
+        "east_south",
+        "east_south_spawn_nav",
+        "south_east"
+      ],
+      "route": "spawn",
+      "tags": [
+        "exterior"
+      ]
+    },
+    {
+      "id": "east_south_spawn_nav",
+      "position": [
+        46,
+        0,
+        18
+      ],
+      "neighbors": [
+        "east_mid",
+        "east_south",
+        "se_spawn_nav"
+      ],
+      "route": "spawn",
+      "tags": [
+        "exterior"
+      ]
+    },
+    {
+      "id": "east_north_spawn_nav",
+      "position": [
+        46,
+        0,
+        -18
+      ],
+      "neighbors": [
+        "east_mid",
+        "east_north",
+        "ne_spawn_nav"
+      ],
+      "route": "spawn",
+      "tags": [
+        "exterior"
+      ]
+    },
+    {
+      "id": "ne_spawn_nav",
+      "position": [
+        42,
+        0,
+        -36
+      ],
+      "neighbors": [
+        "east_north_spawn_nav",
+        "north_east"
+      ],
+      "route": "spawn",
+      "tags": [
+        "exterior"
+      ]
+    },
+    {
+      "id": "north_right_spawn_nav",
+      "position": [
+        16,
+        0,
+        -38
+      ],
+      "neighbors": [
+        "north_east",
+        "north_mid"
+      ],
+      "route": "spawn",
+      "tags": [
+        "exterior"
+      ]
+    },
+    {
+      "id": "north_left_spawn_nav",
+      "position": [
+        -16,
+        0,
+        -38
+      ],
+      "neighbors": [
+        "north_mid",
+        "north_west"
+      ],
+      "route": "spawn",
+      "tags": [
+        "exterior"
+      ]
+    },
+    {
+      "id": "nw_spawn_nav",
+      "position": [
+        -42,
+        0,
+        -36
+      ],
+      "neighbors": [
+        "north_west",
+        "west_north_spawn_nav"
+      ],
+      "route": "spawn",
+      "tags": [
+        "exterior"
+      ]
+    },
+    {
+      "id": "west_north_spawn_nav",
+      "position": [
+        -46,
+        0,
+        -18
+      ],
+      "neighbors": [
+        "nw_spawn_nav",
+        "west_mid",
+        "west_north"
+      ],
+      "route": "spawn",
+      "tags": [
+        "exterior"
+      ]
+    },
+    {
+      "id": "west_south_spawn_nav",
+      "position": [
+        -46,
+        0,
+        18
+      ],
+      "neighbors": [
+        "sw_spawn_nav",
+        "west_mid",
+        "west_south"
+      ],
+      "route": "spawn",
+      "tags": [
+        "exterior"
+      ]
+    },
+    {
+      "id": "south_west",
+      "position": [
+        -31,
+        0,
+        35
+      ],
+      "neighbors": [
+        "south_flank_west",
+        "south_left_spawn_nav",
+        "south_mid",
+        "sw_spawn_nav",
+        "west_south"
+      ],
+      "route": "exterior",
+      "tags": [
+        "south-lane"
+      ]
+    },
+    {
+      "id": "south_mid",
+      "position": [
+        0,
+        0,
+        36
+      ],
+      "neighbors": [
+        "south_east",
+        "south_gate",
+        "south_left_spawn_nav",
+        "south_right_spawn_nav",
+        "south_west"
+      ],
+      "route": "exterior",
+      "tags": [
+        "south-lane"
+      ]
+    },
+    {
+      "id": "south_east",
+      "position": [
+        31,
+        0,
+        35
+      ],
+      "neighbors": [
+        "east_south",
+        "se_spawn_nav",
+        "south_flank_east",
+        "south_mid",
+        "south_right_spawn_nav",
+        "southeast_crate_nav"
+      ],
+      "route": "exterior",
+      "tags": [
+        "south-lane"
+      ]
+    },
+    {
+      "id": "north_west",
+      "position": [
+        -31,
+        0,
+        -35
+      ],
+      "neighbors": [
+        "north_flank_west",
+        "north_left_spawn_nav",
+        "north_mid",
+        "northwest_crate_nav",
+        "nw_spawn_nav",
+        "west_north"
+      ],
+      "route": "exterior",
+      "tags": [
+        "north-lane"
+      ]
+    },
+    {
+      "id": "north_mid",
+      "position": [
+        0,
+        0,
+        -36
+      ],
+      "neighbors": [
+        "north_bridge_east",
+        "north_bridge_west",
+        "north_east",
+        "north_gate",
+        "north_left_spawn_nav",
+        "north_right_spawn_nav",
+        "north_west"
+      ],
+      "route": "exterior",
+      "tags": [
+        "north-lane"
+      ]
+    },
+    {
+      "id": "north_east",
+      "position": [
+        31,
+        0,
+        -35
+      ],
+      "neighbors": [
+        "east_north",
+        "ne_spawn_nav",
+        "north_flank_east",
+        "north_mid",
+        "north_right_spawn_nav"
+      ],
+      "route": "exterior",
+      "tags": [
+        "north-lane"
+      ]
+    },
+    {
+      "id": "west_south",
+      "position": [
+        -45,
+        0,
+        26
+      ],
+      "neighbors": [
+        "south_west",
+        "sw_spawn_nav",
+        "west_mid",
+        "west_platform_base",
+        "west_south_spawn_nav"
+      ],
+      "route": "flank",
+      "tags": [
+        "west-lane",
+        "exterior"
+      ]
+    },
+    {
+      "id": "west_mid",
+      "position": [
+        -45,
+        0,
+        0
+      ],
+      "neighbors": [
+        "west_north",
+        "west_north_spawn_nav",
+        "west_roof_base",
+        "west_south",
+        "west_south_spawn_nav"
+      ],
+      "route": "flank",
+      "tags": [
+        "west-lane",
+        "exterior"
+      ]
+    },
+    {
+      "id": "west_north",
+      "position": [
+        -45,
+        0,
+        -26
+      ],
+      "neighbors": [
+        "north_west",
+        "west_mid",
+        "west_north_spawn_nav"
+      ],
+      "route": "flank",
+      "tags": [
+        "west-lane",
+        "exterior"
+      ]
+    },
+    {
+      "id": "east_south",
+      "position": [
+        45,
+        0,
+        26
+      ],
+      "neighbors": [
+        "east_mid",
+        "east_platform_base",
+        "east_south_spawn_nav",
+        "se_spawn_nav",
+        "south_east"
+      ],
+      "route": "flank",
+      "tags": [
+        "east-lane",
+        "exterior"
+      ]
+    },
+    {
+      "id": "east_mid",
+      "position": [
+        45,
+        0,
+        0
+      ],
+      "neighbors": [
+        "east_north",
+        "east_north_spawn_nav",
+        "east_roof_base",
+        "east_south",
+        "east_south_spawn_nav"
+      ],
+      "route": "flank",
+      "tags": [
+        "east-lane",
+        "exterior"
+      ]
+    },
+    {
+      "id": "east_north",
+      "position": [
+        45,
+        0,
+        -26
+      ],
+      "neighbors": [
+        "east_mid",
+        "east_north_spawn_nav",
+        "north_east"
+      ],
+      "route": "flank",
+      "tags": [
+        "east-lane",
+        "exterior"
+      ]
+    },
+    {
+      "id": "south_gate",
+      "position": [
+        0,
+        0,
+        18
+      ],
+      "neighbors": [
+        "interior_south",
+        "south_flank_east",
+        "south_flank_west",
+        "south_mid"
+      ],
+      "route": "interior",
+      "tags": [
+        "entrance"
+      ]
+    },
+    {
+      "id": "north_gate",
+      "position": [
+        0,
+        0,
+        -18
+      ],
+      "neighbors": [
+        "interior_north",
+        "north_flank_east",
+        "north_flank_west",
+        "north_mid"
+      ],
+      "route": "interior",
+      "tags": [
+        "entrance"
+      ]
+    },
+    {
+      "id": "west_gate",
+      "position": [
+        -22,
+        0,
+        0
+      ],
+      "neighbors": [
+        "interior_west",
+        "north_flank_west",
+        "south_flank_west",
+        "west_roof_base"
+      ],
+      "route": "interior",
+      "tags": [
+        "entrance",
+        "flank"
+      ]
+    },
+    {
+      "id": "east_gate",
+      "position": [
+        22,
+        0,
+        0
+      ],
+      "neighbors": [
+        "east_roof_base",
+        "interior_east",
+        "north_flank_east",
+        "south_flank_east"
+      ],
+      "route": "interior",
+      "tags": [
+        "entrance",
+        "flank"
+      ]
+    },
+    {
+      "id": "interior_south",
+      "position": [
+        0,
+        0,
+        10
+      ],
+      "neighbors": [
+        "catwalk_south_base",
+        "interior_center",
+        "interior_se",
+        "interior_sw",
+        "south_gate"
+      ],
+      "route": "interior",
+      "tags": [
+        "foundry"
+      ]
+    },
+    {
+      "id": "interior_north",
+      "position": [
+        0,
+        0,
+        -10
+      ],
+      "neighbors": [
+        "catwalk_north_base",
+        "interior_center",
+        "interior_ne",
+        "interior_nw",
+        "north_gate"
+      ],
+      "route": "interior",
+      "tags": [
+        "foundry"
+      ]
+    },
+    {
+      "id": "interior_west",
+      "position": [
+        -12,
+        0,
+        0
+      ],
+      "neighbors": [
+        "interior_center",
+        "interior_nw",
+        "interior_sw",
+        "west_gate"
+      ],
+      "route": "interior",
+      "tags": [
+        "foundry"
+      ]
+    },
+    {
+      "id": "interior_east",
+      "position": [
+        12,
+        0,
+        0
+      ],
+      "neighbors": [
+        "east_gate",
+        "interior_center",
+        "interior_ne",
+        "interior_se"
+      ],
+      "route": "interior",
+      "tags": [
+        "foundry"
+      ]
+    },
+    {
+      "id": "interior_center",
+      "position": [
+        0,
+        0,
+        7
+      ],
+      "neighbors": [
+        "interior_east",
+        "interior_north",
+        "interior_south",
+        "interior_west"
+      ],
+      "route": "interior",
+      "tags": [
+        "reactor"
+      ]
+    },
+    {
+      "id": "interior_nw",
+      "position": [
+        -10,
+        0,
+        -10
+      ],
+      "neighbors": [
+        "interior_north",
+        "interior_west"
+      ],
+      "route": "interior",
+      "tags": [
+        "cover"
+      ]
+    },
+    {
+      "id": "interior_ne",
+      "position": [
+        10,
+        0,
+        -10
+      ],
+      "neighbors": [
+        "interior_east",
+        "interior_north"
+      ],
+      "route": "interior",
+      "tags": [
+        "cover"
+      ]
+    },
+    {
+      "id": "interior_sw",
+      "position": [
+        -10,
+        0,
+        10
+      ],
+      "neighbors": [
+        "interior_south",
+        "interior_west"
+      ],
+      "route": "interior",
+      "tags": [
+        "cover"
+      ]
+    },
+    {
+      "id": "interior_se",
+      "position": [
+        10,
+        0,
+        10
+      ],
+      "neighbors": [
+        "interior_east",
+        "interior_south"
+      ],
+      "route": "interior",
+      "tags": [
+        "cover"
+      ]
+    },
+    {
+      "id": "south_flank_west",
+      "position": [
+        -15,
+        0,
+        20
+      ],
+      "neighbors": [
+        "south_gate",
+        "south_west",
+        "west_gate"
+      ],
+      "route": "flank",
+      "tags": [
+        "exterior",
+        "cover"
+      ]
+    },
+    {
+      "id": "south_flank_east",
+      "position": [
+        15,
+        0,
+        20
+      ],
+      "neighbors": [
+        "east_gate",
+        "south_east",
+        "south_gate",
+        "southeast_crate_nav"
+      ],
+      "route": "flank",
+      "tags": [
+        "exterior",
+        "cover"
+      ]
+    },
+    {
+      "id": "north_flank_west",
+      "position": [
+        -15,
+        0,
+        -20
+      ],
+      "neighbors": [
+        "north_gate",
+        "north_west",
+        "northwest_crate_nav",
+        "west_gate"
+      ],
+      "route": "flank",
+      "tags": [
+        "exterior",
+        "cover"
+      ]
+    },
+    {
+      "id": "north_flank_east",
+      "position": [
+        15,
+        0,
+        -20
+      ],
+      "neighbors": [
+        "east_gate",
+        "north_east",
+        "north_gate"
+      ],
+      "route": "flank",
+      "tags": [
+        "exterior",
+        "cover"
+      ]
+    },
+    {
+      "id": "west_roof_base",
+      "position": [
+        -29,
+        0,
+        0
+      ],
+      "neighbors": [
+        "west_gate",
+        "west_mid",
+        "west_roof_mid"
+      ],
+      "route": "vertical",
+      "tags": [
+        "roof-route"
+      ]
+    },
+    {
+      "id": "west_roof_mid",
+      "position": [
+        -23.5,
+        4.5,
+        0
+      ],
+      "neighbors": [
+        "west_roof_base",
+        "west_roof_top"
+      ],
+      "route": "vertical",
+      "tags": [
+        "ramp"
+      ]
+    },
+    {
+      "id": "west_roof_top",
+      "position": [
+        -18,
+        9,
+        0
+      ],
+      "neighbors": [
+        "roof_west",
+        "west_roof_mid"
+      ],
+      "route": "vertical",
+      "tags": [
+        "roof-route"
+      ]
+    },
+    {
+      "id": "roof_west",
+      "position": [
+        -10,
+        9,
+        0
+      ],
+      "neighbors": [
+        "roof_center",
+        "roof_north_west",
+        "roof_south_west",
+        "west_roof_top"
+      ],
+      "route": "vertical",
+      "tags": [
+        "roof-route"
+      ]
+    },
+    {
+      "id": "roof_center",
+      "position": [
+        0,
+        9,
+        0
+      ],
+      "neighbors": [
+        "roof_east",
+        "roof_north_east",
+        "roof_north_west",
+        "roof_south_east",
+        "roof_south_west",
+        "roof_west"
+      ],
+      "route": "vertical",
+      "tags": [
+        "roof-route"
+      ]
+    },
+    {
+      "id": "roof_east",
+      "position": [
+        10,
+        9,
+        0
+      ],
+      "neighbors": [
+        "east_roof_top",
+        "roof_center",
+        "roof_north_east",
+        "roof_south_east"
+      ],
+      "route": "vertical",
+      "tags": [
+        "roof-route"
+      ]
+    },
+    {
+      "id": "east_roof_top",
+      "position": [
+        18,
+        9,
+        0
+      ],
+      "neighbors": [
+        "east_roof_mid",
+        "roof_east"
+      ],
+      "route": "vertical",
+      "tags": [
+        "roof-route"
+      ]
+    },
+    {
+      "id": "east_roof_mid",
+      "position": [
+        23.5,
+        4.5,
+        0
+      ],
+      "neighbors": [
+        "east_roof_base",
+        "east_roof_top"
+      ],
+      "route": "vertical",
+      "tags": [
+        "ramp"
+      ]
+    },
+    {
+      "id": "east_roof_base",
+      "position": [
+        29,
+        0,
+        0
+      ],
+      "neighbors": [
+        "east_gate",
+        "east_mid",
+        "east_roof_mid"
+      ],
+      "route": "vertical",
+      "tags": [
+        "roof-route"
+      ]
+    },
+    {
+      "id": "roof_north_west",
+      "position": [
+        -10,
+        9,
+        -9
+      ],
+      "neighbors": [
+        "roof_center",
+        "roof_north_east",
+        "roof_west"
+      ],
+      "route": "vertical",
+      "tags": [
+        "roof-route",
+        "overlook"
+      ]
+    },
+    {
+      "id": "roof_north_east",
+      "position": [
+        10,
+        9,
+        -9
+      ],
+      "neighbors": [
+        "roof_center",
+        "roof_east",
+        "roof_north_west"
+      ],
+      "route": "vertical",
+      "tags": [
+        "roof-route",
+        "overlook"
+      ]
+    },
+    {
+      "id": "roof_south_west",
+      "position": [
+        -10,
+        9,
+        9
+      ],
+      "neighbors": [
+        "roof_center",
+        "roof_south_east",
+        "roof_west"
+      ],
+      "route": "vertical",
+      "tags": [
+        "roof-route",
+        "overlook"
+      ]
+    },
+    {
+      "id": "roof_south_east",
+      "position": [
+        10,
+        9,
+        9
+      ],
+      "neighbors": [
+        "roof_center",
+        "roof_east",
+        "roof_south_west"
+      ],
+      "route": "vertical",
+      "tags": [
+        "roof-route",
+        "overlook"
+      ]
+    },
+    {
+      "id": "catwalk_north_base",
+      "position": [
+        0,
+        0,
+        -12
+      ],
+      "neighbors": [
+        "catwalk_north_mid",
+        "interior_north"
+      ],
+      "route": "vertical",
+      "tags": [
+        "interior",
+        "catwalk"
+      ]
+    },
+    {
+      "id": "catwalk_north_mid",
+      "position": [
+        0,
+        2.125,
+        -8
+      ],
+      "neighbors": [
+        "catwalk_north_base",
+        "catwalk_north_top"
+      ],
+      "route": "vertical",
+      "tags": [
+        "interior",
+        "ramp"
+      ]
+    },
+    {
+      "id": "catwalk_north_top",
+      "position": [
+        0,
+        4.25,
+        -4
+      ],
+      "neighbors": [
+        "catwalk_center",
+        "catwalk_north_mid"
+      ],
+      "route": "vertical",
+      "tags": [
+        "interior",
+        "catwalk"
+      ]
+    },
+    {
+      "id": "catwalk_center",
+      "position": [
+        0,
+        4.25,
+        0
+      ],
+      "neighbors": [
+        "catwalk_north_top",
+        "catwalk_south_top"
+      ],
+      "route": "vertical",
+      "tags": [
+        "interior",
+        "catwalk",
+        "overlook"
+      ]
+    },
+    {
+      "id": "catwalk_south_top",
+      "position": [
+        0,
+        4.25,
+        4
+      ],
+      "neighbors": [
+        "catwalk_center",
+        "catwalk_south_mid"
+      ],
+      "route": "vertical",
+      "tags": [
+        "interior",
+        "catwalk"
+      ]
+    },
+    {
+      "id": "catwalk_south_mid",
+      "position": [
+        0,
+        2.125,
+        8
+      ],
+      "neighbors": [
+        "catwalk_south_base",
+        "catwalk_south_top"
+      ],
+      "route": "vertical",
+      "tags": [
+        "interior",
+        "ramp"
+      ]
+    },
+    {
+      "id": "catwalk_south_base",
+      "position": [
+        0,
+        0,
+        12
+      ],
+      "neighbors": [
+        "catwalk_south_mid",
+        "interior_south"
+      ],
+      "route": "vertical",
+      "tags": [
+        "interior",
+        "catwalk"
+      ]
+    },
+    {
+      "id": "west_platform_base",
+      "position": [
+        -44,
+        0,
+        -25
+      ],
+      "neighbors": [
+        "west_platform_top",
+        "west_south"
+      ],
+      "route": "vertical",
+      "tags": [
+        "west-lane"
+      ]
+    },
+    {
+      "id": "west_platform_top",
+      "position": [
+        -41,
+        2,
+        -25
+      ],
+      "neighbors": [
+        "west_platform_base",
+        "west_platform_center"
+      ],
+      "route": "vertical",
+      "tags": [
+        "west-lane",
+        "overlook"
+      ]
+    },
+    {
+      "id": "west_platform_center",
+      "position": [
+        -35,
+        2,
+        -25
+      ],
+      "neighbors": [
+        "northwest_crate_nav",
+        "west_platform_top"
+      ],
+      "route": "vertical",
+      "tags": [
+        "west-lane",
+        "overlook"
+      ]
+    },
+    {
+      "id": "northwest_crate_nav",
+      "position": [
+        -30,
+        0,
+        -24
+      ],
+      "neighbors": [
+        "north_flank_west",
+        "north_west",
+        "west_platform_center"
+      ],
+      "route": "flank",
+      "tags": [
+        "cover"
+      ]
+    },
+    {
+      "id": "east_platform_base",
+      "position": [
+        44,
+        0,
+        24
+      ],
+      "neighbors": [
+        "east_platform_top",
+        "east_south"
+      ],
+      "route": "vertical",
+      "tags": [
+        "east-lane"
+      ]
+    },
+    {
+      "id": "east_platform_top",
+      "position": [
+        41,
+        2,
+        24
+      ],
+      "neighbors": [
+        "east_platform_base",
+        "east_platform_center"
+      ],
+      "route": "vertical",
+      "tags": [
+        "east-lane",
+        "overlook"
+      ]
+    },
+    {
+      "id": "east_platform_center",
+      "position": [
+        35,
+        2,
+        24
+      ],
+      "neighbors": [
+        "east_platform_top",
+        "southeast_crate_nav"
+      ],
+      "route": "vertical",
+      "tags": [
+        "east-lane",
+        "overlook"
+      ]
+    },
+    {
+      "id": "southeast_crate_nav",
+      "position": [
+        30,
+        0,
+        24
+      ],
+      "neighbors": [
+        "east_platform_center",
+        "south_east",
+        "south_flank_east"
+      ],
+      "route": "flank",
+      "tags": [
+        "cover"
+      ]
+    },
+    {
+      "id": "north_bridge_west",
+      "position": [
+        -12,
+        0,
+        -30
+      ],
+      "neighbors": [
+        "north_bridge_west_top",
+        "north_mid"
+      ],
+      "route": "vertical",
+      "tags": [
+        "north-lane"
+      ]
+    },
+    {
+      "id": "north_bridge_west_top",
+      "position": [
+        -9,
+        3.025,
+        -30
+      ],
+      "neighbors": [
+        "north_bridge_center",
+        "north_bridge_west"
+      ],
+      "route": "vertical",
+      "tags": [
+        "north-lane",
+        "overlook"
+      ]
+    },
+    {
+      "id": "north_bridge_center",
+      "position": [
+        0,
+        3.025,
+        -30
+      ],
+      "neighbors": [
+        "north_bridge_east_top",
+        "north_bridge_west_top"
+      ],
+      "route": "vertical",
+      "tags": [
+        "north-lane",
+        "overlook"
+      ]
+    },
+    {
+      "id": "north_bridge_east_top",
+      "position": [
+        9,
+        3.025,
+        -30
+      ],
+      "neighbors": [
+        "north_bridge_center",
+        "north_bridge_east"
+      ],
+      "route": "vertical",
+      "tags": [
+        "north-lane",
+        "overlook"
+      ]
+    },
+    {
+      "id": "north_bridge_east",
+      "position": [
+        12,
+        0,
+        -30
+      ],
+      "neighbors": [
+        "north_bridge_east_top",
+        "north_mid"
+      ],
+      "route": "vertical",
+      "tags": [
+        "north-lane"
+      ]
+    }
+  ],
+  "contentHash": "99d61d90e6a52315f6b605d8973cc53481a4f4f2c3d2c1d252f1215b8cc1d772"
+}

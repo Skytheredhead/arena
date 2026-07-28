@@ -5,9 +5,12 @@ export type WeaponSlot = 1 | 2 | 3;
 export const CAMERA_SENSITIVITY = 0.0021;
 export const MIN_LOOK_SENSITIVITY = 0.0008;
 export const MAX_LOOK_SENSITIVITY = 0.0042;
-export const MIN_FOV = 30;
+export const MIN_FOV = 55;
 export const MAX_FOV = 110;
-export const RIFLE_CLIP_SIZE = 10;
+export const ROOM_CAPACITY = 12;
+export const RIFLE_CLIP_SIZE = 30;
+export const SNIPER_CLIP_SIZE = 5;
+export const SHOTGUN_CLIP_SIZE = 8;
 export const WEAPON_SLOT_RIFLE: WeaponSlot = 1;
 export const WEAPON_SLOT_SNIPER: WeaponSlot = 2;
 export const WEAPON_SLOT_SHOTGUN: WeaponSlot = 3;
@@ -16,7 +19,10 @@ export const SERVER_TICK_RATE = 60;
 export interface RoomView {
   code: string;
   playerCount: number;
+  botCount: number;
+  capacity: number;
   active: boolean;
+  phase: 'waiting' | 'playing' | 'intermission';
 }
 
 export interface ScoreRow {
@@ -25,6 +31,7 @@ export interface ScoreRow {
   kills: number;
   deaths: number;
   connected: boolean;
+  isBot: boolean;
 }
 
 export interface KillFeedEntry {
@@ -41,6 +48,8 @@ export interface MatchView {
   tick: number;
   remainingMs: number;
   round: number;
+  phase: 'waiting' | 'playing' | 'intermission';
+  winnerNickname: string | null;
 }
 
 export interface AccountStatsView {

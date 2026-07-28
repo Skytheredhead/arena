@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
 import {
-  RIFLE_CLIP_SIZE,
   WEAPON_SLOT_SHOTGUN,
   WEAPON_SLOT_SNIPER,
   type KillFeedEntry,
@@ -26,6 +25,9 @@ interface HudOverlayProps {
   health: number;
   ammo: number;
   reserveAmmo: number;
+  clipSize: number;
+  reloading: boolean;
+  reloadProgress: number;
   localKills: number;
   localDeaths: number;
   match: MatchView | null;
@@ -50,6 +52,7 @@ interface HudOverlayProps {
   chatOpen: boolean;
   chatDraft: string;
   chatBusy: boolean;
+  chatError: string | null;
   onChatOpen: () => void;
   onChatClose: () => void;
   onChatDraftChange: (value: string) => void;
@@ -87,7 +90,7 @@ function FeedItem({
         gap: '6px',
         alignItems: 'baseline',
         fontFamily: CYBER.font,
-        fontSize: '10px',
+        fontSize: '11px',
         lineHeight: 1.3,
         opacity,
         transition: 'opacity 0.6s ease',
@@ -156,6 +159,9 @@ export function HudOverlay({
   health,
   ammo,
   reserveAmmo,
+  clipSize,
+  reloading,
+  reloadProgress,
   localKills,
   localDeaths,
   match,
@@ -180,6 +186,7 @@ export function HudOverlay({
   chatOpen,
   chatDraft,
   chatBusy,
+  chatError,
   onChatOpen,
   onChatClose,
   onChatDraftChange,
@@ -211,7 +218,7 @@ export function HudOverlay({
   const displayedHealth = Math.max(0, Math.min(100, Math.round(health)));
   const displayedAmmo = Math.max(
     0,
-    Math.min(RIFLE_CLIP_SIZE, Math.round(ammo))
+    Math.min(clipSize, Math.round(ammo))
   );
   const displayedReserveAmmo = Math.max(0, Math.round(reserveAmmo));
   const hpLow = displayedHealth < 30;
@@ -227,6 +234,13 @@ export function HudOverlay({
     networkReconnecting && networkReconnectStartedAtMs != null
       ? Math.max(0, (nowMs - networkReconnectStartedAtMs) / 1000)
       : 0;
+  const remainingSeconds = Math.max(
+    0,
+    Math.ceil((match?.remainingMs ?? 0) / 1000)
+  );
+  const matchClock = `${Math.floor(remainingSeconds / 60)
+    .toString()
+    .padStart(2, '0')}:${(remainingSeconds % 60).toString().padStart(2, '0')}`;
 
   return (
     <div
@@ -428,6 +442,54 @@ export function HudOverlay({
           className="cyber-fade-up"
           style={{
             position: 'absolute',
+            top: '14px',
+            left: '50%',
+            transform: 'translateX(-50%)',
+            zIndex: 10,
+          }}
+        >
+          <CyberPanel
+            style={{
+              padding: '7px 22px',
+              textAlign: 'center',
+              backdropFilter: 'blur(12px)',
+              minWidth: '150px',
+            }}
+          >
+            <div
+              style={{
+                color: match?.phase === 'intermission' ? CYBER.warn : CYBER.a,
+                fontFamily: "'Orbitron',var(--font)",
+                fontSize: '20px',
+                fontWeight: 700,
+                letterSpacing: '3px',
+                textShadow: `0 0 10px ${CYBER.a}66`,
+              }}
+            >
+              {matchClock}
+            </div>
+            <div
+              style={{
+                color: CYBER.text,
+                fontFamily: CYBER.font,
+                fontSize: '9px',
+                letterSpacing: '3px',
+                textTransform: 'uppercase',
+              }}
+            >
+              {match?.phase === 'intermission'
+                ? 'Intermission'
+                : `Round ${match?.round ?? 1} · First to 30`}
+            </div>
+          </CyberPanel>
+        </div>
+      )}
+
+      {!paused && (
+        <div
+          className="cyber-fade-up"
+          style={{
+            position: 'absolute',
             top: networkReconnecting ? '70px' : '14px',
             left: '14px',
             zIndex: 10,
@@ -460,7 +522,7 @@ export function HudOverlay({
               <div
                 style={{
                   color: CYBER.textBright,
-                  fontSize: '8px',
+                  fontSize: '9px',
                   letterSpacing: '3px',
                   fontFamily: CYBER.font,
                 }}
@@ -486,7 +548,7 @@ export function HudOverlay({
               <div
                 style={{
                   color: CYBER.textBright,
-                  fontSize: '8px',
+                  fontSize: '9px',
                   letterSpacing: '3px',
                   fontFamily: CYBER.font,
                 }}
@@ -520,7 +582,7 @@ export function HudOverlay({
             style={{
               color: CYBER.textBright,
               fontFamily: CYBER.font,
-              fontSize: '9px',
+              fontSize: '10px',
               letterSpacing: '3px',
               marginBottom: '6px',
               textTransform: 'uppercase',
@@ -576,6 +638,20 @@ export function HudOverlay({
               Send
             </CyberButton>
           </form>
+          {chatError && (
+            <div
+              role="alert"
+              style={{
+                marginTop: '6px',
+                color: CYBER.danger,
+                fontFamily: CYBER.font,
+                fontSize: '9px',
+                letterSpacing: '1px',
+              }}
+            >
+              {chatError}
+            </div>
+          )}
         </CyberPanel>
       </div>
 
@@ -614,8 +690,8 @@ export function HudOverlay({
               >
                 <div
                   style={{
-                    color: CYBER.textDim,
-                    fontSize: '8px',
+                    color: CYBER.text,
+                    fontSize: '9px',
                     letterSpacing: '3px',
                     fontFamily: CYBER.font,
                   }}
@@ -665,7 +741,7 @@ export function HudOverlay({
               <div
                 style={{
                   color: CYBER.textBright,
-                  fontSize: '9px',
+                  fontSize: '10px',
                   letterSpacing: '3px',
                   fontFamily: CYBER.font,
                   marginBottom: '6px',
@@ -736,6 +812,19 @@ export function HudOverlay({
                   </div>
                 )}
               </div>
+              {reloading && (
+                <div
+                  style={{
+                    marginTop: '8px',
+                    color: CYBER.warn,
+                    fontFamily: CYBER.font,
+                    fontSize: '9px',
+                    letterSpacing: '2px',
+                  }}
+                >
+                  RELOADING · {Math.round(Math.max(0, Math.min(1, reloadProgress)) * 100)}%
+                </div>
+              )}
               <div
                 style={{
                   display: 'flex',
@@ -747,7 +836,7 @@ export function HudOverlay({
                   marginLeft: 'auto',
                 }}
               >
-                {Array.from({ length: RIFLE_CLIP_SIZE }, (_, i) => (
+                {Array.from({ length: clipSize }, (_, i) => (
                   <div
                     key={i}
                     style={{
@@ -780,7 +869,7 @@ export function HudOverlay({
               display: 'flex',
               justifyContent: 'space-between',
               fontFamily: CYBER.font,
-              fontSize: '9px',
+              fontSize: '10px',
               letterSpacing: '2px',
             }}
           >
@@ -789,7 +878,7 @@ export function HudOverlay({
             </span>
             <div style={{ display: 'flex', gap: '24px' }}>
               <span style={{ color: CYBER.ok }}>
-                {connected ? 'US-WEST' : 'OFFLINE'}
+                {connected ? 'AUTHORITATIVE' : 'OFFLINE'}
               </span>
               <PingLabel
                 ping={pingMs}

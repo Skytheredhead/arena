@@ -36,6 +36,8 @@ interface PauseOverlayProps {
   onNerdPingsChange: (enabled: boolean) => void;
   hasServerPings: boolean;
   onCopyServerPings: () => Promise<boolean>;
+  fullscreen: boolean;
+  onToggleFullscreen: () => void;
   onOpenSettings: () => void;
   onOpenStats: () => void;
   onRefreshStats: () => void;
@@ -139,6 +141,8 @@ export function PauseOverlay({
   onNerdPingsChange,
   hasServerPings,
   onCopyServerPings,
+  fullscreen,
+  onToggleFullscreen,
   onOpenSettings,
   onOpenStats,
   onRefreshStats,
@@ -154,6 +158,11 @@ export function PauseOverlay({
     ...(authLoggedIn
       ? [{ label: 'Account Stats', action: onOpenStats, primary: false }]
       : []),
+    {
+      label: fullscreen ? 'Exit Fullscreen' : 'Enter Fullscreen',
+      action: onToggleFullscreen,
+      primary: false,
+    },
     { label: 'Settings',     action: onOpenSettings,  primary: false },
     { label: 'Leave Match',  action: onDisconnect,    danger:  true  },
   ];
@@ -363,7 +372,8 @@ export function PauseOverlay({
             textAlign: 'center', fontFamily: CYBER.font, fontSize: '9px',
             letterSpacing: '3px', color: CYBER.textDim,
           }}>
-            {roomCode || 'ARENA'} · LAN ·{' '}
+            {roomCode || 'ARENA'} · W A S D MOVE · SHIFT SPRINT · SPACE JUMP ·
+            R RELOAD · 1 2 3 / WHEEL SWITCH · RMB AIM ·{' '}
             <span style={{ color: CYBER.textBright }}>ESC RESUME</span>
           </div>
         </CyberPanel>

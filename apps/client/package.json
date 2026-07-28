@@ -7,20 +7,29 @@
     "dev": "vite",
     "build": "tsc --noEmit -p tsconfig.json && vite build",
     "lint": "eslint src vite.config.ts tailwind.config.ts",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "vitest run"
   },
   "dependencies": {
-    "react": "^19.0.0",
-    "react-dom": "^19.0.0"
+    "@arena/shared": "workspace:*",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "spacetimedb": "2.1.0",
+    "three": "0.185.1"
   },
   "devDependencies": {
+    "@testing-library/react": "16.3.2",
+    "@testing-library/user-event": "14.6.1",
     "@types/node": "^24.0.0",
-    "@types/react": "^19.0.11",
-    "@types/react-dom": "^19.0.4",
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
+    "@types/three": "0.185.1",
     "@vitejs/plugin-react": "^4.3.4",
     "autoprefixer": "^10.4.21",
-    "postcss": "^8.5.3",
+    "jsdom": "30.0.0",
+    "postcss": "^8.5.23",
     "tailwindcss": "^3.4.17",
-    "vite": "^6.2.1"
+    "vite": "^6.4.3",
+    "vitest": "4.1.10"
   }
 }

@@ -5,6 +5,8 @@ import {
   type RuntimeHudFrame,
 } from './runtimeHudFrame';
 
+// Shared theme tokens intentionally live beside the UI primitives they style.
+// eslint-disable-next-line react-refresh/only-export-components
 export const CYBER = {
   bg: '#020b14',
   panel: 'rgba(0,245,255,0.04)',
@@ -23,8 +25,6 @@ export const CYBER = {
 } as const;
 
 const CSS = `
-  @import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Orbitron:wght@400;700;900&display=swap');
-
   .cyber-root {
     --a: ${CYBER.a};
     --a2: ${CYBER.a2};

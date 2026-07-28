@@ -3,11 +3,17 @@ import { CYBER, CyberButton, CyberGlitchText, CyberPanel } from '../cyberTheme';
 
 interface EliminatedOverlayProps {
   visible: boolean;
+  killerNickname: string | null;
+  respawnSeconds: number;
+  respawnAvailable: boolean;
   onRespawn: () => void;
 }
 
 export function EliminatedOverlay({
   visible,
+  killerNickname,
+  respawnSeconds,
+  respawnAvailable,
   onRespawn
 }: EliminatedOverlayProps): React.JSX.Element | null {
   const [mounted, setMounted] = useState(false);
@@ -99,7 +105,7 @@ export function EliminatedOverlay({
                   lineHeight: 1,
                   animation: 'cyberPulse 1.2s ease-in-out infinite',
                 }}>
-                  ✕
+                  {respawnAvailable ? '✓' : Math.max(0, Math.ceil(respawnSeconds))}
                 </div>
               </div>
             </div>
@@ -110,19 +116,26 @@ export function EliminatedOverlay({
               fontSize: '10px', letterSpacing: '3px', marginBottom: '22px',
               lineHeight: 1.6,
             }}>
-              RE-ENTER THE ARENA WHENEVER YOU ARE READY
+              {killerNickname
+                ? `ELIMINATED BY ${killerNickname.toUpperCase()}`
+                : 'COMBAT SYSTEMS OFFLINE'}
+              <br />
+              {respawnAvailable
+                ? 'RE-ENTRY AUTHORIZED'
+                : 'RECONSTRUCTING OPERATOR'}
             </div>
 
             {/* Respawn button */}
             <CyberButton
               primary full onClick={onRespawn}
+              disabled={!respawnAvailable}
               style={{
                 fontSize: '13px', padding: '13px 24px',
                 boxShadow: `0 0 20px ${CYBER.a}44`,
                 animation: 'cyberFadeUp .35s .3s ease both',
               }}
             >
-              Respawn
+              {respawnAvailable ? 'Respawn' : 'Respawn Locked'}
             </CyberButton>
           </CyberPanel>
         </div>

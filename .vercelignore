@@ -1,0 +1,16 @@
+.git/
+.vercel/
+.pnpm-store/
+node_modules/
+
+# Local-only build/runtime artifacts.
+apps/server/
+apps/client/dist/
+packages/shared/dist/
+coverage/
+tmp/
+
+# Repository material that is not needed by the frontend build.
+deploy/
+docs/
+sfx/

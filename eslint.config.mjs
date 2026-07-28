@@ -20,7 +20,11 @@ export default tseslint.config(
     files: ['**/*.ts', '**/*.tsx'],
     languageOptions: {
       parserOptions: {
-        project: ['./apps/client/tsconfig.json', './packages/shared/tsconfig.json']
+        project: [
+          './apps/client/tsconfig.json',
+          './packages/shared/tsconfig.json',
+          './packages/shared/tsconfig.eslint.json'
+        ]
       },
       globals: {
         ...globals.browser,
@@ -33,6 +37,7 @@ export default tseslint.config(
     },
     rules: {
       ...reactHooks.configs.recommended.rules,
+      'react-hooks/set-state-in-effect': 'off',
       'react-refresh/only-export-components': ['warn', { allowConstantExport: true }]
     }
   }

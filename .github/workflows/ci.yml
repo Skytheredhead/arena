@@ -1,0 +1,76 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: arena-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: Node, Rust, and SpacetimeDB checks
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      CI: 'true'
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Install pnpm 10.10.0
+        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+        with:
+          version: 10.10.0
+          run_install: false
+
+      - name: Install Node.js 24
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install Rust and the WebAssembly target
+        uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Cache Rust build artifacts
+        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          workspaces: apps/server -> target
+
+      - name: Install checksum-pinned SpacetimeDB CLI 2.1.0
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive="${RUNNER_TEMP}/spacetime-2.1.0.tar.gz"
+          bin_dir="${RUNNER_TEMP}/spacetime-2.1.0-bin"
+          curl --fail --location --silent --show-error \
+            "https://github.com/clockworklabs/SpacetimeDB/releases/download/v2.1.0/spacetime-x86_64-unknown-linux-gnu.tar.gz" \
+            --output "${archive}"
+          echo "e67156ee17bb7e96ad675c4907d3577e61ec694342bd98fd10328aa43aee760e  ${archive}" \
+            | sha256sum --check
+          mkdir -p "${bin_dir}"
+          tar -xzf "${archive}" -C "${bin_dir}" spacetimedb-cli
+          mv "${bin_dir}/spacetimedb-cli" "${bin_dir}/spacetime"
+          chmod 0755 "${bin_dir}/spacetime"
+          echo "${bin_dir}" >> "${GITHUB_PATH}"
+          "${bin_dir}/spacetime" --version | tee "${RUNNER_TEMP}/spacetime-version.txt"
+          grep --fixed-strings "spacetimedb tool version 2.1.0;" \
+            "${RUNNER_TEMP}/spacetime-version.txt"
+
+      - name: Install JavaScript dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Audit JavaScript dependencies
+        run: pnpm audit --audit-level low
+
+      - name: Run complete repository check
+        run: pnpm check

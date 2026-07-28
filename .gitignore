@@ -40,3 +40,5 @@ apps/client/public/materials/*.webp
 
 # Generated scratch binding file
 apps/client/src/generated/module_bindings/index.generated.ts
+.vercel
+.env.local

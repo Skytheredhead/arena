@@ -42,6 +42,7 @@ interface MenuOverlayProps {
   openRooms: RoomView[];
   connectionError: string | null;
   authError: string | null;
+  accountsEnabled: boolean;
   authLoggedIn: boolean;
   authUsername: string | null;
   authStats: AccountStatsView | null;
@@ -65,6 +66,7 @@ interface MenuOverlayProps {
   onCopyServerPings: () => Promise<boolean>;
   onNicknameChange: (value: string) => void;
   onRoomCodeChange: (value: string) => void;
+  onQuickPlay: () => void;
   onCreateRoom: () => void;
   onJoinRoom: () => void;
   onJoinOpenRoom: (code: string) => void;
@@ -164,6 +166,7 @@ export function MenuOverlay({
   openRooms,
   connectionError,
   authError,
+  accountsEnabled,
   authLoggedIn,
   authUsername,
   authStats,
@@ -187,6 +190,7 @@ export function MenuOverlay({
   onCopyServerPings,
   onNicknameChange,
   onRoomCodeChange,
+  onQuickPlay,
   onCreateRoom,
   onJoinRoom,
   onJoinOpenRoom,
@@ -210,9 +214,20 @@ export function MenuOverlay({
     { target: 'arenaapi2', label: 'Playit' },
     { target: 'custom', label: customBackendLabel }
   ];
-  const customPortValid = /^\d+$/.test(customBackendPort.trim());
+  const customPortNumber = Number(customBackendPort.trim());
+  const customPortValid =
+    Number.isInteger(customPortNumber) &&
+    customPortNumber >= 1 &&
+    customPortNumber <= 65_535;
+  const customHostValid =
+    /^[a-z0-9.-]+$/i.test(customBackendHost.trim()) &&
+    !customBackendHost.includes('..');
 
   useEffect(() => {
+    if (!accountsEnabled && authPanel !== 'none') {
+      setAuthPanel('none');
+      return;
+    }
     if (authLoggedIn && (authPanel === 'login' || authPanel === 'register')) {
       setAuthPanel('none');
       return;
@@ -220,7 +235,7 @@ export function MenuOverlay({
     if (!authLoggedIn && (authPanel === 'account' || authPanel === 'stats')) {
       setAuthPanel('none');
     }
-  }, [authLoggedIn, authPanel]);
+  }, [accountsEnabled, authLoggedIn, authPanel]);
 
   if (connected && !connectionError) return null;
 
@@ -306,7 +321,18 @@ export function MenuOverlay({
 
         {/* Auth controls */}
         <div style={{ display: 'flex', gap: '6px' }}>
-          {authLoggedIn ? (
+          {!accountsEnabled ? (
+            <span
+              style={{
+                color: CYBER.textDim,
+                fontFamily: CYBER.font,
+                fontSize: '9px',
+                letterSpacing: '2px',
+              }}
+            >
+              GUEST PLAY
+            </span>
+          ) : authLoggedIn ? (
             <CyberButton
               small primary
               onClick={() => setAuthPanel(p => p === 'account' ? 'none' : 'account')}
@@ -354,7 +380,12 @@ export function MenuOverlay({
 
             {authPanel === 'login' && (
               <form
-                onSubmit={e => { e.preventDefault(); void onLogin(loginIdentifier.trim(), loginPassword); }}
+                onSubmit={e => {
+                  e.preventDefault();
+                  void onLogin(loginIdentifier.trim(), loginPassword).finally(
+                    () => setLoginPassword('')
+                  );
+                }}
                 style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}
               >
                 <div className="cyber-label" style={{ fontSize: '10px', letterSpacing: '4px' }}>// OPERATOR LOGIN</div>
@@ -384,7 +415,14 @@ export function MenuOverlay({
 
             {authPanel === 'register' && (
               <form
-                onSubmit={e => { e.preventDefault(); void onRegister(registerEmail.trim(), registerUsername.trim(), registerPassword); }}
+                onSubmit={e => {
+                  e.preventDefault();
+                  void onRegister(
+                    registerEmail.trim(),
+                    registerUsername.trim(),
+                    registerPassword
+                  ).finally(() => setRegisterPassword(''));
+                }}
                 style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}
               >
                 <div className="cyber-label" style={{ fontSize: '10px', letterSpacing: '4px' }}>// CREATE ACCOUNT</div>
@@ -487,11 +525,32 @@ export function MenuOverlay({
                 </div>
               )}
 
+              <div
+                style={{
+                  marginTop: '4px',
+                  animation: 'cyberFadeUp .4s .46s ease both',
+                }}
+              >
+                <CyberButton
+                  primary
+                  full
+                  onClick={onQuickPlay}
+                  disabled={connected || busy || nickname.trim().length === 0}
+                  style={{
+                    fontSize: '13px',
+                    padding: '13px 20px',
+                    boxShadow: `0 0 20px ${CYBER.a}44`,
+                  }}
+                >
+                  {busy ? 'Finding Arena...' : 'Quick Play'}
+                </CyberButton>
+              </div>
+
               <div style={{
                 display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginTop: '4px',
                 animation: 'cyberFadeUp .4s .5s ease both',
               }}>
-                <CyberButton primary onClick={onCreateRoom} disabled={connected || busy}>
+                <CyberButton onClick={onCreateRoom} disabled={connected || busy}>
                   Create Room
                 </CyberButton>
                 <CyberButton onClick={onJoinRoom} disabled={connected || busy}>
@@ -523,7 +582,7 @@ export function MenuOverlay({
                         key={room.code}
                         className="cyber-btn cyber-btn-full"
                         onClick={() => onJoinOpenRoom(room.code)}
-                        disabled={busy || room.playerCount >= 5}
+                        disabled={busy || room.playerCount >= room.capacity}
                         onMouseEnter={() => setHoveredRoom(room.code)}
                         onMouseLeave={() => setHoveredRoom(null)}
                         style={{
@@ -536,12 +595,12 @@ export function MenuOverlay({
                         <span>{room.code}</span>
                         <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                           <span style={{ fontSize: '9px', letterSpacing: '1px', color: CYBER.textBright }}>
-                            {room.playerCount}/5 pilots
+                            {room.playerCount}/{room.capacity} humans · {room.botCount} bots
                           </span>
                           <span style={{
                             width: '6px', height: '6px', borderRadius: '50%',
-                            background: room.playerCount < 3 ? CYBER.ok : CYBER.warn,
-                            boxShadow: `0 0 5px ${room.playerCount < 3 ? CYBER.ok : CYBER.warn}`,
+                            background: room.playerCount < room.capacity ? CYBER.ok : CYBER.warn,
+                            boxShadow: `0 0 5px ${room.playerCount < room.capacity ? CYBER.ok : CYBER.warn}`,
                             animation: 'cyberPulse 2s ease-in-out infinite',
                           }} />
                         </span>
@@ -744,7 +803,7 @@ export function MenuOverlay({
                     <CyberButton
                       full
                       onClick={onUseCustomBackend}
-                      disabled={!customBackendHost.trim() || !customPortValid}
+                      disabled={!customHostValid || !customPortValid}
                     >
                       Use Custom Backend
                     </CyberButton>

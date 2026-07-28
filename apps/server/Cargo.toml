@@ -1,0 +1,30 @@
+[package]
+name = "arena_server"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[features]
+default = []
+password-accounts = []
+
+[dependencies]
+argon2 = { version = "=0.5.3", default-features = false, features = ["alloc", "password-hash"] }
+spacetimedb = { version = "=2.1.0" }
+
+[profile.release]
+codegen-units = 1
+lto = "fat"
+opt-level = 3
+panic = "abort"
+strip = "symbols"
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+all = "warn"
+pedantic = "warn"
