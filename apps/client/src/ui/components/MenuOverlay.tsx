@@ -465,20 +465,30 @@ export function MenuOverlay({
 
       {/* ── MAIN CONTENT ── */}
       <div
-        className="pointer-events-none"
+        className={menuView === 'settings' ? 'pointer-events-auto' : 'pointer-events-none'}
         style={{
           position: 'relative', zIndex: 2, height: '100%',
           display: 'flex', flexDirection: 'column',
-          justifyContent: 'center', alignItems: 'center',
-          padding: '96px 16px',
+          justifyContent: menuView === 'settings' ? 'flex-start' : 'center',
+          alignItems: 'center',
+          padding: menuView === 'settings' ? '24px 16px 88px' : '96px 16px',
+          overflowY: menuView === 'settings' ? 'auto' : 'hidden',
         }}
       >
         {/* LOGO */}
-        <div className="cyber-fade-up" style={{ textAlign: 'center', marginBottom: '52px' }}>
-          <CyberGlitchText size={92}>ARENA</CyberGlitchText>
+        <div
+          className="cyber-fade-up"
+          style={{
+            flex: '0 0 auto',
+            textAlign: 'center',
+            marginBottom: menuView === 'settings' ? '20px' : '52px',
+          }}
+        >
+          <CyberGlitchText size={menuView === 'settings' ? 48 : 92}>ARENA</CyberGlitchText>
           <div style={{
             color: CYBER.textDim, fontSize: '10px', letterSpacing: '8px',
-            marginTop: '14px', fontFamily: CYBER.font,
+            marginTop: menuView === 'settings' ? '8px' : '14px',
+            fontFamily: CYBER.font,
             animation: 'cyberFadeUp .5s .35s ease both',
           }}>
             arena fps // made by skytheredhead
