@@ -465,14 +465,14 @@ export function MenuOverlay({
 
       {/* ── MAIN CONTENT ── */}
       <div
-        className={menuView === 'settings' ? 'pointer-events-auto' : 'pointer-events-none'}
+        className="pointer-events-none"
         style={{
           position: 'relative', zIndex: 2, height: '100%',
           display: 'flex', flexDirection: 'column',
           justifyContent: menuView === 'settings' ? 'flex-start' : 'center',
           alignItems: 'center',
           padding: menuView === 'settings' ? '24px 16px 88px' : '96px 16px',
-          overflowY: menuView === 'settings' ? 'auto' : 'hidden',
+          overflow: 'hidden',
         }}
       >
         {/* LOGO */}
@@ -498,7 +498,16 @@ export function MenuOverlay({
         {/* MAIN PANEL */}
         <div
           className="pointer-events-auto"
-          style={{ position: 'relative', zIndex: 2, width: 'min(420px,92vw)', animation: 'cyberFadeUp .5s .2s cubic-bezier(.16,1,.3,1) both' }}
+          style={{
+            position: 'relative',
+            zIndex: 2,
+            width: 'min(420px,92vw)',
+            maxHeight: menuView === 'settings' ? 'calc(100vh - 180px)' : undefined,
+            overflowY: menuView === 'settings' ? 'auto' : 'visible',
+            overscrollBehavior: menuView === 'settings' ? 'contain' : undefined,
+            paddingRight: menuView === 'settings' ? '4px' : undefined,
+            animation: 'cyberFadeUp .5s .2s cubic-bezier(.16,1,.3,1) both',
+          }}
         >
           {menuView === 'room' ? (
             <CyberPanel style={{ padding: '22px', display: 'flex', flexDirection: 'column', gap: '10px' }}>

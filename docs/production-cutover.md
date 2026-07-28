@@ -185,6 +185,10 @@ ID and commit, then verify the production CSP permits only the intended
 `https://` and `wss://` API origin. The checked-in CSP currently permits only
 `arenaapi.skylarenns.com`; configuring a different fallback also requires its
 exact HTTPS/WSS origins in CSP and an equivalent edge-origin review.
+SpacetimeDB 2.1's browser SDK generates BSATN serializers with `Function`, so
+the checked-in `script-src` also contains the narrowly documented
+`'unsafe-eval'` compatibility token. Keep scripts self-hosted and do not add
+third-party or inline script sources.
 
 All three variables are browser-readable configuration, not secret storage.
 The client keeps the issued identity token in endpoint/database-scoped

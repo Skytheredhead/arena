@@ -70,6 +70,10 @@ endpoint and database. It supports reconnect within the browser session and is
 not an account password. Legacy Arena tokens are removed from persistent
 `localStorage`. A fallback or custom production endpoint also requires the
 matching `https://` and `wss://` origins in the deployed CSP and edge policy.
+SpacetimeDB 2.1's browser SDK generates BSATN serializers with `Function`, so
+the production `script-src` includes the otherwise avoided `'unsafe-eval'`
+compatibility token. Do not broaden it to third-party script hosts or inline
+scripts.
 Account controls and credential reducers remain disabled unless both the
 endpoint/database are the exact production scope and
 `server_config.accounts_enabled` is true. A custom or fallback backend is
