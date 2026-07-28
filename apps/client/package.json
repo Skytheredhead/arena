@@ -7,29 +7,20 @@
     "dev": "vite",
     "build": "tsc --noEmit -p tsconfig.json && vite build",
     "lint": "eslint src vite.config.ts tailwind.config.ts",
-    "preview": "vite preview",
-    "test": "vitest run"
+    "preview": "vite preview"
   },
   "dependencies": {
-    "@arena/shared": "workspace:*",
-    "@vercel/analytics": "^2.0.1",
     "react": "^19.0.0",
-    "react-dom": "^19.0.0",
-    "spacetimedb": "2.1.0",
-    "three": "^0.175.0",
-    "zustand": "^5.0.3"
+    "react-dom": "^19.0.0"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
     "@types/react": "^19.0.11",
     "@types/react-dom": "^19.0.4",
-    "@types/three": "^0.175.0",
     "@vitejs/plugin-react": "^4.3.4",
     "autoprefixer": "^10.4.21",
-    "jsdom": "^26.0.0",
     "postcss": "^8.5.3",
     "tailwindcss": "^3.4.17",
-    "vite": "^6.2.1",
-    "vitest": "^3.0.8"
+    "vite": "^6.2.1"
   }
 }

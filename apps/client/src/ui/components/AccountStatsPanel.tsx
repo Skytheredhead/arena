@@ -1,4 +1,4 @@
-import type { AccountStatsView } from '../../netcode/authClient';
+import type { AccountStatsView } from '../models';
 import {
   formatStatNumber,
   summarizeAccountStats,

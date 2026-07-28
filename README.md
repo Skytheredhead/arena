@@ -1,48 +1,17 @@
-# Arena
+# Arena UI
 
-A browser FPS with a React/Three.js client and an authoritative Rust
-SpacetimeDB simulation.
+This branch is a UI-only foundation for the Arena rebuild. The previous game
+runtime, backend, networking, simulation, generated bindings, media, maps, and
+tests have been removed.
 
-## Gameplay architecture
+The retained React overlays run against local preview state so the menu, HUD,
+chat, scoreboard, pause screen, settings, account stats, eliminated screen, and
+mobile controls can be developed independently.
 
-- The client predicts fixed-step local movement and reconciles from
-  server-acknowledged input sequences.
-- A bounded reliable input buffer retries unacknowledged snapshots, compacts
-  movement safely, and preserves transient fire/reload intent.
-- The server owns movement, health, inventory, weapon timing, hit resolution,
-  respawns, and pickup activation.
-- Remote players render from an adaptive interpolation buffer; local
-  corrections are presentation-smoothed without weakening server authority.
-- Sequence numbers and server ticks use wrap-safe unsigned serial arithmetic.
-- Pickups are resolved against exact authoritative movement segments to prevent
-  tunnelling under jitter or delayed correction.
-- Account statistics track damage, accuracy, eliminations, deaths, and match
-  outcomes without double-counting trigger pulls or overkill damage.
-
-## Rendering
-
-- The existing HUD is preserved over a rebuilt storm-soaked industrial arena
-  with authored concrete, gunmetal, and sky textures; physical wet materials;
-  shader rain and puddles; tone mapping; and quality-scaled shadows.
-- Rifle, shotgun, sniper, and remote operator silhouettes use detailed rounded
-  geometry with separated metal, polymer, glass, rubber, and fabric materials.
-- The local weapon rests low and canted on the right, swings with locomotion,
-  and smoothly settles onto the calibrated centerline while aiming down sights.
-
-See [docs/network-gameplay-contract.md](docs/network-gameplay-contract.md) for
-the reliability invariants.
-
-## Development
-
-```sh
+```bash
 pnpm install
 pnpm dev
 ```
 
-Run the complete non-visual verification suite with:
-
-```sh
-pnpm check
-```
-
-Build or publish the SpacetimeDB module with the scripts in `package.json`.
+In the HUD preview, use Escape for the pause UI, hold Tab for the scoreboard,
+and press K for the eliminated UI.

@@ -1,5 +1,4 @@
-import { SERVER_TICK_RATE } from '@arena/shared';
-import type { AccountStatsView } from '../netcode/authClient';
+import { SERVER_TICK_RATE, type AccountStatsView } from './models';
 
 export interface AccountStatSummary {
   kdRatio: number;

@@ -2,13 +2,8 @@
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "jsx": "react-jsx",
-    "types": ["vite/client", "vitest/globals", "node"],
-    "noEmit": true,
-    "paths": {
-      "@arena/shared": ["../../packages/shared/src/index.ts"],
-      "@arena/shared/*": ["../../packages/shared/src/*"]
-    }
+    "types": ["vite/client", "node"],
+    "noEmit": true
   },
-  "include": ["src", "vite.config.ts", "tailwind.config.ts"],
-  "references": [{ "path": "../../packages/shared" }]
+  "include": ["src", "vite.config.ts", "tailwind.config.ts"]
 }

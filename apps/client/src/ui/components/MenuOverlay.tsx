@@ -1,16 +1,16 @@
 import { useEffect, useState } from 'react';
-import { CAMERA_SENSITIVITY } from '@arena/shared';
-import { normalizeRoomCode } from '../../utils/roomCode';
-import type { BackendTarget } from '../../utils/env';
-import type { RoomView } from '../../state/gameStore';
-import type { AccountStatsView } from '../../netcode/authClient';
-import type { GraphicsQuality } from '../../types/settings';
 import {
+  CAMERA_SENSITIVITY,
+  type AccountStatsView,
+  type BackendTarget,
+  type GraphicsQuality,
   MAX_FOV,
   MAX_LOOK_SENSITIVITY,
   MIN_FOV,
-  MIN_LOOK_SENSITIVITY
-} from '../../types/settings';
+  MIN_LOOK_SENSITIVITY,
+  normalizeRoomCode,
+  type RoomView,
+} from '../models';
 import {
   CYBER,
   CyberButton,

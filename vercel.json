@@ -1,6 +1,6 @@
 {
   "framework": "vite",
-  "installCommand": "pnpm --version >/dev/null 2>&1 || npm install -g pnpm@10.10.0; pnpm config set allow-scripts '*' && pnpm install --no-frozen-lockfile",
-  "buildCommand": "pnpm vercel:build",
+  "installCommand": "pnpm install --frozen-lockfile",
+  "buildCommand": "pnpm build",
   "outputDirectory": "apps/client/dist"
 }

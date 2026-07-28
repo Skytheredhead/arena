@@ -1,22 +1,13 @@
 {
-  "name": "arena-fps-slice",
+  "name": "arena-ui-shell",
   "private": true,
   "packageManager": "pnpm@10.10.0",
   "scripts": {
-    "build": "pnpm --filter @arena/shared build && pnpm --filter @arena/client build",
+    "build": "pnpm --filter @arena/client build",
     "dev": "pnpm --filter @arena/client dev",
-    "dev:client": "pnpm --filter @arena/client dev",
-    "lint": "eslint \"apps/**/*.ts\" \"apps/**/*.tsx\" \"packages/**/*.ts\"",
+    "lint": "eslint \"apps/**/*.ts\" \"apps/**/*.tsx\"",
     "format": "prettier --write .",
-    "test": "pnpm --filter @arena/shared test && pnpm --filter @arena/client test",
-    "test:server": "cargo test --manifest-path apps/server/Cargo.toml",
-    "check": "pnpm lint && pnpm test && pnpm build && pnpm test:server",
-    "generate:bindings": "bash ./scripts/generate-bindings.sh",
-    "vercel:build": "bash ./scripts/vercel-build.sh",
-    "backend:local": "pnpm server:build && pnpm server:publish:local",
-    "server:build": "PATH=\"$HOME/.cargo/bin:$PATH\" spacetime build -p apps/server",
-    "server:publish:local": "bash ./scripts/publish-local-server.sh",
-    "server:start": "spacetime start --listen-addr 0.0.0.0:4789"
+    "check": "pnpm lint && pnpm build"
   },
   "devDependencies": {
     "@eslint/js": "^9.22.0",

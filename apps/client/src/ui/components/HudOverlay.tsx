@@ -7,7 +7,7 @@ import {
   type MatchView,
   type ScoreRow,
   type WeaponSlot,
-} from '@arena/shared';
+} from '../models';
 import {
   CYBER,
   CyberButton,

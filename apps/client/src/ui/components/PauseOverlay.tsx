@@ -1,7 +1,9 @@
-import { CAMERA_SENSITIVITY } from '@arena/shared';
 import { useState } from 'react';
-import type { AccountStatsView } from '../../netcode/authClient';
-import type { GraphicsQuality } from '../../types/settings';
+import {
+  CAMERA_SENSITIVITY,
+  type AccountStatsView,
+  type GraphicsQuality,
+} from '../models';
 import {
   CYBER,
   CyberButton,
